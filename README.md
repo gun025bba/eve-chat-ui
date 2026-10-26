@@ -1,26 +1,28 @@
-# LLM Chat UI (Mac Studio 로컬 LLM용)
+# LLM Chat UI (로컬 LLM 게이트웨이용)
 
 빌드·의존성 없는 모바일 우선 채팅 PWA. OpenAI 호환 API(`/v1/models`, `/v1/chat/completions` stream)를 그대로 호출합니다.
 
 ## 배포 방법 A — 게이트웨이 내장 /ui (권장, CORS 불필요)
 게이트웨이(gateway.py)는 `static_dir`(기본 `~/llm-serving/web`)이 존재하면 자동으로 `/ui`에 마운트합니다.
 ```bash
-rsync -a --delete llm-chat-ui/ mac-studio:~/llm-serving/web/
-ssh mac-studio 'launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway; launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway-ts'
+# 서버(배포 호스트)에서: 저장소 clone은 최초 1회
+git clone https://github.com/gun025bba/llm-chat-ui.git ~/llm-chat-ui   # 최초 1회
+cd ~/llm-chat-ui && git pull --ff-only
+rsync -a --delete --exclude .git --exclude tests --exclude '.gitignore' ./ ~/llm-serving/web/
 ```
-(폴더가 처음 생기는 경우에만 재시작 필요) → 아이폰에서 `http://<mac-name>.<your-tailnet>.ts.net:8000/ui/` 접속.
+(폴더가 처음 생기는 경우에만 재시작 필요) → 아이폰에서 `http://<host>.<your-tailnet>.ts.net:8000/ui/` 접속.
 Base URL은 비워두면 같은 서버의 `/v1/...`를 상대경로로 호출합니다. API 키(`~/llm-serving/.api_key`)만 입력하세요.
 
 ## 배포 방법 B — 별도 정적 서버 (manifest/sw 스코프가 /ui/ 이므로 ui 하위경로로 서빙)
 ```bash
 mkdir -p ~/llm-static && cp -r llm-chat-ui ~/llm-static/ui && cd ~/llm-static && python3 -m http.server 8080
 ```
-`http://<mac-name>.<your-tailnet>.ts.net:8080/ui/` 접속 → 설정 Base URL에 `http://<mac-name>.<your-tailnet>.ts.net:8000` 입력.
-게이트웨이 CORS 필요: config.yaml `cors_origins: ["http://<mac-name>.<your-tailnet>.ts.net:8080"]` (또는 `GW_CORS_ORIGINS=...`) 후 재시작.
+`http://<host>.<your-tailnet>.ts.net:8080/ui/` 접속 → 설정 Base URL에 `http://<host>.<your-tailnet>.ts.net:8000` 입력.
+게이트웨이 CORS 필요: config.yaml `cors_origins: ["http://<host>.<your-tailnet>.ts.net:8080"]` (또는 `GW_CORS_ORIGINS=...`) 후 재시작.
 
 ## HTTPS (선택, 오프라인 캐시/서비스워커용)
 서비스워커는 HTTPS(또는 localhost)에서만 동작합니다. HTTP에서도 채팅·홈 화면 추가는 정상 동작합니다.
-HTTPS가 필요하면: `tailscale serve --bg 8000` → `https://<mac-name>.<your-tailnet>.ts.net/ui/`
+HTTPS가 필요하면: `tailscale serve --bg 8000` → `https://<host>.<your-tailnet>.ts.net/ui/`
 
 ## 사용법
 - 첫 실행 시 설정 창: API 키 입력 → "불러오기"로 모델 선택 → 저장 (localStorage에 저장)
@@ -37,11 +39,11 @@ HTTPS가 필요하면: `tailscale serve --bg 8000` → `https://<mac-name>.<your
 - 구조: 대화 목록(라지 타이틀 + 검색) → 채팅 push. 설정은 시트(취소/완료). 761px 이상은 사이드바 유지.
 - 제스처: 왼쪽 가장자리 스와이프로 뒤로(홈 화면 앱에서만), 목록 행 왼쪽 스와이프(이름 변경/삭제, 끝까지 밀면 삭제), 길게 누르기 메뉴, 시트는 아래로 끌어서 닫기.
 - 상태 복원: 마지막 화면, 대화, 스크롤 위치, 입력 중인 초안.
-- SW `llmchat-v6`: 앱 셸 precache, 정적 파일 SWR, `/v1/`은 네트워크만 사용. 오프라인 대체 화면, "새 버전" 토스트. **HTTPS에서만 동작** (`tailscale serve --bg 8000` → `https://<mac-name>.<your-tailnet>.ts.net/ui/`). HTTP여도 앱은 정상 동작.
+- SW `llmchat-v6`: 앱 셸 precache, 정적 파일 SWR, `/v1/`은 네트워크만 사용. 오프라인 대체 화면, "새 버전" 토스트. **HTTPS에서만 동작** (`tailscale serve --bg 8000` → `https://<host>.<your-tailnet>.ts.net/ui/`). HTTP여도 앱은 정상 동작.
 
 ### iPhone에서 테스트
-1. 배포: `rsync -a --delete llm-chat-ui/ mac-studio:~/llm-serving/web/` 후 게이트웨이 kickstart.
-2. Safari에서 `https://<mac-name>.<your-tailnet>.ts.net/ui/` 열기 → 두 번째 방문(또는 첫 답변 후)에 설치 안내 시트가 뜸. 공유 → 홈 화면에 추가.
+1. 배포: 위 "배포 방법 A" (서버에서 `git pull` + rsync). `web/` 폴더가 이미 있으면 재시작 불필요.
+2. Safari에서 `https://<host>.<your-tailnet>.ts.net/ui/` 열기 → 두 번째 방문(또는 첫 답변 후)에 설치 안내 시트가 뜸. 공유 → 홈 화면에 추가.
 3. 홈 화면 앱은 Safari와 저장소가 분리되므로 API 키를 다시 입력.
 4. 확인할 것: 스플래시 → 앱, 상태바 아래 블러 바, 가장자리 스와이프 뒤로, 행 스와이프/길게 누르기, 키보드가 열려도 컴포저가 위에 붙는지, 비행기 모드에서 실행 → 오프라인 배너, 앱 종료 후 재실행 시 같은 대화/초안 복원.
 5. 로컬 테스트: `cd tests && ./run_e2e.sh` (기존 e2e), `./run_e2e.sh native.py` (42개 네이티브 검사), `./run_e2e.sh shots_native.py` (스크린샷).
@@ -57,3 +59,8 @@ python3 -m venv v && v/bin/pip install playwright && v/bin/playwright install ch
 ```
 
 `mock.py` serves this app at `http://127.0.0.1:8765/ui/` with a fake OpenAI-compatible API.
+
+## Workflow
+- GitHub(`gun025bba/llm-chat-ui`)가 단일 진실의 원천(source of truth)입니다.
+- 수정은 clone에서 → commit → push. 배포 서버의 `~/llm-serving/web/`을 직접 수정하지 마세요 (배포 사본).
+- 개발 환경/서버에서는 `git pull --ff-only`로 동기화. force-push 금지. 실제 호스트명·IP·키는 커밋하지 마세요 (`<host>`, `<tailscale-ip>` 사용).

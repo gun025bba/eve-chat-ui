@@ -2,7 +2,7 @@
   "id": "/ui/",
   "name": "LLM Chat",
   "short_name": "LLM Chat",
-  "description": "Mac Studio 로컬 LLM 채팅",
+  "description": "로컬 LLM 채팅",
   "lang": "ko",
   "start_url": "/ui/?source=pwa",
   "scope": "/ui/",
