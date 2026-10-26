@@ -192,7 +192,8 @@ if (typeof document !== 'undefined') (function () {
   const persist = () => { try { save(mode === 'server' ? LS.srv : LS.convs, convs); } catch {} save(LS.current, currentId); };
   const normBase = b => (b || '').trim().replace(/\/+$/, '').replace(/\/v1$/, ''); // '' => relative /v1/... (same origin)
   const apiBase = () => normBase(settings.base);
-  const headers = () => ({ 'Content-Type': 'application/json' });   // no Authorization: gateway trusts Tailscale identity
+  const MUTATING = /^(POST|PUT|PATCH|DELETE)$/i;
+  const headers = (method = 'GET') => ({ 'Content-Type': 'application/json', ...(MUTATING.test(method) ? { 'X-Eve-Request': '1' } : {}) });  // X-Eve-Request: server CSRF check on mutating requests   // no Authorization: gateway trusts Tailscale identity
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -251,7 +252,7 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
   async function api(path, opts = {}) {
-    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...headers(opts.method), ...(opts.headers || {}) } });
     if (r.status === 204) return null;
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
     if (!r.ok) {
@@ -917,7 +918,7 @@ if (typeof document !== 'undefined') (function () {
     let wsReq = ws;
     try {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
-        method: 'POST', headers: headers(), signal: ctl.signal,
+        method: 'POST', headers: headers('POST'), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
           keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: 'auto' } : {}))
       });
@@ -1569,7 +1570,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.0.1'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.0.2'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
