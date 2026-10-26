@@ -140,6 +140,32 @@ class H(SimpleHTTPRequestHandler):
             if tid:
                 th = new_thread(last[:40]) if tid == 'new' else DB['threads'].get(tid)
                 if th and not rep: um = add_msg(th['id'], 'user', last)
+        WS = body.get('web_search') in ('auto', 'force', True)
+        if WS and STATE.get('webdisabled'): return s.j(400, err('web_search_disabled', 'invalid_request_error', 'web search is disabled'))
+        SRCS = [{"n": 1, "title": "Eve 릴리스 노트", "url": "https://example.com/notes?a=1&b=2", "domain": "example.com", "fetched": True},
+                {"n": 2, "title": "두 번째 출처 <b>bold</b>", "url": "https://docs.example.org/page", "domain": "docs.example.org", "fetched": False},
+                {"n": 3, "title": "bad scheme", "url": "javascript:alert(1)", "domain": "evil", "fetched": False}]
+        WSTEXT = "검색 결과에 따르면 Eve는 빠릅니다[1]. 자세한 내용은 문서를 보세요[2]. 없는 번호[9]와 `코드 [1]`.\n\n- 목록 항목[1, 2]"
+        if WS and last.startswith('wsnostream'):
+            out = {"id": "x", "object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": WSTEXT, "sources": SRCS[:2]}}]}
+            if th: am = s.save_asst(th, rep, WSTEXT, ''); am['sources'] = SRCS[:2]; out.update(thread_id=th['id'], message_id=am['id'])
+            return s.j(200, out)
+        if WS and last.startswith('ws'):
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                s.ev({"object": "chat.completion.tool_call", "id": "tc_1", "tool": "web_search", "args": {"query": "eve 속도"}, "round": 1}); time.sleep(0.8)
+                s.ev({"object": "chat.completion.tool_result", "id": "tc_1", "tool": "web_search", "status": "ok", "sources": SRCS[:2]}); time.sleep(0.3)
+                s.ev({"object": "chat.completion.tool_call", "id": "tc_2", "tool": "web_fetch", "args": {"url": "https://www.example.com/notes"}, "round": 2}); time.sleep(0.8)
+                s.ev({"object": "chat.completion.tool_result", "id": "tc_2", "tool": "web_fetch", "status": "ok", "sources": SRCS[:1]}); time.sleep(0.6)
+                s.ev({"id": "web-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": WSTEXT}, "finish_reason": "stop"}]})
+                s.ev({"object": "chat.completion.sources", "sources": SRCS, "cited": [1, 2]})
+                if th:
+                    am = s.save_asst(th, rep, WSTEXT, ''); am['sources'] = SRCS[:2]
+                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if last.startswith('slownostream'):
             for _ in range(60):
                 time.sleep(0.1)
@@ -204,6 +230,7 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/deny/'): STATE['denied'] = p.endswith('/on')
         if p.startswith('/csp/'): STATE['csp'] = p.endswith('/on')
         if p.startswith('/persist/'): STATE['persist'] = p.endswith('/on')
+        if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False
         if p == '/db/reset':
             DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(fail={}, calls=[], importfix=False)

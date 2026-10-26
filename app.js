@@ -36,6 +36,10 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  if (_cites) s = s.replace(/\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\](?!\()/g, (all, list) => {
+    const ns = list.split(',').map(x => +x.trim()); if (!ns.every(n => _cites.has(n))) return all;
+    return ns.map(n => { const c = _cites.get(n); return `<sup class="cite"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(c.title || c.domain || '')}" aria-label="출처 ${n}">${n}</a></sup>`; }).join('');
+  });
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 // Index where the "stable" (completed) markdown ends: last blank line outside any code fence.
@@ -48,7 +52,26 @@ function stableCut(s) {
   }
   return 0;
 }
-function renderMarkdown(src) {
+// [n] citation map for the current renderMarkdown call (web search sources; http/https only)
+let _cites = null;
+function safeUrl(u) { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : ''; } catch { return ''; } }
+function citeMap(sources) {
+  if (!Array.isArray(sources) || !sources.length) return null;
+  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '' }); });
+  return m.size ? m : null;
+}
+function srcDomain(c) { if (c.domain) return c.domain; try { return new URL(c.url).hostname.replace(/^www\./, ''); } catch { return ''; } }
+function renderSources(sources) {
+  const m = citeMap(sources); if (!m) return '';
+  const items = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([n, c]) => { const d = srcDomain(c);
+    return `<li><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer"><span class="sn">${n}</span><span class="st">${escapeHtml(c.title || d || c.url)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }).join('');
+  return `<section class="sources" aria-label="출처"><h4>출처</h4><ol>${items}</ol></section>`;
+}
+function renderMarkdown(src, sources) {
+  _cites = citeMap(sources);
+  try { return renderMd(src); } finally { _cites = null; }
+}
+function renderMd(src) {
   const out = [];
   const parts = src.split(/```/);
   parts.forEach((part, i) => {
@@ -75,7 +98,7 @@ function renderMarkdown(src) {
   });
   return out.join('');
 }
-if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, escapeHtml, stableCut, stripStopMark };
+if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {
@@ -83,6 +106,7 @@ if (typeof document !== 'undefined') (function () {
   const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
   const ICON = {
     copy: COPY_SVG,
+    globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>'),
     check: svg('<path d="M5 12l5 5 9-10"/>'),
     regen: svg('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'),
     warn: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/>'),
@@ -127,6 +151,12 @@ if (typeof document !== 'undefined') (function () {
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
+  /* web search toggle (persisted; on => web_search:'auto') */
+  const webBtn = $('#webBtn'), LS_WEB = 'llmchat.webSearch';
+  const webOn = () => localStorage.getItem(LS_WEB) === '1';
+  function setWebOn(on) { if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB); webBtn.setAttribute('aria-pressed', String(on)); webBtn.classList.toggle('on', on); webBtn.title = on ? '웹 검색 켜짐' : '웹 검색 꺼짐'; }
+  setWebOn(webOn());
+  webBtn.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
@@ -189,6 +219,7 @@ if (typeof document !== 'undefined') (function () {
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, status: m.status || 'complete', created: toMs(m.created_at) };
+    const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
   }
@@ -333,7 +364,7 @@ if (typeof document !== 'undefined') (function () {
     row.classList.add('editing'); closeSwipe();
     const t = row.querySelector('.row-title');
     const inp = Object.assign(document.createElement('input'), { className: 'row-edit', value: c.title, enterKeyHint: 'done' });
-    inp.setAttribute('aria-label', '대화 이름'); t.replaceWith(inp); inp.focus(); inp.select();
+    inp.setAttribute('aria-label', '대화 제목'); Object.entries({ autocomplete: 'off', autocorrect: 'on', autocapitalize: 'sentences', 'data-1p-ignore': '', 'data-lpignore': 'true', 'data-form-type': 'other' }).forEach(([k, v]) => inp.setAttribute(k, v)); t.replaceWith(inp); inp.focus(); inp.select();
     inp.scrollIntoView?.({ block: 'center' });
     const done = ok => { inp.onblur = null; const v = inp.value.trim(); row.classList.remove('editing');
       if (ok && v && v !== c.title) updateThread(c, { title: v }); else renderList(); };
@@ -507,7 +538,9 @@ if (typeof document !== 'undefined') (function () {
     box.appendChild(wrap); return b;
   }
   // opts: { live, thinkSecs, usage, actions }
-  function freshen(tail) { // token fade on the newest text of the tail block
+  function freshen(tail) { // unused since v15: re-creating a .fresh span every frame restarted its fade = flicker
+  }
+  function _freshenOld(tail) { // token fade on the newest text of the tail block
     const last = tail.lastElementChild; const t = last && last.lastChild;
     if (t && t.nodeType === 3 && t.data.length) { const n = Math.min(12, t.data.length); const sp = document.createElement('span'); sp.className = 'fresh'; sp.textContent = t.data.slice(-n); t.data = t.data.slice(0, -n); last.appendChild(sp); }
   }
@@ -526,13 +559,18 @@ if (typeof document !== 'undefined') (function () {
     const md = bubble.querySelector('.md');
     if (!answer.trim()) return !md && (!!bubble.querySelector('.typing') || (!!det && thinking));
     if (!md) { // first answer token: append answer container without touching the think block
-      bubble.querySelectorAll('.typing,.warming').forEach(n => n.remove());
+      bubble.querySelectorAll('.typing,.warming,.ws-status').forEach(n => n.remove());
       const nm = document.createElement('div'); nm.className = 'md cursor'; nm.innerHTML = '<div class="stable"></div><div class="tail"></div>';
       bubble.appendChild(nm); bubble._cut = 0; return patchLive(bubble, think, answer, thinking);
     }
     const cut = stableCut(answer);
-    if (cut !== bubble._cut) { md.querySelector('.stable').innerHTML = renderMarkdown(answer.slice(0, cut)); bubble._cut = cut; }
-    const tail = md.querySelector('.tail'); tail.innerHTML = renderMarkdown(answer.slice(cut)); freshen(tail);
+    // completed blocks are frozen: append only newly completed ones, never re-render what is already on screen
+    const stable = md.querySelector('.stable'), prev = bubble._cut || 0;
+    if (cut > prev) stable.insertAdjacentHTML('beforeend', renderMarkdown(answer.slice(prev, cut), bubble._sources));
+    else if (cut < prev) stable.innerHTML = renderMarkdown(answer.slice(0, cut), bubble._sources);
+    bubble._cut = cut;
+    const tail = md.querySelector('.tail'), th = renderMarkdown(answer.slice(cut), bubble._sources);
+    if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
   function fillAssistant(bubble, text, opts = {}) {
@@ -548,16 +586,18 @@ if (typeof document !== 'undefined') (function () {
       html += `<details class="think${isThinking ? ' live' : ''}"${open ? ' open' : ''}><summary>${ICON.chev}<span>${label}</span></summary><div class="think-body">${escapeHtml(think)}</div></details>`;
     }
     const waiting = live && !answer.trim() && (think === null || !thinking);
-    if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
+    const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
+    if (waiting && bubble._ws) html += `<div class="ws-status" role="status">${ICON.globe}<span>${escapeHtml(bubble._ws)}</span></div>`;
+    else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
-    else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut))}</div><div class="tail">${renderMarkdown(answer.slice(cut))}</div></div>`; }
-    else html += `<div class="md">${renderMarkdown(answer)}</div>`;
+    else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
+    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}`;
     bubble._live = live;
     const userToggled = prev?.dataset.user;
     bubble.innerHTML = html;
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
-    if (live) { const tail = bubble.querySelector('.md .tail'); if (tail) freshen(tail); }
+    bubble._tailHtml = null;
     const msg = bubble.parentElement;
     msg.querySelector('.actions')?.remove(); msg.querySelector('.stopped')?.remove();
     if (!live && (opts.stopped || opts.msg?.status === 'incomplete')) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
@@ -723,6 +763,7 @@ if (typeof document !== 'undefined') (function () {
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
     const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
+    let sources = null; const ws = webOn(); bubble._ws = ''; bubble._sources = null;
     let acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
@@ -737,15 +778,18 @@ if (typeof document !== 'undefined') (function () {
     const finish = () => { clearTimeout(slowTimer); if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
+    const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
+    let wsReq = ws;
     try {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
         method: 'POST', headers: headers(), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
-          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}))
+          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: 'auto' } : {}))
       });
       let res = await post(mode === 'server');
       // storage switched off on the gateway mid-session: answer anyway without persistence, show the subtle notice
       if (res.status === 503 && mode === 'server') { const t = await res.clone().text().catch(() => ''); if (t.includes('persistence_disabled')) { persistOff = true; renderSync(); res = await post(false); } }
+      if (res.status === 400 && wsReq) { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = false; setWebOn(false); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         if (res.status === 401) { let code; try { code = JSON.parse(body).error?.code; } catch {} showAuthNotice(() => generate(c), code); }
@@ -756,7 +800,7 @@ if (typeof document !== 'undefined') (function () {
         const j = await res.json();
         if (j.error) throw Object.assign(new Error(errMsg(res.status, JSON.stringify(j))), { http: res.status });
         const m = j.choices?.[0]?.message || {};
-        acc = m.content || ''; reasoning = m.reasoning || m.reasoning_content || ''; usage = j.usage || null;
+        acc = m.content || ''; reasoning = m.reasoning || m.reasoning_content || ''; usage = j.usage || null; if (Array.isArray(m.sources) && m.sources.length) sources = m.sources;
         const h = k => res.headers.get(k);
         ids({ thread_id: j.thread_id || h('X-Thread-Id'), user_message_id: h('X-User-Message-Id') });
         if (j.message_id || h('X-Message-Id')) persisted = { message_id: j.message_id || h('X-Message-Id') };
@@ -767,6 +811,15 @@ if (typeof document !== 'undefined') (function () {
           let j; try { j = JSON.parse(data); } catch { return; }
           if (j.error) { streamErr = j.error; return; }
           if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; return; }
+          if (j.object === 'chat.completion.tool_call') {
+            const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
+            setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
+          }
+          if (j.object === 'chat.completion.tool_result') {
+            if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; }
+            setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
+          }
+          if (j.object === 'chat.completion.sources') { if (Array.isArray(j.sources)) { sources = j.sources; bubble._sources = sources; } return; }
           ids(j);
           if (j.usage) usage = j.usage;
           const d = j.choices?.[0]?.delta || {};
@@ -803,6 +856,7 @@ if (typeof document !== 'undefined') (function () {
     if (stopped) {
       if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
       const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs;
+      if (sources?.length) msg.sources = sources;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
       c.messages.push(msg); c.updated = Date.now(); if (final) c.preview = clean(splitThink(final).answer); persist(); renderList();
       if (mode === 'server' && c.srv) resolveStoppedId(c, msg, bubble);
@@ -816,8 +870,8 @@ if (typeof document !== 'undefined') (function () {
     }
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
     const ut = usageText(usage, secs);
-    fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs });
-    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
+    fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
+    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
     if (msg.id) { bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
@@ -1246,7 +1300,7 @@ if (typeof document !== 'undefined') (function () {
   ['#renameSheet', '#fbSheet'].forEach(id => sheetDrag($(id), null, () => closeMini($(id))));
   // rename from chat title (THREADS-SPEC §2.3)
   function openRenameSheet(c) {
-    if (!c) return; const sh = $('#renameSheet'), inp = $('#renameInput');
+    if (!c) return; const sh = $('#renameSheet'), inp = $('#titleEdit');
     inp.value = c.title; openMini(sh); setTimeout(() => { inp.focus(); inp.select(); }, 60);
     const ok = () => { const v = inp.value.trim(); closeMini(sh); if (v && v !== c.title) updateThread(c, { title: v }); };
     $('#renameSave').onclick = ok; $('#renameCancel').onclick = () => closeMini(sh);
@@ -1380,7 +1434,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v14'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = 'v15'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
