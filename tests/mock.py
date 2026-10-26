@@ -3,6 +3,7 @@ import json, time, os, re, html, threading
 from datetime import datetime, timezone, timedelta
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
 UI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
@@ -28,6 +29,9 @@ class H(SimpleHTTPRequestHandler):
     protocol_version = 'HTTP/1.0'
     def __init__(s, *a, **k): super().__init__(*a, directory=UI, **k)
     def log_message(s, *a): pass
+    def end_headers(s):
+        if getattr(s, '_csp', False): s.send_header('Content-Security-Policy', STATE.get('csp_value') or CSP)
+        super().end_headers()
     def j(s, code, obj, hdr=None):
         b = json.dumps(obj).encode() if obj is not None else b''
         s.send_response(code); s.send_header('Content-Type', 'application/json')
@@ -114,7 +118,7 @@ class H(SimpleHTTPRequestHandler):
             if s.auth(): s.j(200, {"data": [{"id": "mlx-community/Qwen3-30B-A3B-4bit"}]})
             return
         if s.threads_api('GET'): return
-        if s.path.startswith('/ui'): s.path = s.path[3:] or '/'
+        if s.path.startswith('/ui'): s.path = s.path[3:] or '/'; s._csp = bool(STATE.get('csp'))
         else: s.send_response(404); s.end_headers(); return
         super().do_GET()
     def do_PATCH(s): s.threads_api('PATCH') or s.j(404, err('not_found'))
@@ -136,6 +140,12 @@ class H(SimpleHTTPRequestHandler):
             if tid:
                 th = new_thread(last[:40]) if tid == 'new' else DB['threads'].get(tid)
                 if th and not rep: um = add_msg(th['id'], 'user', last)
+        if last.startswith('slownostream'):
+            for _ in range(60):
+                time.sleep(0.1)
+            text = 'late non-stream'
+            try: return s.j(200, {"id": "x", "object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": text}}]})
+            except (BrokenPipeError, ConnectionResetError): STATE['nsAborted'] = True; return
         if last.startswith('nostream'):
             text = 'non-stream reply'; hdr = {}
             out = {"id": "x", "object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": text}}], "usage": {"prompt_tokens": 3, "completion_tokens": 4}}
@@ -162,6 +172,11 @@ class H(SimpleHTTPRequestHandler):
                 for k in range(12): ev({"choices": [{"delta": {"reasoning": f"think line {k}\n"}}]})
                 for k in range(8): ev({"choices": [{"delta": {"content": f"Para {k} 한국어 문장입니다 `a*b*c`.\n\n"}}]})
                 ev({"choices": [{"delta": {"content": "```py\nx=1\n\ny=2\n```"}}]})
+            elif last.startswith('slow'):
+                for k in range(3): ev({"choices": [{"delta": {"reasoning": f"생각 {k} "}}]})
+                for k in range(200): ev({"choices": [{"delta": {"content": f"조각{k} "}}]})
+            elif last.startswith('mdlinks'):
+                ev({"choices": [{"delta": {"content": "출처: [예시](https://example.com/a) 그리고 ![고양이](https://example.com/cat.png) 끝 <img src=x onerror=alert(1)>"}}]})
             elif last.startswith('midErr'):
                 ev({"choices": [{"delta": {"content": "partial"}}]})
                 ev({"error": {"message": "upstream died", "type": "server_error", "code": "upstream_error"}}); status = 'incomplete'
@@ -187,6 +202,7 @@ class H(SimpleHTTPRequestHandler):
         p = s.path
         if p.startswith('/auth/'): STATE['authed'] = p.endswith('/on')
         if p.startswith('/deny/'): STATE['denied'] = p.endswith('/on')
+        if p.startswith('/csp/'): STATE['csp'] = p.endswith('/on')
         if p.startswith('/persist/'): STATE['persist'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False
         if p == '/db/reset':

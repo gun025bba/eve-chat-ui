@@ -51,7 +51,7 @@ with sync_playwright() as p:
     pg.fill('#input','nothink test'); pg.click('#sendBtn'); pg.wait_for_timeout(900)
     print('sent last msg:',repr(last()))
     pg.fill('#input','long stop'); pg.click('#sendBtn'); pg.wait_for_timeout(1500); pg.click('#sendBtn'); pg.wait_for_timeout(400)
-    print('stop label:',pg.locator('.msg.assistant').last.locator('em').last.text_content())
+    print('stop label:',pg.locator('.msg.assistant').last.locator('.stopped').text_content())
     print('stream_options sent:',__import__('json').load(__import__('urllib.request').request.urlopen(__import__('urllib.request').request.Request('http://127.0.0.1:8765/x',method='PUT'))).get('so'))
     print('word-break:',pg.evaluate("getComputedStyle(document.body).wordBreak"))
     pg.reload(); pg.wait_for_timeout(300); print('after reload msgs:',pg.locator('.msg').count(),'usage lines:',pg.locator('.usage').count())
