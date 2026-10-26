@@ -3,7 +3,7 @@ from playwright.sync_api import sync_playwright
 BASE='http://127.0.0.1:8765/ui/'
 IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
 SEED="""(()=>{ if(localStorage.getItem('seeded'))return; localStorage.setItem('seeded','1');
- localStorage.setItem('llmchat.settings',JSON.stringify({base:'',key:'testkey',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
+ localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
  const now=Date.now(); localStorage.setItem('llmchat.convs',JSON.stringify([
   {id:'c1',title:'SwiftUI 질문',updated:now,messages:[{role:'user',content:'안녕'},{role:'assistant',content:'<think>hi</think>안녕하세요! 무엇을 도와드릴까요?'}]},
   {id:'c2',title:'파이썬 코드 리뷰',updated:now-864e5,messages:[{role:'user',content:'리뷰해줘'},{role:'assistant',content:'좋아요.\\n\\n```py\\nprint(1)\\n```'}]},
@@ -91,7 +91,7 @@ with sync_playwright() as p:
     check('install sheet dismiss', pg.is_hidden('#installSheet') and pg.evaluate("!!localStorage.getItem('a2hs.dismissed')"))
     pg.reload(); pg.wait_for_timeout(2200); check('dismissal remembered (30 days)', pg.is_hidden('#installSheet'))
     c.close()
-    c=b.new_context(viewport={'width':393,'height':852},is_mobile=True,has_touch=True,user_agent=IPHONE_UA); pg=c.new_page(); pg.goto(BASE); pg.wait_for_timeout(500); pg.click('#cancelSettings'); pg.wait_for_timeout(1800)
+    c=b.new_context(viewport={'width':393,'height':852},is_mobile=True,has_touch=True,user_agent=IPHONE_UA); pg=c.new_page(); pg.goto(BASE); pg.wait_for_timeout(2300)
     check('install sheet not shown on first visit', pg.is_hidden('#installSheet')); c.close()
     c=ctx(p,b,ua='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36',visits=5); pg=c.new_page(); pg.goto(BASE); pg.wait_for_timeout(2000)
     check('non-iOS without beforeinstallprompt: no sheet', pg.is_hidden('#installSheet'))
@@ -101,7 +101,7 @@ with sync_playwright() as p:
     c=ctx(p,b,standalone=True); pg=c.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     pg.goto(BASE); pg.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller", timeout=10000) if False else None
     pg.evaluate("navigator.serviceWorker.ready"); pg.reload(); pg.wait_for_timeout(800)
-    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-v7', keys==['llmchat-v7'], str(keys))
+    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-v9', keys==['llmchat-v9'], str(keys))
     check('SW controls page', pg.evaluate("!!navigator.serviceWorker.controller"))
     c.set_offline(True); pg.reload(); pg.wait_for_timeout(800)
     check('offline: app shell loads from cache', pg.is_visible('#composer') and pg.locator('.msg').count()>0)
@@ -109,8 +109,8 @@ with sync_playwright() as p:
     pg.goto(BASE+'somewhere/else'); pg.wait_for_timeout(500)
     check('offline fallback screen for uncached page', '오프라인 상태입니다' in pg.text_content('body'))
     c.set_offline(False); pg.goto(BASE); pg.wait_for_timeout(600)
-    r=pg.evaluate("fetch('/v1/models',{headers:{Authorization:'Bearer testkey'}}).then(r=>r.status)")
-    inCache=pg.evaluate("caches.open('llmchat-v7').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
+    r=pg.evaluate("fetch('/v1/models').then(r=>r.status)")
+    inCache=pg.evaluate("caches.open('llmchat-v9').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
     check('API never cached (network-only)', r==200 and not inCache)
     pg.evaluate("window.__app.showToast('새 버전이 있어요','새로고침',()=>{})"); pg.wait_for_timeout(400)
     check('update toast renders', pg.is_visible('#toast') and '새로고침' in pg.text_content('#toast'))
@@ -142,7 +142,7 @@ with sync_playwright() as p:
     for i in range(1,11): touch(cdp,'touchMove',[(x,y+i*8)]); pg.wait_for_timeout(60)   # slow 80px
     touch(cdp,'touchMove',[(x,y+100)]); touch(cdp,'touchMove',[(x,y+160)]); touch(cdp,'touchEnd',[]); pg.wait_for_timeout(600)
     check('S3 slow drag then flick closes sheet (release velocity)', not pg.evaluate("document.querySelector('#settings').open"))
-    check('no page errors (v7)', not errs, str(errs)); c.close()
+    check('no page errors (v7 review)', not errs, str(errs)); c.close()
     for scheme in ('light',):
         c=b.new_context(viewport={'width':393,'height':852},is_mobile=True,has_touch=True,user_agent=IPHONE_UA,color_scheme='light'); c.add_init_script(SEED); c.add_init_script("localStorage.setItem('visits','5')")
         pg=c.new_page(); pg.goto(BASE); pg.wait_for_timeout(1800)

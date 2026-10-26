@@ -2,7 +2,7 @@ from playwright.sync_api import sync_playwright
 BASE='http://127.0.0.1:8765/ui/'
 IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
 SEED="""(()=>{ if(localStorage.getItem('seeded'))return; localStorage.setItem('seeded','1');
- localStorage.setItem('llmchat.settings',JSON.stringify({base:'',key:'testkey',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
+ localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
  const now=Date.now(); localStorage.setItem('llmchat.convs',JSON.stringify([
   {id:'c1',title:'SwiftUI 질문',updated:now,messages:[{role:'user',content:'안녕'},{role:'assistant',content:'<think>hi</think>안녕하세요! 무엇을 도와드릴까요?'}]},
   {id:'c2',title:'파이썬 코드 리뷰',updated:now-864e5,messages:[{role:'user',content:'리뷰해줘'},{role:'assistant',content:'좋아요.\\n\\n```py\\nprint(1)\\n```'}]},

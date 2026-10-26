@@ -2,17 +2,24 @@ import json,time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import os
 UI=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATE={'n429':0}
+STATE={'n429':0,'authed':True,'authHeader':False}
 class H(SimpleHTTPRequestHandler):
     def __init__(s,*a,**k): super().__init__(*a,directory=UI,**k)
     def log_message(s,*a): pass
     def j(s,code,obj):
         b=json.dumps(obj).encode(); s.send_response(code);s.send_header('Content-Type','application/json');s.end_headers();s.wfile.write(b)
     def auth(s):
-        if s.headers.get('Authorization')!='Bearer testkey':
-            s.j(401,{"error":{"message":"Invalid API key","type":"authentication_error","code":"invalid_api_key"}});return False
+        # mimics gateway: identity comes from tailscale serve (Tailscale-User-Login), never from the browser
+        if s.headers.get('Authorization'): STATE['authHeader']=True
+        if STATE.get('denied'):
+            s.j(401,{"error":{"message":"not allowed","type":"authentication_error","code":"identity_not_allowed"}});return False
+        if not STATE['authed']:
+            s.j(401,{"error":{"message":"Tailscale identity required","type":"authentication_error","code":"unauthenticated"}});return False
         return True
     def do_GET(s):
+        if s.path=='/whoami':
+            if s.auth(): s.j(200,{"authenticated":True,"user":"user@example.com","provider":"tailscale-identity"})
+            return
         if s.path=='/v1/models':
             if s.auth(): s.j(200,{"data":[{"id":"mlx-community/Qwen3-30B-A3B-4bit"}]})
             return
@@ -40,5 +47,9 @@ class H(SimpleHTTPRequestHandler):
             for t in ['Hello **world**','\n```py\nprint(1<2)\n```']: s.ev({"choices":[{"delta":{"content":t}}]})
             s.ev({"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":34,"total_tokens":46}})
         s.wfile.write(b'data: [DONE]\n\n')
-    def do_PUT(s): s.j(200,STATE)
+    def do_PUT(s):
+        if s.path.startswith('/auth/'): STATE['authed']=s.path.endswith('/on')
+        if s.path.startswith('/deny/'): STATE['denied']=s.path.endswith('/on')
+        if s.path=='/reset': STATE['authHeader']=False
+        s.j(200,STATE)
 ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()
