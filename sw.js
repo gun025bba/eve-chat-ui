@@ -1,5 +1,5 @@
 /* LLM Chat service worker — app shell precache, SWR static, network-only API */
-const CACHE = 'llmchat-v8';
+const CACHE = 'llmchat-v9';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'offline.html',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png'];
 
