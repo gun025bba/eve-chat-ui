@@ -44,7 +44,7 @@ HTTPS가 필요하면: `tailscale serve --bg 8000` → `https://<mac-name>.<your
 2. Safari에서 `https://<mac-name>.<your-tailnet>.ts.net/ui/` 열기 → 두 번째 방문(또는 첫 답변 후)에 설치 안내 시트가 뜸. 공유 → 홈 화면에 추가.
 3. 홈 화면 앱은 Safari와 저장소가 분리되므로 API 키를 다시 입력.
 4. 확인할 것: 스플래시 → 앱, 상태바 아래 블러 바, 가장자리 스와이프 뒤로, 행 스와이프/길게 누르기, 키보드가 열려도 컴포저가 위에 붙는지, 비행기 모드에서 실행 → 오프라인 배너, 앱 종료 후 재실행 시 같은 대화/초안 복원.
-5. 로컬 테스트: `cd llm-chat-test && ./run_e2e.sh` (기존 e2e), `./run_e2e.sh native.py` (42개 네이티브 검사), `./run_e2e.sh shots_native.py` (스크린샷).
+5. 로컬 테스트: `cd tests && ./run_e2e.sh` (기존 e2e), `./run_e2e.sh native.py` (42개 네이티브 검사), `./run_e2e.sh shots_native.py` (스크린샷).
 
 ## Tests
 
