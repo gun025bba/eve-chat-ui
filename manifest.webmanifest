@@ -1,8 +1,8 @@
 {
   "id": "/ui/",
-  "name": "LLM Chat",
-  "short_name": "LLM Chat",
-  "description": "로컬 LLM 채팅",
+  "name": "Eve",
+  "short_name": "Eve",
+  "description": "Eve — 로컬 LLM 채팅",
   "lang": "ko",
   "start_url": "/ui/?source=pwa",
   "scope": "/ui/",

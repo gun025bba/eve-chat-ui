@@ -1,5 +1,5 @@
-/* LLM Chat service worker — app shell precache, SWR static, network-only API */
-const CACHE = 'llmchat-v13';
+/* Eve service worker — app shell precache, SWR static, network-only API */
+const CACHE = 'llmchat-v14';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'offline.html', 'offline.css', 'offline.js',
   'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/shortcut-new.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'];

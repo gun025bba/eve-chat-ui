@@ -619,7 +619,7 @@ if (typeof document !== 'undefined') (function () {
 
   const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘'], ['요약', '긴 글을 핵심 3줄로 정리해줘'], ['번역', '자연스러운 영어 문장으로 바꿔줘'], ['아이디어', '주말에 할 사이드 프로젝트 추천']];
   function renderEmpty() {
-    box.innerHTML = `<div class="empty"><div class="mark"></div><h1>무엇을 도와드릴까요?</h1><small>${escapeHtml(shortModel() || '로컬 모델')} · 로컬에서 실행 중</small>
+    box.innerHTML = `<div class="empty"><div class="mark"></div><h1>Eve에게 무엇이든 물어보세요</h1><small>${escapeHtml(shortModel() || '로컬 모델')} · 로컬에서 실행 중</small>
       <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}"><b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
     box.querySelectorAll('.chip').forEach(b => { b.style.animationDelay = (80 + b.dataset.i * 40) + 'ms'; });
     box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });
@@ -1380,7 +1380,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v13'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = 'v14'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
