@@ -1,0 +1,24 @@
+{
+  "id": "/ui/",
+  "name": "LLM Chat",
+  "short_name": "LLM Chat",
+  "description": "Mac Studio 로컬 LLM 채팅",
+  "lang": "ko",
+  "start_url": "/ui/?source=pwa",
+  "scope": "/ui/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "새 대화", "short_name": "새 대화", "url": "/ui/?new=1", "icons": [{"src": "icons/shortcut-new.png", "sizes": "96x96", "type": "image/png"}]}
+  ]
+}
