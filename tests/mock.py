@@ -7,6 +7,9 @@ CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
 UI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
+PRO = {}
+def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0)
+pro_reset()
 LOCK = threading.RLock()
 def now(off=0): return (datetime.now(timezone.utc) + timedelta(seconds=off)).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 def nid(p):
@@ -16,7 +19,7 @@ def preview(tid):
     return ms[-1]['content'][:80] if ms else ''
 def tview(t):
     ms = [m for m in DB['messages'].values() if m['thread_id'] == t['id']]
-    return dict(t, message_count=len(ms), last_message_preview=preview(t['id']))
+    return dict(t, message_count=len(ms), last_message_preview=preview(t['id']), unread_count=sum(1 for m in ms if m.get('origin') == 'proactive' and not m.get('read_at')))
 def new_thread(title, created=None, archived=False, client_id=None):
     t = {'id': nid('th'), 'title': title, 'created_at': created or now(), 'updated_at': created or now(), 'archived': archived}
     if client_id: t['client_id'] = client_id
@@ -44,8 +47,76 @@ class H(SimpleHTTPRequestHandler):
         return True
     def body(s):
         n = int(s.headers.get('Content-Length') or 0); return json.loads(s.rfile.read(n)) if n else {}
+    def pro_api(s, method, path):
+        """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
+        import re as _re
+        m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
+        if not (path in ('/v1/notifications', '/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev): return False
+        if not s.auth(): return True
+        if not PRO['supported']: s.j(404, err('not_found')); return True
+        if method != 'GET':
+            PRO['origins'].append(s.headers.get('Origin'))
+            if s.headers.get('Origin') in (None, 'null'): s.j(403, err('origin_required')); return True
+        b = s.body() if method in ('POST', 'PATCH', 'DELETE') else {}
+        PRO['bodies'].append({'m': method, 'p': path, 'b': b})
+        with LOCK:
+            if path == '/v1/notifications':
+                ns = [{'id': m['id'], 'thread_id': m['thread_id'], 'created_at': m['created_at'], 'job_id': m.get('job_id')} for m in DB['messages'].values() if m.get('origin') == 'proactive' and not m.get('read_at')]
+                s.j(200, {'data': ns}); return True
+            if m_read:
+                m = DB['messages'].get(m_read.group(1))
+                if not m or m.get('origin') != 'proactive': s.j(404, err('not_found')); return True
+                m['read_at'] = now(); PRO['reads'].append(m['id']); s.j(204, None); return True
+            if m_tread:
+                PRO['threadReads'] = PRO.get('threadReads', []) + [m_tread.group(1)]
+                for m in DB['messages'].values():
+                    if m['thread_id'] == m_tread.group(1) and m.get('origin') == 'proactive' and not m.get('read_at'): m['read_at'] = now()
+                s.j(200, {'unread_count': 0}); return True
+            if m_rev:
+                a = PRO['actions'].get(m_rev.group(1))
+                if PRO.get('revise410'): s.j(410, err('action_expired')); return True
+                if not a or a['status'] not in ('pending', 'expired'): s.j(409, err('action_already_decided')); return True
+                ids = b.get('item_ids'); items = (a.get('payload_view') or {}).get('items', [])
+                if ids is not None and (not ids or not set(ids) <= {i.get('id') for i in items}): s.j(400, err('not_subset')); return True
+                PRO['revisions'] = PRO.get('revisions', 0) + 1; nid = a['action_id'][:-2] + 'V%d' % PRO['revisions']
+                pv = dict(a.get('payload_view') or {}); 
+                if ids is not None: pv['items'] = [i for i in items if i.get('id') in ids]
+                a['status'] = 'superseded'
+                na = dict(a, action_id=nid, payload_view=pv, payload_hash='sha256:rev%d' % PRO['revisions'], status='pending', token='revtok%d' % PRO['revisions'], expires_at=now(600))
+                PRO['actions'][nid] = na
+                s.j(200, dict({k: v for k, v in na.items() if k not in ('token', 'status')}, confirm_token=na['token'], token_expires_at=now(PRO.get('tokenTtl', 120)))); return True
+            if path == '/v1/settings':
+                if method == 'PATCH':
+                    if PRO.get('failSettings'): s.j(500, err('boom', 'server_error')); return True
+                    ok = set(b) <= {'proactive', 'memory'}   # system.* is read-only → 400 and set(b.get('proactive') or {}) <= {'enabled', 'quiet_hours', 'memory_read'} and set(b.get('memory') or {}) <= {'enabled'}
+                    q = (b.get('proactive') or {}).get('quiet_hours')
+                    if q is not None and (set(q) != {'start', 'end'} or not all(_re.fullmatch(r'\d{2}:\d{2}', q[k]) for k in q)): ok = False
+                    if not ok: s.j(400, err('invalid_settings')); return True
+                    for k, v in b.items(): PRO['settings'][k].update(v)
+                s.j(200, dict(PRO['settings'], system=PRO['system'])); return True
+            if path == '/v1/actions':
+                s.j(200, {'data': [{k: v for k, v in a.items() if k not in ('token',)} for a in PRO['actions'].values() if a['status'] == 'pending' and a.get('thread_id')]}); return True
+            if path == '/v1/push/vapid-public-key':
+                s.j(200, {'key': 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', 'key_id': 'k1'}); return True
+            if path == '/v1/push/subscriptions':
+                if method == 'POST': PRO['subs'].append(b); s.j(201, {'ok': True})
+                else: PRO['subs'] = [x for x in PRO['subs'] if x.get('endpoint') != b.get('endpoint')]; s.j(204, None)
+                return True
+            aid, op = m_act.groups(); a = PRO['actions'].get(aid)
+            if not a: s.j(404, err('not_found')); return True
+            if op == 'reissue':
+                if a['status'] != 'pending': s.j(409, err('action_already_decided')); return True
+                PRO['issued'] += 1; a['token'] = f'tok{PRO["issued"]}'; s.j(200, {'confirm_token': a['token'], 'token_expires_at': now(PRO.get('tokenTtl', 120))}); return True
+            if op == 'reject':
+                a['status'] = 'rejected'; s.j(200, {'status': 'rejected'}); return True
+            if not b.get('confirm_token'): s.j(400, err('confirm_token_required')); return True
+            if a['status'] != 'pending': s.j(409, err('action_already_decided')); return True
+            if b.get('payload_hash') != a['payload_hash']: s.j(422, err('payload_mismatch')); return True
+            if b['confirm_token'] != a.get('token'): s.j(403, err('invalid_token')); return True
+            a['status'] = 'executed'; a['token'] = None; s.j(200, {'status': 'executed', 'result': {}}); return True
     def threads_api(s, method):
         u = urlparse(s.path); q = {k: v[0] for k, v in parse_qs(u.query).items()}; path = u.path
+        if s.pro_api(method, path): return True
         if not path.startswith('/v1/threads') and not path.startswith('/v1/messages') and not path.startswith('/v1/search'): return False
         if not s.auth(): return True
         STATE['calls'].append(f'{method} {s.path}')
@@ -174,6 +245,20 @@ class H(SimpleHTTPRequestHandler):
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return
+        if last.startswith('confirm'):
+            act = {"action_id": "01JACT0000000000000000000S", "tool": "calendar_create_event", "tool_version": "1.0.0", "summary": "10/28 15:00 치과 일정 추가",
+                   "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "confirm_token": "streamtok", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "token_expires_at": now(PRO.get('tokenTtl', 120)), "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+            if last.startswith('confirmdeny'):
+                act = {"action_id": "01JACT0000000000000000000D", "tool": "memory.propose", "status": "denied", "error_code": "secret_detected", "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+            PRO['actions'][act['action_id']] = dict(act, status='pending', token='streamtok')
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                s.ev({"id": "c-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "일정을 추가할까요?"}, "finish_reason": None}]})
+                s.ev(dict(act, object="chat.completion.confirmation"))
+                s.ev({"id": "c-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if last.startswith('slownostream'):
             for _ in range(60):
                 time.sleep(0.1)
@@ -249,6 +334,24 @@ class H(SimpleHTTPRequestHandler):
             if code == 'clear': STATE['fail'] = {}
             else: STATE['fail'][__import__('urllib.parse').parse.unquote(pat)] = int(code)
         if p == '/importfix': STATE['importfix'] = True
+        if p == '/pro/reset': pro_reset()
+        if p.startswith('/pro/set'): PRO.update(s.body()); return s.j(200, {})
+        if p.startswith('/pro/supported/'): PRO['supported'] = p.endswith('/on')
+        if p == '/__pro': return s.j(200, {k: v for k, v in PRO.items()})
+        if p == '/pro/seed':   # {thread, proactive:[text], actions:[{...}], scheduler_action:{...}}
+            b = s.body(); out = {}
+            with LOCK:
+                th = new_thread(b.get('title', '대화'))
+                out['thread'] = th['id']
+                for t in b.get('user', []): add_msg(th['id'], 'user', t)
+                out['msgs'] = [add_msg(th['id'], 'assistant', t, origin='proactive', job_id='01JJOB0000000000000000000A', provenance={'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': b.get('job_name')}, kind=b.get('kind'), template_kind=b.get('template_kind'), read_at=None)['id'] for t in b.get('proactive', [])]
+                for a in b.get('restore', []):
+                    PRO['actions'][a['action_id']] = dict(a, status='pending', token=None, thread_id=th['id'])
+                for a in b.get('actions', []):
+                    a = dict(a); PRO['actions'][a['action_id']] = dict(a, status='pending', token=None)
+                    m = add_msg(th['id'], 'assistant', a.pop('_text', '이 작업을 할까요?'))
+                    m['pending_actions'] = [a]; out.setdefault('amsgs', []).append(m['id'])
+            return s.j(200, out)
         if p == '/seed':
             b = s.body(); out = []
             with LOCK:

@@ -18,6 +18,19 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 - 스트리밍은 SSE(`text/event-stream`)를 써요. 리버스 프록시를 쓴다면 버퍼링을 꺼 주세요.
 
 ## 버전
-- SemVer를 따르고, 현재 버전은 **1.0.1**이에요.
+- SemVer를 따르고, 현재 버전은 **1.1.0**이에요.
 - 서비스 워커 캐시 이름은 `llmchat-<버전>`이에요(`sw.js`). 정적 파일의 `?v=<버전>`과 `app.js`의 `APP_VERSION`도 같이 올려요.
 - 실행 중인 버전은 설정 화면 아래에 `v<버전> · SW <버전>`으로 표시돼요.
+
+## 선톡 API 상태 (1.1.0)
+선톡 UI의 서버 호출은 모두 `proactive-api.js`의 `ENDPOINTS` 표에 모여 있어요. 백엔드가 정해지면 이 표만 고치면 돼요.
+서버가 404/405/501을 돌려주면 해당 기능은 숨겨지거나 "아직 지원하지 않아요"로 표시돼요. 앱에는 클라이언트 mock이 없고, 테스트용 mock은 `tests/mock.py`에 있어요.
+서버 필드 이름은 `proactive-api.js`의 `FIELDS`에만 있어요(eve-serving PR #12 `ui-api-contract.md` 기준, 미머지). 계약이 바뀌면 여기만 고쳐요.
+
+| 엔드포인트 | 상태 |
+|---|---|
+| `GET/PATCH /v1/settings`, `POST /v1/threads/{id}/read`, `POST /v1/messages/{id}/read`, `POST /v1/proposals/{id}/revise`, `/v1/actions*` | 계약 있음 (CT/TP) |
+| `GET /v1/notifications` | PM에 이름만, 응답 형태는 UI 가정 |
+| `GET /v1/push/vapid-public-key`, `POST/DELETE /v1/push/subscriptions` | UI mock (설계 없음) |
+
+테스트: `tests/run_e2e.sh proactive.py`, `node tests/sw_push.js`.

@@ -1,4 +1,4 @@
-"""1.0.1 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
+"""1.1.0 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json
 B = 'http://127.0.0.1:8765'
@@ -59,7 +59,7 @@ with sync_playwright() as p:
           and pg.evaluate("(()=>{const i=document.querySelector('.msg.assistant:last-of-type .fbp-input');return !!document.querySelector('label[for=\"'+i.id+'\"]')})()"))
     check('count hidden <=120', not A().locator('.fbp-count').is_visible())
     inp.fill('x' * 125); check('count shown >120', A().locator('.fbp-count').is_visible() and A().locator('.fbp-count').inner_text() == '15')
-    # 1.0.1 review fixes
+    # 1.1.0 review fixes
     check('N1 counter has no aria-live', A().locator('.fbp-count').get_attribute('aria-live') is None)
     geo = pg.evaluate("(()=>{const d=document.querySelectorAll('.fbp-done'),p=document.querySelectorAll('.fbp-foot');const a=d[d.length-1].getBoundingClientRect(),f=p[p.length-1].getBoundingClientRect();return {memoHidden:document.querySelectorAll('.fbp-memo')[d.length-1].hidden,gap:f.right-a.right}})()")
     check('M1 done stays right when memo hidden', geo['memoHidden'] and abs(geo['gap']) < 2, geo)
@@ -134,7 +134,7 @@ with sync_playwright() as p:
     ctx.set_offline(False); pg.evaluate("dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
     check('online: outbox flushed to server', last_fb().get('rating') == 'up' and last_fb().get('reasons') == ['helpful'] and last_fb().get('comment') == '오프라인 메모', last_fb())
     check('no CSP violations', not pg.evaluate("window.__csp||[]"), pg.evaluate("window.__csp||[]"))
-    check('version 1.0.1', pg.evaluate("__app.version") == '1.0.1')
+    check('version 1.1.0', pg.evaluate("__app.version") == '1.1.0')
     check('no page errors', not errs, errs)
     ctx.close()
     # light mode + reduced motion
