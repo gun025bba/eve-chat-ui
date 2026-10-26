@@ -404,3 +404,18 @@ body.kb-open #composer{padding-bottom:8px}
 .mini-sheet{padding-bottom:calc(40px + env(safe-area-inset-bottom))}
 .a2hs-arrow{position:absolute;left:50%;bottom:calc(4px + env(safe-area-inset-bottom));translate:-50% 0;height:26px}
 @media (prefers-color-scheme:light){dialog .group,.install-steps{background:#fff}dialog#settings,.mini-sheet,.sheet-head{background:#F2F2F7}}
+
+/* ---------- Tailscale auth notice (v9) ---------- */
+.auth-notice{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);opacity:0;transition:opacity .25s ease}
+.auth-notice[hidden]{display:none}
+.auth-notice.in{opacity:1}
+.auth-card{width:min(320px,100%);text-align:center;padding:28px 22px 20px;border-radius:22px;background:rgba(44,44,46,.92);color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.4);transform:scale(.96);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.auth-notice.in .auth-card{transform:none}
+.auth-icon{width:44px;height:44px;fill:none;stroke:#0a84ff;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;margin-bottom:10px}
+.auth-card h3{margin:0 0 6px;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.auth-card p{margin:0 0 18px;font-size:14px;line-height:1.45;color:rgba(235,235,245,.6);word-break:keep-all}
+.auth-card .btn{width:100%;min-height:44px;border:0;border-radius:12px;background:#0a84ff;color:#fff;font:600 16px/1 -apple-system,system-ui,sans-serif}
+.auth-card .btn:active{opacity:.7}
+.auth-card .btn:disabled{opacity:.5}
+@media (prefers-color-scheme:light){.auth-notice{background:rgba(0,0,0,.25)}.auth-card{background:rgba(255,255,255,.94);color:#000}.auth-card p{color:rgba(60,60,67,.6)}.auth-icon{stroke:#007aff}.auth-card .btn{background:#007aff}}
+.status.who{color:var(--label2,rgba(235,235,245,.6))}

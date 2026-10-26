@@ -93,7 +93,16 @@ if (typeof document !== 'undefined') (function () {
   const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
   const DEFAULT_MODEL = 'mlx-community/Qwen3-30B-A3B-4bit';
-  let settings = Object.assign({ base: '', key: '', model: DEFAULT_MODEL, system: '', showThink: false, noThink: false }, load(LS.settings, {}));
+  let settings = Object.assign({ base: '', model: DEFAULT_MODEL, system: '', showThink: false, noThink: false }, load(LS.settings, {}));
+  // Tailscale identity auth: the browser never holds an API key. Drop any legacy key and
+  // any Base URL override pointing at the old :8000 port or a raw IP (default = same origin).
+  {
+    const legacyBase = b => /:8000(\/|$)/.test(b || '') || /^https?:\/\/(\d{1,3}\.){3}\d{1,3}(:|\/|$)/.test(b || '') || /^https?:\/\/\[/.test(b || '');
+    let dirty = 'key' in settings; delete settings.key;
+    if (settings.base && legacyBase(settings.base)) { settings.base = ''; dirty = true; }
+    if (dirty) save(LS.settings, settings);
+    ['llmchat.key', 'apiKey', 'api_key'].forEach(k => localStorage.removeItem(k));
+  }
   let convs = load(LS.convs, []);
   let currentId = load(LS.current, null);
   let controller = null;
@@ -103,7 +112,8 @@ if (typeof document !== 'undefined') (function () {
   const persist = () => { save(LS.convs, convs); save(LS.current, currentId); };
   const normBase = b => (b || '').trim().replace(/\/+$/, '').replace(/\/v1$/, ''); // '' => relative /v1/... (same origin)
   const apiBase = () => normBase(settings.base);
-  const headers = () => ({ 'Content-Type': 'application/json', ...(settings.key ? { Authorization: 'Bearer ' + settings.key } : {}) });
+  const headers = () => ({ 'Content-Type': 'application/json' });   // no Authorization: gateway trusts Tailscale identity
+  let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
@@ -343,7 +353,9 @@ if (typeof document !== 'undefined') (function () {
   function errMsg(status, body) {
     let e = {}; try { e = JSON.parse(body).error || {}; } catch {}
     const code = e.code || '', m = e.message || String(body || '').slice(0, 300);
-    if (status === 401 || code === 'invalid_api_key') return 'API 키가 올바르지 않습니다 (401 invalid_api_key). 설정에서 키를 확인하세요.';
+    if (code === 'identity_not_allowed') return '이 Tailscale 계정은 허용되지 않았어요 (401 identity_not_allowed).';
+    if (code === 'rate_limited') return '요청이 너무 많아요 (429 rate_limited). 잠시 후 재시도하세요.';
+    if (status === 401) return '이 기기에서 Tailscale 연결을 확인하세요 (401' + (code ? ' ' + code : '') + ').';
     if (code === 'queue_full') return '서버 대기열이 가득 찼습니다 (429 queue_full). 잠시 후 재시도하세요.';
     if (code === 'queue_timeout') return '대기 시간이 초과되었습니다 (429 queue_timeout). 잠시 후 재시도하세요.';
     if (status === 503) return '모델 서버에 연결할 수 없습니다 (503' + (code ? ' ' + code : '') + ').';
@@ -362,7 +374,6 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- send / generate ---------- */
   async function send(text) {
-    if (!settings.key && !confirm('API 키가 비어 있습니다. 그대로 보낼까요?')) { openSettings(); return; }
     let c = cur();
     if (!c) { c = { id: uid(), title: '새 대화', messages: [], updated: Date.now() }; convs.unshift(c); currentId = c.id; }
     if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); $('#title').textContent = c.title; }
@@ -404,7 +415,11 @@ if (typeof document !== 'undefined') (function () {
         method: 'POST', headers: headers(), signal: controller.signal,
         body: JSON.stringify({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } })
       });
-      if (!res.ok) throw Object.assign(new Error(errMsg(res.status, await res.text().catch(() => ''))), { http: res.status });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        if (res.status === 401) { let code; try { code = JSON.parse(body).error?.code; } catch {} showAuthNotice(() => generate(c), code); }
+        throw Object.assign(new Error(errMsg(res.status, body)), { http: res.status });
+      }
       const ctype = res.headers.get('content-type') || '';
       if (!res.body || ctype.includes('application/json')) {
         const j = await res.json();
@@ -687,6 +702,40 @@ if (typeof document !== 'undefined') (function () {
     ]);
   });
 
+  /* ---------- Tailscale identity (/whoami) ---------- */
+  const authEl = $('#authNotice');
+  let authRetry = null;
+  function renderWho() {
+    const el = $('#sWho'); if (!el) return;
+    const who = whoami && (whoami.user || whoami.login);
+    el.textContent = who ? `${who} 계정으로 연결됨` : '';
+    el.hidden = !who;
+  }
+  function showAuthNotice(retry, code) {
+    const denied = code === 'identity_not_allowed';
+    $('#authTitle').textContent = denied ? '허용되지 않은 Tailscale 계정이에요' : 'Tailscale 연결을 확인하세요';
+    $('#authBody').textContent = denied ? '이 Tailscale 계정은 이 서버를 쓸 수 없어요. 허용된 계정으로 로그인한 뒤 다시 시도하세요.'
+      : '이 기기에서 Tailscale이 켜져 있고 로그인되어 있어야 서버에 연결할 수 있어요.';
+    if (retry) authRetry = retry;
+    if (!authEl.hidden) return;
+    authEl.hidden = false; requestAnimationFrame(() => authEl.classList.add('in'));
+  }
+  function hideAuthNotice() { authEl.classList.remove('in'); authEl.hidden = true; }
+  async function checkAuth() {
+    try {
+      const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });
+      const j = await r.json().catch(() => null);
+      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); showAuthNotice(null, j?.error?.code); return false; }
+      if (r.ok) { whoami = j; renderWho(); }
+      hideAuthNotice(); return true;
+    } catch { return true; }   // offline / network error: chat path reports it
+  }
+  $('#authRetry').onclick = async () => {
+    const b = $('#authRetry'); b.disabled = true; b.textContent = '확인 중…';
+    const ok = await checkAuth(); b.disabled = false; b.textContent = '다시 시도';
+    if (ok && authRetry) { const f = authRetry; authRetry = null; clearErrors(); f(); }
+  };
+
   /* ---------- sheets (§6) ---------- */
   const dlg = $('#settings'), sform = $('#settingsForm');
   const SHEET_EASE = 'cubic-bezier(.32,.72,0,1)';
@@ -723,7 +772,7 @@ if (typeof document !== 'undefined') (function () {
     setTimeout(() => { sheet.classList.remove('closing'); sheet.style.transition = sheet.style.transform = ''; done(); }, 300);
   }
   let snap = '';
-  const formState = () => JSON.stringify([$('#sBase').value, $('#sKey').value, $('#sModel').value, $('#sSystem').value, $('#sShowThink').checked, $('#sNoThink').checked]);
+  const formState = () => JSON.stringify([$('#sBase').value, $('#sModel').value, $('#sSystem').value, $('#sShowThink').checked, $('#sNoThink').checked]);
   function closeSettings(dragged) {
     if (dragged && formState() !== snap) {
       dlg.style.transition = `transform 300ms cubic-bezier(.34,1.36,.64,1)`; dlg.style.transform = '';
@@ -746,27 +795,31 @@ if (typeof document !== 'undefined') (function () {
     const st = $('#sStatus'); st.className = 'status'; st.textContent = '모델 목록 불러오는 중…';
     const base = normBase($('#sBase').value);
     try {
-      const r = await fetch(base + '/v1/models', { headers: { Authorization: 'Bearer ' + $('#sKey').value } });
-      if (!r.ok) throw Object.assign(new Error(errMsg(r.status, await r.text().catch(() => ''))), { http: r.status });
+      const r = await fetch(base + '/v1/models');
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        if (r.status === 401) { let code; try { code = JSON.parse(body).error?.code; } catch {} showAuthNotice(loadModels, code); }
+        throw Object.assign(new Error(errMsg(r.status, body)), { http: r.status });
+      }
       const j = await r.json(); const ids = (j.data || []).map(m => m.id);
       setModelOptions(ids); st.textContent = `연결 성공 · 모델 ${ids.length}개`;
     } catch (e) { st.className = 'status err'; st.textContent = e.http ? e.message : '연결 실패: ' + e.message; }
   }
   function openSettings() {
-    $('#sBase').value = settings.base; $('#sKey').value = settings.key; $('#sSystem').value = settings.system;
+    $('#sBase').value = settings.base; $('#sSystem').value = settings.system;
     $('#sShowThink').checked = settings.showThink; $('#sNoThink').checked = !!settings.noThink;
     setModelOptions([]); $('#sStatus').textContent = '';
     $('#a2hsRow').hidden = isStandalone();
     snap = formState();
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
-    if (settings.key) loadModels();
+    renderWho(); loadModels();
   }
   $('#openSettings').onclick = openSettings;
   $('#loadModels').onclick = loadModels;
   $('#cancelSettings').onclick = () => closeSettings();
   $('#showA2hs').onclick = () => animateOut(dlg, () => { dlg.close(); openA2HS(true); });
   sform.addEventListener('submit', () => {
-    settings = { noThink: $('#sNoThink').checked, base: normBase($('#sBase').value), key: $('#sKey').value.trim(), model: $('#sModel').value || DEFAULT_MODEL, system: $('#sSystem').value, showThink: $('#sShowThink').checked };
+    settings = { noThink: $('#sNoThink').checked, base: normBase($('#sBase').value), model: $('#sModel').value || DEFAULT_MODEL, system: $('#sSystem').value, showThink: $('#sShowThink').checked };
     save(LS.settings, settings); renderMessages();
   });
 
@@ -839,7 +892,7 @@ if (typeof document !== 'undefined') (function () {
   if (sc > 0) requestAnimationFrame(() => requestAnimationFrame(() => { box.scrollTop = sc; stick = false; }));
   requestAnimationFrame(() => app.classList.add('ready'));
   grow();
-  if (!settings.key) openSettings(); else maybeA2HS();
+  checkAuth().then(ok => { if (ok) maybeA2HS(); });
 
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = false;
