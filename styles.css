@@ -248,7 +248,7 @@ img,svg{-webkit-user-drag:none;pointer-events:none}
 [data-dir=pop]::view-transition-new(list){animation:vtParallax 380ms cubic-bezier(.32,.72,0,1) reverse both}
 ::view-transition-image-pair(chat){box-shadow:-8px 0 24px rgba(0,0,0,.25)}
 @keyframes vtSlideIn{from{transform:translateX(100%)}}
-@keyframes vtParallax{to{transform:translateX(-30%);filter:brightness(.75)}}
+@keyframes vtParallax{to{transform:translateX(-30%)}}
 @media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}
 /* §2 navbar */
 .navbar{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:4px;height:var(--nav-h);
@@ -519,3 +519,15 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 #topbar{isolation:isolate;background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 #topbar::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--material);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
 #topbar #titleWrap{z-index:1;transform:none;will-change:auto;filter:none}
+
+/* v11 header crispness, take 2 (iOS standalone): no backdrop-filter anywhere in the chat header.
+   WebKit in standalone (content under the status bar) still smeared the absolutely positioned title/subtitle
+   when any backdrop-filter layer sat in the same stacking context, and --label-3 (32% alpha) made the subtitle
+   look washed out on top of that. The header is now an opaque solid bar with solid text colours. */
+:root{--topbar-solid:#101011;--title-solid:#F5F5F7;--subtitle-solid:#8E8E93}
+@media (prefers-color-scheme:light){:root{--topbar-solid:#F6F6F7;--title-solid:#1D1D1F;--subtitle-solid:#6E6E73}}
+#topbar{background:var(--topbar-solid)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;isolation:auto}
+#topbar::after{content:none!important;display:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+#topbar #titleWrap,#topbar #title,#topbar #modelName{opacity:1!important;filter:none!important;text-shadow:none!important;transform:none!important;will-change:auto!important;mix-blend-mode:normal!important;-webkit-text-stroke:0!important;animation:none!important;transition:none!important;-webkit-font-smoothing:antialiased}
+#topbar #title{color:var(--title-solid)!important}
+#topbar #modelName{color:var(--subtitle-solid)!important}

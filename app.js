@@ -1338,11 +1338,12 @@ if (typeof document !== 'undefined') (function () {
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
-  let swReg = null, reloading = false, wantReload = false;
+  let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('/ui/sw.js', { scope: '/ui/' }).then(reg => {
       swReg = reg;
-      const offer = w => showToast('새 버전이 있어요', '새로고침', () => { wantReload = true; w.postMessage('SKIP_WAITING'); });
+      const offer = w => { wantReload = true; w.postMessage('SKIP_WAITING'); };   // v11: no tap needed, reload once
+      reg.update?.().catch(() => {});
       if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
       reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) offer(w); }); });
     }).catch(() => {});

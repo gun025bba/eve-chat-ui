@@ -1,12 +1,12 @@
 /* LLM Chat service worker — app shell precache, SWR static, network-only API */
-const CACHE = 'llmchat-v10';
+const CACHE = 'llmchat-v11';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'offline.html',
-  'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/shortcut-new.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
-  // first install activates immediately; updates wait for the user's "새로고침" tap (SKIP_WAITING)
+  self.skipWaiting();   // v11: activate updates immediately; the page reloads once on controllerchange
 });
 self.addEventListener('message', e => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('activate', e => {
