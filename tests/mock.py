@@ -358,7 +358,7 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False
         if p == '/db/reset':
-            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
+            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
         if p.startswith('/fail/'):   # /fail/<code>?<regex>
             code, _, pat = p[6:].partition('?'); 
             if code == 'clear': STATE['fail'] = {}

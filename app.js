@@ -195,7 +195,7 @@ if (typeof document !== 'undefined') (function () {
   const apiBase = () => normBase(settings.base);
   // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
   // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
-  const headers = () => ({ 'Content-Type': 'application/json', 'X-Eve-Request': '1' });
+  const headers = (_method) => ({ 'Content-Type': 'application/json', 'X-Eve-Request': '1' });   // sent on every request (GET too): body-less POST/DELETE included
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -936,7 +936,7 @@ if (typeof document !== 'undefined') (function () {
     let wsReq = ws;
     try {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
-        method: 'POST', headers: headers(), signal: ctl.signal,
+        method: 'POST', headers: headers('POST'), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
           keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: 'auto' } : {}))
       });
