@@ -11,7 +11,7 @@ with sync_playwright() as p:
     b=p.chromium.launch(); pg=b.new_page(viewport={'width':390,'height':844})
     errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     reqs=[]; pg.on('request',lambda r:reqs.append(r.url))
-    put('/auth/on'); put('/reset')
+    put('/auth/on'); put('/reset'); put('/persist/off')   # local-only mode (threads API 503); server mode is covered by threads.py
     # legacy key + old :8000 base override must be wiped on startup
     pg.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);localStorage.setItem('llmchat.settings',JSON.stringify({base:'http://192.0.2.1:8000',key:'oldkey',model:'mlx-community/Qwen3-30B-A3B-4bit'}))}")
     pg.goto('http://127.0.0.1:8765/ui/'); pg.wait_for_timeout(500)

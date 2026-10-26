@@ -25,6 +25,8 @@ def swipe(pg, cdp, x0, y0, x1, y1, steps=12, dt=16, hold=0):
     touch(cdp,'touchEnd',[]); pg.wait_for_timeout(600)
 def longpress(pg, cdp, x, y, ms=650): touch(cdp,'touchStart',[(x,y)]); pg.wait_for_timeout(ms); touch(cdp,'touchEnd',[]); pg.wait_for_timeout(350)
 route=lambda pg: pg.evaluate("document.querySelector('#app').dataset.route")
+import urllib.request
+urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765/persist/off',method='PUT'))   # local-only mode; server mode in threads.py
 with sync_playwright() as p:
     b=p.chromium.launch()
     # ---------- standalone ----------
@@ -49,15 +51,15 @@ with sync_playwright() as p:
     # row long press -> context menu
     bb=pg.locator('#convList li.row').nth(1).bounding_box(); longpress(pg,cdp,bb['x']+150,bb['y']+30)
     items=pg.locator('#ctx .ctx-menu button').all_inner_texts()
-    check('long-press row shows menu', pg.is_visible('#ctx') and items==['이름 변경','고정','삭제'], str(items))
+    check('long-press row shows menu', pg.is_visible('#ctx') and items==['이름 변경','고정','보관','삭제'], str(items))
     pg.mouse.click(20,800); pg.wait_for_timeout(300); check('menu dismisses on outside tap', pg.is_hidden('#ctx'))
     # swipe actions
     bb=pg.locator('#convList li.row').nth(2).bounding_box(); swipe(pg,cdp,bb['x']+300,bb['y']+30,bb['x']+200,bb['y']+32)
-    check('row swipe reveals actions', pg.locator('#convList li.row.swiped').count()==1 and pg.is_visible('#convList li.row.swiped .ra-del'))
-    pg.locator('#convList li.row.swiped .ra-del').click(); pg.wait_for_timeout(500)
-    check('swipe delete removes conversation', pg.locator('#convList li.row').count()==2)
+    check('row swipe reveals actions', pg.locator('#convList li.row.swiped').count()==1 and pg.is_visible('#convList li.row.swiped .ra-archive'))
+    pg.locator('#convList li.row.swiped .ra-archive').click(); pg.wait_for_timeout(500)
+    check('swipe archive removes conversation', pg.locator('#convList li.row').count()==2)
     bb=pg.locator('#convList li.row').nth(1).bounding_box(); swipe(pg,cdp,bb['x']+370,bb['y']+30,bb['x']+40,bb['y']+30,steps=10)
-    check('full swipe deletes', pg.locator('#convList li.row').count()==1)
+    check('full swipe archives', pg.locator('#convList li.row').count()==1)
     # push into chat
     pg.locator('#convList li.row').first.click(); pg.wait_for_timeout(600)
     check('tap row pushes chat', route(pg)=='chat')
@@ -101,7 +103,7 @@ with sync_playwright() as p:
     c=ctx(p,b,standalone=True); pg=c.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     pg.goto(BASE); pg.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller", timeout=10000) if False else None
     pg.evaluate("navigator.serviceWorker.ready"); pg.reload(); pg.wait_for_timeout(800)
-    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-v9', keys==['llmchat-v9'], str(keys))
+    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-v10', keys==['llmchat-v10'], str(keys))
     check('SW controls page', pg.evaluate("!!navigator.serviceWorker.controller"))
     c.set_offline(True); pg.reload(); pg.wait_for_timeout(800)
     check('offline: app shell loads from cache', pg.is_visible('#composer') and pg.locator('.msg').count()>0)
@@ -110,7 +112,7 @@ with sync_playwright() as p:
     check('offline fallback screen for uncached page', '오프라인 상태입니다' in pg.text_content('body'))
     c.set_offline(False); pg.goto(BASE); pg.wait_for_timeout(600)
     r=pg.evaluate("fetch('/v1/models').then(r=>r.status)")
-    inCache=pg.evaluate("caches.open('llmchat-v9').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
+    inCache=pg.evaluate("caches.open('llmchat-v10').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
     check('API never cached (network-only)', r==200 and not inCache)
     pg.evaluate("window.__app.showToast('새 버전이 있어요','새로고침',()=>{})"); pg.wait_for_timeout(400)
     check('update toast renders', pg.is_visible('#toast') and '새로고침' in pg.text_content('#toast'))
