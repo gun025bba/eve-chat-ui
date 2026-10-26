@@ -43,14 +43,72 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 // Index where the "stable" (completed) markdown ends: last blank line outside any code fence.
+// v16 block parser: lists survive blank lines (loose), indented continuations and nesting; <ol start> keeps source numbers
+const MD_LI = /^( *)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+const mdInd = l => l.match(/^ */)[0].length;
+function mdBlocks(lines) {
+  const out = []; let para = [], i = 0;
+  const flushP = () => { if (para.length) { out.push('<p>' + inlineMd(para.join('<br>')) + '</p>'); para = []; } };
+  while (i < lines.length) {
+    const line = lines[i]; let m;
+    if (!line.trim()) { flushP(); i++; continue; }
+    if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushP(); const n = Math.min(m[1].length + 2, 6); out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`); i++; continue; }
+    if ((m = line.match(MD_LI)) && m[1].length < 4) { flushP(); i = mdList(lines, i, out); continue; }
+    para.push(line.trim() ? line.replace(/^ +/, '') : line); i++;
+  }
+  flushP();
+  return out.join('');
+}
+function mdList(lines, i, out) {
+  const m0 = lines[i].match(MD_LI), base = m0[1].length, ol = /\d/.test(m0[2]), t = ol ? 'ol' : 'ul';
+  const same = l => { const m = l.match(MD_LI); return m && m[1].length <= base + 1 && /\d/.test(m[2]) === ol ? m : null; };
+  const items = [];
+  while (i < lines.length) {
+    const mm = same(lines[i]); if (!mm) break;
+    const ci = mm[1].length + mm[2].length + 1, body = [mm[3]]; i++;
+    let next = false;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (!l.trim()) {
+        let j = i; while (j < lines.length && !lines[j].trim()) j++;
+        if (j >= lines.length) { i = j; break; }
+        if (mdInd(lines[j]) >= base + 2 && !same(lines[j])) { for (; i < j; i++) body.push(''); continue; }
+        if (same(lines[j])) { i = j; next = true; }
+        break;
+      }
+      if (same(l)) { next = true; break; }
+      const ind = mdInd(l);
+      if (ind >= base + 2) { body.push(l.slice(Math.min(ind, ci))); i++; continue; }
+      if (MD_LI.test(l) || /^#{1,6}\s/.test(l) || !body[body.length - 1]) break;
+      body.push(l); i++; // lazy continuation
+    }
+    items.push(mdBlocks(body).replace(/^<p>([\s\S]*?)<\/p>/, '$1'));
+    if (!next) break;
+  }
+  const start = ol ? parseInt(m0[2], 10) : 1;
+  out.push(`<${t}${ol && start !== 1 ? ` start="${start}"` : ''}>` + items.map(x => '<li>' + x + '</li>').join('') + `</${t}>`);
+  return i;
+}
+// streaming cut: never inside a code fence, never right after a list block (a later item may still join it)
 function stableCut(s) {
   let i = s.length;
   while ((i = s.lastIndexOf('\n\n', i - 1)) >= 0) {
     const fences = (s.slice(0, i).match(/```/g) || []).length;
-    if (fences % 2 === 0) return i + 2;
+    if (fences % 2 === 0 && !mdAfterList(s.slice(0, i))) return i + 2;
     if (i === 0) break;
   }
   return 0;
+}
+function mdAfterList(head) {
+  const lines = head.replace(/\t/g, '    ').split('\n');
+  let k = lines.length - 1; while (k >= 0 && !lines[k].trim()) k--;
+  for (; k >= 0; k--) { // walk up the current block run; any list item or indented line => list may continue
+    const l = lines[k];
+    if (!l.trim()) { let j = k; while (j >= 0 && !lines[j].trim()) j--; if (j < 0) return false; const p = lines[j]; if (MD_LI.test(p) || mdInd(p) >= 2) { k = j + 1; continue; } return false; }
+    if (MD_LI.test(l) || mdInd(l) >= 2) return true;
+    if (l.includes('```')) return false;
+  }
+  return false;
 }
 // [n] citation map for the current renderMarkdown call (web search sources; http/https only)
 let _cites = null;
@@ -82,19 +140,7 @@ function renderMd(src) {
       out.push(`<div class="codeblock"><div class="code-head"><span class="lang">${escapeHtml(lang || 'code')}</span><button class="copy" type="button" aria-label="코드 복사">${COPY_SVG}<span>복사</span></button></div><pre><code data-lang="${escapeHtml(lang)}">${escapeHtml(code.replace(/\n$/, ''))}</code></pre></div>`);
       return;
     }
-    const lines = escapeHtml(part).split('\n');
-    let list = null, para = [];
-    const flushP = () => { if (para.length) { out.push('<p>' + inlineMd(para.join('<br>')) + '</p>'); para = []; } };
-    const flushL = () => { if (list) { out.push(`<${list.t}>` + list.items.map(x => '<li>' + inlineMd(x) + '</li>').join('') + `</${list.t}>`); list = null; } };
-    for (const line of lines) {
-      let m;
-      if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushP(); flushL(); const n = Math.min(m[1].length + 2, 6); out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`); }
-      else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushP(); if (!list || list.t !== 'ul') { flushL(); list = { t: 'ul', items: [] }; } list.items.push(m[1]); }
-      else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flushP(); if (!list || list.t !== 'ol') { flushL(); list = { t: 'ol', items: [] }; } list.items.push(m[1]); }
-      else if (!line.trim()) { flushP(); flushL(); }
-      else { flushL(); para.push(line); }
-    }
-    flushP(); flushL();
+    out.push(mdBlocks(escapeHtml(part).replace(/\t/g, '    ').split('\n')));
   });
   return out.join('');
 }
@@ -1434,7 +1480,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v15'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = 'v16'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
