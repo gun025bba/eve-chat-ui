@@ -38,7 +38,7 @@ rsync -a --delete --exclude .git --exclude tests --exclude '.gitignore' ./ ~/llm
 - 구조: 대화 목록(라지 타이틀 + 검색) → 채팅 push. 설정은 시트(취소/완료). 761px 이상은 사이드바 유지.
 - 제스처: 왼쪽 가장자리 스와이프로 뒤로(홈 화면 앱에서만), 목록 행 왼쪽 스와이프(이름 변경/삭제, 끝까지 밀면 삭제), 길게 누르기 메뉴, 시트는 아래로 끌어서 닫기.
 - 상태 복원: 마지막 화면, 대화, 스크롤 위치, 입력 중인 초안.
-- SW(현재 `llmchat-v10`, 정적 파일은 `?v=` 무시하고 캐시 조회): 앱 셸 precache, 정적 파일 SWR, `/v1/`은 네트워크만 사용. 오프라인 대체 화면, "새 버전" 토스트. HTTPS에서만 동작.
+- SW(현재 `llmchat-v13`, 정적 파일은 `?v=` 무시하고 캐시 조회): 앱 셸 precache, 정적 파일 SWR, `/v1/`은 네트워크만 사용. 오프라인 대체 화면, "새 버전" 토스트. HTTPS에서만 동작.
 
 ### iPhone에서 테스트
 1. 배포: 위 "배포 방법 A" (서버에서 `git pull` + rsync). `web/` 폴더가 이미 있으면 재시작 불필요.
@@ -72,3 +72,6 @@ python3 -m venv v && v/bin/pip install playwright && v/bin/playwright install ch
 - GitHub(`gun025bba/llm-chat-ui`)가 단일 진실의 원천(source of truth)입니다.
 - 수정은 clone에서 → commit → push. 배포 서버의 `~/llm-serving/web/`을 직접 수정하지 마세요 (배포 사본).
 - 개발 환경/서버에서는 `git pull --ff-only`로 동기화. force-push 금지. 실제 호스트명·IP·키는 커밋하지 마세요 (`<host>`, `<tailscale-ip>` 사용).
+
+## CSP (v13)
+게이트웨이의 `/ui` 정책 `default-src 'self'; img-src 'self' data:; connect-src 'self'`에서 그대로 동작해요. 인라인 `<script>`/`<style>`/`style=` 속성/`on*=` 핸들러, eval, blob:, 외부 폰트·이미지를 쓰지 않아요(동적 스타일은 CSSOM `el.style.x`만 사용). 모델 출력의 마크다운 링크는 `target="_blank" rel="noopener noreferrer"`, 마크다운 이미지는 링크로만 표시해요. 회귀 테스트: `tests/stop_csp.py`.

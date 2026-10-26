@@ -23,6 +23,8 @@ function splitThink(text) {
   if (!m) return { think: null, answer: text, thinking: false };
   return { think: m[1].trim(), answer: m[3].replace(/^\s+/, ''), thinking: m[2] === '' };
 }
+const STOP_RE = /\n*\*\(중지됨\)\*\s*$/;
+function stripStopMark(s) { return String(s || '').replace(STOP_RE, ''); }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -32,6 +34,7 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
   s = s
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
@@ -72,7 +75,7 @@ function renderMarkdown(src) {
   });
   return out.join('');
 }
-if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, escapeHtml, stableCut };
+if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {
@@ -185,7 +188,6 @@ if (typeof document !== 'undefined') (function () {
   const pinSet = () => new Set(load(LS.pins, []));
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
-    if (m.status === 'incomplete' && !/중지됨/.test(content)) content += (content ? '\n\n' : '') + '*(중지됨)*';
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, status: m.status || 'complete', created: toMs(m.created_at) };
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
@@ -534,7 +536,7 @@ if (typeof document !== 'undefined') (function () {
     return true;
   }
   function fillAssistant(bubble, text, opts = {}) {
-    const { think, answer, thinking } = splitThink(text);
+    const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
     if (live && bubble._live && !opts.slow && patchLive(bubble, think, answer, live && thinking)) return;
     const prev = bubble.querySelector('details.think');
@@ -557,7 +559,8 @@ if (typeof document !== 'undefined') (function () {
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     if (live) { const tail = bubble.querySelector('.md .tail'); if (tail) freshen(tail); }
     const msg = bubble.parentElement;
-    msg.querySelector('.actions')?.remove();
+    msg.querySelector('.actions')?.remove(); msg.querySelector('.stopped')?.remove();
+    if (!live && (opts.stopped || opts.msg?.status === 'incomplete')) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
       const m = opts.msg, fbOk = mode === 'server' && m && m.id;
@@ -617,7 +620,8 @@ if (typeof document !== 'undefined') (function () {
   const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘'], ['요약', '긴 글을 핵심 3줄로 정리해줘'], ['번역', '자연스러운 영어 문장으로 바꿔줘'], ['아이디어', '주말에 할 사이드 프로젝트 추천']];
   function renderEmpty() {
     box.innerHTML = `<div class="empty"><div class="mark"></div><h1>무엇을 도와드릴까요?</h1><small>${escapeHtml(shortModel() || '로컬 모델')} · 로컬에서 실행 중</small>
-      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" style="animation-delay:${80 + i * 40}ms" data-q="${escapeHtml(c[1])}"><b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
+      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}"><b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
+    box.querySelectorAll('.chip').forEach(b => { b.style.animationDelay = (80 + b.dataset.i * 40) + 'ms'; });
     box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });
   }
   function renderMessages(keep) {
@@ -642,7 +646,7 @@ if (typeof document !== 'undefined') (function () {
   function setBusy(b) {
     sendBtn.classList.toggle('stop', b);
     sendBtn.disabled = b ? false : !input.value.trim();
-    sendBtn.setAttribute('aria-label', b ? '중지' : '전송');
+    sendBtn.setAttribute('aria-label', b ? '생성 중지' : '전송'); sendBtn.title = b ? '생성 중지 (Esc)' : '';
     if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || wide.matches) renderList(); maybeA2HS(); }
   }
 
@@ -683,20 +687,42 @@ if (typeof document !== 'undefined') (function () {
     input.value = ''; grow(); stick = true; scrollBottom(true);
     return generate(c);
   }
-  function regenerate() {
-    const c = cur(); if (controller || !c) return;
+  async function regenerate() {
+    const c = cur(); if (controller || !c || c._regenBusy) return;
+    const la = c.messages.at(-1);
+    if (mode === 'server' && c.srv && la?.role === 'assistant' && !la.id && la.status === 'incomplete') { c._regenBusy = true; try { await resolveStoppedId(c, la, null, 1); } finally { c._regenBusy = false; } if (controller || c !== cur()) return; }
     let replaceId = null;
     if (c.messages.at(-1)?.role === 'assistant') replaceId = c.messages.pop().id || null;
     const els = box.querySelectorAll('.msg.assistant'); els[els.length - 1]?.remove();
     clearErrors(); persist(); generate(c, replaceId);
   }
 
+  // the server stores a stopped reply as status=incomplete, but the client never sees its id (stream cut before "persisted")
+  async function resolveStoppedId(c, msg, bubble, tries = 3) {
+    for (let k = 0; k < tries && !msg.id; k++) {
+      await new Promise(r => setTimeout(r, 400 + k * 600));
+      if (!c.messages.includes(msg)) return;
+      try {
+        const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=4`);
+        const a = (j.data || []).filter(m => m.role === 'assistant').pop();
+        const u = (j.data || []).filter(m => m.role === 'user').pop();
+        if (a && a.status === 'incomplete' && !c.messages.some(x => x !== msg && x.id === a.id)) {
+          msg.id = a.id; const um = [...c.messages].reverse().find(m => m.role === 'user'); if (um && u && !um.id) um.id = u.id;
+          persist();
+          if (bubble?.isConnected && c === cur()) { bubble.parentElement.dataset.mid = a.id; fillAssistant(bubble, msg.content, { regen: c.messages.at(-1) === msg, thinkSecs: msg.thinkSecs, msg }); }
+        }
+      } catch {}
+    }
+  }
+  function stopGeneration() { if (controller) { buzz(10); sendBtn.classList.add('pressed'); setTimeout(() => sendBtn.classList.remove('pressed'), 160); controller.abort(); } }
+
   async function generate(c, replaceId) {
     const bubble = addMsgEl('assistant');
-    const hist = c.messages.map(({ role, content }) => ({ role, content: role === 'assistant' ? splitThink(content).answer : content }));
+    const hist = c.messages.map(({ role, content }) => ({ role, content: role === 'assistant' ? stripStopMark(splitThink(stripStopMark(content)).answer) : content }))
+      .filter(m => m.role !== 'assistant' || m.content.trim());
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
-    controller = new AbortController(); setBusy(true);
+    const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
     let acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
@@ -708,12 +734,12 @@ if (typeof document !== 'undefined') (function () {
     const retry = () => generate(c, replaceId);
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
-    const finish = () => { clearTimeout(slowTimer); controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const finish = () => { clearTimeout(slowTimer); if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     try {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
-        method: 'POST', headers: headers(), signal: controller.signal,
+        method: 'POST', headers: headers(), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
           keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}))
       });
@@ -753,13 +779,17 @@ if (typeof document !== 'undefined') (function () {
           }
           paint();
         });
+        const onAbort = () => { try { reader.cancel(); } catch {} };
+        ctl.signal.addEventListener('abort', onAbort, { once: true });
         while (!done) { const { value, done: rd } = await reader.read(); if (rd) break; parser.push(dec.decode(value, { stream: true })); }
+        ctl.signal.removeEventListener('abort', onAbort);
+        if (ctl.signal.aborted && !persisted) stopped = true;
         parser.flush();
         if (!done) try { reader.cancel(); } catch {}
       }
     } catch (e) {
       finish();
-      if (e.name === 'AbortError') { acc += (acc ? '\n\n' : '') + '*(중지됨)*'; if (mode === 'server') c.loaded = false; }
+      if (e.name === 'AbortError' || ctl.signal.aborted) { stopped = true; }
       else {
         if (acc || reasoning) { fillAssistant(bubble, full(), { actions: false }); c.messages.push({ role: 'assistant', content: full() }); persist(); }
         else bubble.parentElement.remove();
@@ -770,6 +800,15 @@ if (typeof document !== 'undefined') (function () {
     }
     finish(); endThink();
     const final = full();
+    if (stopped) {
+      if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
+      const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs;
+      fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
+      c.messages.push(msg); c.updated = Date.now(); if (final) c.preview = clean(splitThink(final).answer); persist(); renderList();
+      if (mode === 'server' && c.srv) resolveStoppedId(c, msg, bubble);
+      if (stick) scrollBottom();
+      return;
+    }
     if (streamErr) {
       if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs }); c.messages.push({ role: 'assistant', content: final }); persist(); } else bubble.parentElement.remove();
       addError(`스트리밍 중 오류: ${streamErr.message || streamErr.code || '알 수 없음'}${streamErr.code ? ' (' + streamErr.code + ')' : ''}`, final ? null : retry);
@@ -793,7 +832,7 @@ if (typeof document !== 'undefined') (function () {
   });
   $('#composer').addEventListener('submit', e => {
     e.preventDefault();
-    if (controller) { controller.abort(); return; }
+    if (controller) { stopGeneration(); return; }
     const t = input.value.trim(); if (!t) return;
     send(t);
   });
@@ -991,7 +1030,11 @@ if (typeof document !== 'undefined') (function () {
   }
   function hideMenu() { ctx.classList.remove('show'); setTimeout(() => { if (!ctx.classList.contains('show')) ctx.hidden = true; }, 190); }
   ctx.addEventListener('click', e => { if (!e.target.closest('.ctx-menu button')) hideMenu(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ctx.hidden) hideMenu(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    if (!ctx.hidden) return hideMenu();
+    if (controller && !document.querySelector('dialog[open], .mini-sheet:not([hidden])')) { e.preventDefault(); stopGeneration(); }
+  });
 
   const msgIndex = msg => [...box.querySelectorAll('.msg.user,.msg.assistant')].indexOf(msg);
   const share = text => navigator.share({ text }).catch(() => {});
@@ -1337,7 +1380,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v12'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = 'v13'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

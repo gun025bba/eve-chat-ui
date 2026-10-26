@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko" style="background:#000">
+<html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
@@ -40,7 +40,7 @@
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:dark)" href="splash/dark-1080x2340.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:light)" href="splash/light-1080x2340.png">
 
-<link rel="stylesheet" href="/ui/styles.css?v=12">
+<link rel="stylesheet" href="/ui/styles.css?v=13">
 <title>LLM Chat</title>
 </head>
 <body>
@@ -106,7 +106,7 @@
     <p class="sec">동기화 <span class="sec-note" id="sSync"></span></p>
     <div class="group"><button type="button" id="sSyncNow" class="row-link">지금 동기화</button><div id="sMigrateRow" hidden><button type="button" id="sMigrate" class="row-link">이 기기 대화 서버로 옮기기</button></div></div>
     <div class="group a2hs-row" id="a2hsRow"><button type="button" id="showA2hs" class="row-link">홈 화면에 추가 방법<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></div>
-    <small id="appVersion" class="app-version">v12</small>
+    <small id="appVersion" class="app-version">v13</small>
   </form>
 </dialog>
 <div id="authNotice" class="auth-notice" hidden role="alertdialog" aria-labelledby="authTitle" aria-describedby="authBody">
@@ -120,7 +120,7 @@
 <div id="ctx" hidden><div class="ctx-menu" role="menu"></div></div>
 <div id="installSheet" class="mini-sheet" hidden role="dialog" aria-labelledby="installTitle">
   <div class="grabber"></div>
-  <img src="icons/icon-180.png" alt="" class="install-icon">
+  <img src="icons/apple-touch-icon.png" alt="" class="install-icon">
   <h3 id="installTitle">홈 화면에 추가하기</h3>
   <p class="install-sub">전체 화면으로, 앱처럼 빠르게 열 수 있어요</p>
   <ol class="install-steps ios-only">
@@ -158,6 +158,6 @@
     <button type="button" id="migRetry" class="primary">실패한 항목 다시 시도</button><button type="button" id="migLater2" class="text-btn wide">나중에</button></div>
 </div>
 <div id="toast" hidden role="status"><span id="toastText"></span><button type="button" id="toastAct" class="text-btn"></button></div>
-<script src="/ui/app.js?v=12"></script>
+<script src="/ui/app.js?v=13"></script>
 </body>
 </html>
