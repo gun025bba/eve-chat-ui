@@ -14,6 +14,29 @@ def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': 
 pro_reset()
 LOCK = threading.RLock()
 def now(off=0): return (datetime.now(timezone.utc) + timedelta(seconds=off)).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+GEN = {}   # §3.8 detached generation: mid -> {'ev': [(seq, event, data)], 'done': bool}
+def gen_run(mid, kind):
+    import threading
+    g = GEN[mid]
+    def push(event, obj):
+        with LOCK: g['ev'].append((len(g['ev']) + 1, event, obj))
+    def body():
+        m = DB['messages'][mid]; acc = []
+        push(None, {"object": "chat.completion.chunk", "choices": [{"delta": {"role": "assistant"}}]})
+        if kind == 'err':
+            acc.append('partial '); m['content'] = ''.join(acc); push(None, {"choices": [{"delta": {"content": 'partial '}}]}); time.sleep(0.3)
+            push(None, {"error": {"message": "upstream timed out", "type": "server_error", "code": "upstream_timeout"}})
+            m.update(status='failed', error_code='upstream_timeout')
+            push(None, {"object": "chat.completion.persisted", "status": "failed", "thread_id": m['thread_id'], "message_id": mid})
+        else:
+            for k in range(10):
+                t = f'A{k} '; acc.append(t)
+                with LOCK: m['content'] = ''.join(acc)
+                push(None, {"choices": [{"delta": {"content": t}}]}); time.sleep(0.3)
+            m['status'] = 'complete'
+            push(None, {"object": "chat.completion.persisted", "status": "complete", "thread_id": m['thread_id'], "message_id": mid})
+        push(None, '[DONE]'); g['done'] = True
+    threading.Thread(target=body, daemon=True).start()
 def nid(p):
     DB['seq'] += 1; return f'01JMQCK{p.upper()[:1]}{DB["seq"]:018d}'   # 26-char ULID-like
 def preview(tid):
@@ -211,6 +234,21 @@ class H(SimpleHTTPRequestHandler):
         if s.path == '/v1/models':
             if s.auth(): s.j(200, {"data": [{"id": "mlx-community/Qwen3-30B-A3B-4bit"}]})
             return
+        mres = re.fullmatch(r'/v1/threads/([^/]+)/messages/([^/]+)/stream', urlparse(s.path).path)
+        if mres:
+            if not s.auth(): return
+            tid, mid = mres.groups(); m = DB['messages'].get(mid); q = parse_qs(urlparse(s.path).query)
+            STATE.setdefault('resumes', []).append({'mid': mid, 'lei': s.headers.get('Last-Event-ID'), 'xer': s.headers.get('X-Eve-Request')})
+            if PRO.get('resume404') or not m or m['thread_id'] != tid or m['role'] != 'assistant': return s.j(404, err('not_found'))
+            after = int(s.headers.get('Last-Event-ID') or (q.get('after') or ['0'])[0])
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if STATE.get('snapOnly') or mid not in GEN:
+                    while m['status'] == 'generating': time.sleep(0.1)   # (test simplification: snapshot of the final row)
+                    s.wfile.write(('event: eve.snapshot\ndata: ' + json.dumps(m) + '\n\ndata: [DONE]\n\n').encode()); return
+                s.gen_stream(mid, after)
+            except OSError: pass
+            return
         if s.threads_api('GET'): return
         if s.path.startswith('/ui'): s.path = s.path[3:] or '/'; s._csp = bool(STATE.get('csp'))
         else: s.send_response(404); s.end_headers(); return
@@ -289,6 +327,26 @@ class H(SimpleHTTPRequestHandler):
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return
+        if last.startswith('detach') and th:   # new server (gateway 3.1.0): row first, eve.meta, id: seq, survives disconnect
+            am = s.save_asst(th, rep, '', '', 'generating'); am.pop('error_code', None); mid = am['id']
+            GEN[mid] = {'ev': [(1, 'eve.meta', {"thread_id": th['id'], "message_id": mid})], 'done': False}
+            STATE['genStarts'] = STATE.get('genStarts', 0) + 1
+            gen_run(mid, 'err' if last.startswith('detacherr') else 'ok')
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.send_header('X-Thread-Id', th['id']); s.send_header('X-Message-Id', mid)
+            if um: s.send_header('X-User-Message-Id', um['id'])
+            s.end_headers()
+            try: s.gen_stream(mid, 0, cut=4 if last.startswith('detachcut') else None)
+            except (BrokenPipeError, ConnectionResetError, OSError): pass
+            return
+        if last.startswith('oldcut') and th:   # old server: no eve.meta; reply saved, connection dies mid-stream
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                s.ev({"choices": [{"delta": {"content": "old "}}]}); time.sleep(0.6)
+                s.save_asst(th, rep, 'old server full reply', '')
+                s.close_connection = True; s.connection.shutdown(2)
+            except OSError: pass
+            return
         if last.startswith('slownostream'):
             for _ in range(60):
                 time.sleep(0.1)
@@ -340,6 +398,16 @@ class H(SimpleHTTPRequestHandler):
             s.wfile.write(b'data: [DONE]\n\n')
         except (BrokenPipeError, ConnectionResetError):
             if th: s.save_asst(th, rep, ''.join(acc), ''.join(rs), 'incomplete', 'client_disconnected')
+    def gen_stream(s, mid, after, cut=None):
+        g = GEN[mid]; i = after; sent = 0
+        while True:
+            with LOCK: evs = [e for e in g['ev'] if e[0] > i]
+            for seq, event, obj in evs:
+                data = obj if obj == '[DONE]' else json.dumps(obj)
+                s.wfile.write(((f'id: {seq}\n') + (f'event: {event}\n' if event else '') + f'data: {data}\n\n').encode()); s.wfile.flush(); i = seq; sent += 1
+                if obj == '[DONE]': return
+                if cut and sent >= cut: time.sleep(0.6); s.close_connection = True; s.connection.shutdown(2); return
+            s.wfile.write(b': keepalive\n\n'); s.wfile.flush(); time.sleep(0.1)
     def save_asst(s, th, rep, text, reasoning, status='complete', reason=None):
         extra = {'metadata': {'incomplete': True, 'reason': reason}} if status == 'incomplete' else {}
         with LOCK:

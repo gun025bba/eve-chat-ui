@@ -10,8 +10,9 @@ function createSSEParser(onData) {
       while ((idx = buf.search(/\r?\n\r?\n/)) !== -1) {
         const block = buf.slice(0, idx);
         buf = buf.slice(idx).replace(/^\r?\n\r?\n/, '');
-        const data = block.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n');
-        if (data) onData(data);
+        const lines = block.split(/\r?\n/), field = k => { const l = lines.filter(x => x.startsWith(k + ':')).pop(); return l == null ? null : l.slice(k.length + 1).replace(/^ /, ''); };
+        const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n');   // ": keepalive" comments carry no data
+        if (data) onData(data, field('event'), field('id'));
       }
     },
     flush() { if (buf.trim()) { const b = buf; buf = ''; this.push(b + '\n\n'); } }
@@ -277,7 +278,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
-    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', created: toMs(m.created_at) };
+    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
@@ -328,6 +329,9 @@ if (typeof document !== 'undefined') (function () {
     try {
       const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=50`);
       c.messages = (j.data || []).filter(m => m.role !== 'system').map(fromServerMsg); c.hasMore = !!j.has_more; c.loaded = true; persist();
+      if (c.messages.some(m => m.status === 'generating')) {   // §3.8: reopened mid-generation → partial content, re-poll with backoff
+        c._gen = (c._gen || 0) + 1; if (c._gen < 40) setTimeout(() => { if (!controller) { c.loaded = false; ensureMessages(c); } }, Math.min(8000, 1000 * 2 ** Math.min(c._gen, 3)));
+      } else c._gen = 0;
     } catch (e) { if (!c.messages.length && c === cur()) showToast('대화를 불러오지 못했어요', '다시 시도', () => ensureMessages(c), 4000); }
     finally { c.loading = false; if (c === cur()) renderMessages(); }
   }
@@ -644,7 +648,7 @@ if (typeof document !== 'undefined') (function () {
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
-    if (live && bubble._live && !opts.slow && patchLive(bubble, think, answer, live && thinking)) return;
+    if (live && bubble._live && !opts.slow && !opts.resuming && patchLive(bubble, think, answer, live && thinking)) return;
     const prev = bubble.querySelector('details.think');
     let html = '';
     if (think !== null) {
@@ -668,7 +672,10 @@ if (typeof document !== 'undefined') (function () {
     bubble._tailHtml = null;
     const msg = bubble.parentElement;
     msg.querySelector('.actions')?.remove(); msg.querySelector('.stopped')?.remove();
+    msg.querySelector('.msg-note')?.remove();
     if (!live && (opts.stopped || opts.msg?.status === 'incomplete')) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
+    else if (!live && opts.msg?.status === 'failed') { const st = document.createElement('div'); st.className = 'stopped msg-note failed'; st.setAttribute('role', 'note'); st.textContent = failText(opts.msg.errorCode); msg.appendChild(st); }
+    else if (opts.msg?.status === 'generating' || opts.resuming) { const st = document.createElement('div'); st.className = 'stopped msg-note resuming'; st.setAttribute('role', 'status'); st.textContent = RESUMING; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
       const m = opts.msg, fbOk = !!m && (mode === 'server' ? !!m.id : true);
@@ -859,6 +866,12 @@ if (typeof document !== 'undefined') (function () {
     if (status === 404) return '엔드포인트를 찾을 수 없습니다 (404). Base URL을 확인하세요.';
     return `서버 오류 ${status}${code ? ' ' + code : ''}: ${m}`;
   }
+  // 1.1.2 (contract §3.8): failed message error_code → friendly text; unknown → generic
+  const FAIL_TEXT = { upstream_error: '모델 서버에 문제가 생겨 답변을 끝내지 못했어요', upstream_timeout: '모델 서버 응답이 늦어 답변을 끝내지 못했어요', timeout: '답변이 너무 오래 걸려 중단됐어요',
+    queue_full: '지금 요청이 많아 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요', queue_timeout: '기다리는 시간이 길어 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요',
+    gateway_restart: '서버가 다시 시작돼 답변이 중단됐어요', internal_error: '서버 오류로 답변을 끝내지 못했어요' };
+  const failText = code => FAIL_TEXT[code] || '답변을 끝내지 못했어요';
+  const RESUMING = '답변 불러오는 중';
   function clearErrors() { box.querySelectorAll('.msg.error').forEach(e => e.remove()); }
   function addError(text, retry) {
     const b = addMsgEl('error');
@@ -934,6 +947,80 @@ if (typeof document !== 'undefined') (function () {
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
     let wsReq = ws;
+    let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
+    const onVis = () => { if (document.hidden) wentHidden = true; };
+    document.addEventListener('visibilitychange', onVis);
+    const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
+      acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage;
+      const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
+      if (m.status === 'failed') streamErr = { code: m.error_code || 'internal_error', failed: true };
+    };
+    const onEvent = (data, ev, id) => {
+      if (id != null && /^\d+$/.test(id)) seq = Math.max(seq, +id);
+      if (data.trim() === '[DONE]') { done = true; return; }
+      let j; try { j = JSON.parse(data); } catch { return; }
+      if (ev === 'eve.meta') { if (j.message_id) mid = j.message_id; ids(j); return; }
+      if (ev === 'eve.snapshot') { applyMsg(j); if (j.status !== 'generating') done = true; paint(); return; }
+      if (j.error) { streamErr = j.error; return; }
+      if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
+      if (j.object === 'chat.completion.tool_call') {
+        const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
+        setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
+      }
+      if (j.object === 'chat.completion.tool_result') {
+        if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; }
+        setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
+      }
+      if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
+      if (j.object === 'chat.completion.action_result') { PRO?.actionResult(j); return; }
+      if (j.object === 'chat.completion.sources') { if (Array.isArray(j.sources)) { sources = j.sources; bubble._sources = sources; } return; }
+      ids(j);
+      if (j.usage) usage = j.usage;
+      const d = j.choices?.[0]?.delta || {};
+      const r = d.reasoning ?? d.reasoning_content;
+      if (r) { markThink(); reasoning += r; }
+      if (d.content) {
+        acc += d.content;
+        if (acc.includes('<think>')) markThink();
+        if (reasoning || acc.includes('</think>')) endThink();
+      }
+      paint();
+    };
+    async function consume(res) {   // read one SSE response into the shared state; throws on network loss
+      const reader = res.body.getReader(); const dec = new TextDecoder(); const parser = createSSEParser(onEvent);
+      const onAbort = () => { try { reader.cancel(); } catch {} };
+      ctl.signal.addEventListener('abort', onAbort, { once: true });
+      try { while (!done) { const { value, done: rd } = await reader.read(); if (rd) break; parser.push(dec.decode(value, { stream: true })); } parser.flush(); }
+      finally { ctl.signal.removeEventListener('abort', onAbort); }
+      if (!done) try { reader.cancel(); } catch {}
+    }
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const untilVisible = () => document.hidden ? new Promise(r => { const f = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', f); removeEventListener('pageshow', f); r(); }; document.addEventListener('visibilitychange', f); addEventListener('pageshow', f); }) : null;
+    async function recover() {   // stream lost (e.g. iOS killed fetch in background): resume → poll → give up
+      const showResuming = () => { fillAssistant(bubble, view(), { live: true, resuming: true }); };
+      showResuming(); await untilVisible(); showResuming();
+      const tid = c.id, deadline = Date.now() + 5 * 60e3;
+      for (let k = 0; k < 3 && !ctl.signal.aborted; k++) {   // 1) GET .../stream with Last-Event-ID (replay + live, or eve.snapshot)
+        if (k) await sleep(800 * k);
+        try {
+          const r = await fetch(apiBase() + `/v1/threads/${encodeURIComponent(tid)}/messages/${encodeURIComponent(mid)}/stream`, { cache: 'no-store', signal: ctl.signal, headers: { ...headers(), 'Last-Event-ID': String(seq) } });
+          if (!r.ok || !r.body) break;
+          await consume(r); if (done) return true;
+        } catch (e) { if (ctl.signal.aborted) throw e; }
+      }
+      for (let k = 0; Date.now() < deadline && !ctl.signal.aborted; k++) {   // 2) poll the messages list (partial content while generating)
+        if (k) await sleep(Math.min(8000, 1000 * 2 ** Math.min(k, 3)));
+        if (document.hidden) await untilVisible();
+        try {
+          const j = await api(`/v1/threads/${encodeURIComponent(tid)}/messages?limit=10`);
+          const m = (j.data || []).find(x => x.id === mid); if (!m) continue;
+          applyMsg(m);
+          if ((m.status || 'complete') !== 'generating') { done = true; return true; }
+          showResuming();
+        } catch (e) { if (e.http === 404) return false; }
+      }
+      return false;
+    }
     try {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
         method: 'POST', headers: headers('POST'), signal: ctl.signal,
@@ -959,47 +1046,28 @@ if (typeof document !== 'undefined') (function () {
         ids({ thread_id: j.thread_id || h('X-Thread-Id'), user_message_id: h('X-User-Message-Id') });
         if (j.message_id || h('X-Message-Id')) persisted = { message_id: j.message_id || h('X-Message-Id') };
       } else {
-        const reader = res.body.getReader(); const dec = new TextDecoder(); let done = false;
-        const parser = createSSEParser(data => {
-          if (data.trim() === '[DONE]') { done = true; return; }
-          let j; try { j = JSON.parse(data); } catch { return; }
-          if (j.error) { streamErr = j.error; return; }
-          if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; return; }
-          if (j.object === 'chat.completion.tool_call') {
-            const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
-            setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
-          }
-          if (j.object === 'chat.completion.tool_result') {
-            if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; }
-            setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
-          }
-          if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
-          if (j.object === 'chat.completion.action_result') { PRO?.actionResult(j); return; }
-          if (j.object === 'chat.completion.sources') { if (Array.isArray(j.sources)) { sources = j.sources; bubble._sources = sources; } return; }
-          ids(j);
-          if (j.usage) usage = j.usage;
-          const d = j.choices?.[0]?.delta || {};
-          const r = d.reasoning ?? d.reasoning_content;
-          if (r) { markThink(); reasoning += r; }
-          if (d.content) {
-            acc += d.content;
-            if (acc.includes('<think>')) markThink();
-            if (reasoning || acc.includes('</think>')) endThink();
-          }
-          paint();
-        });
-        const onAbort = () => { try { reader.cancel(); } catch {} };
-        ctl.signal.addEventListener('abort', onAbort, { once: true });
-        while (!done) { const { value, done: rd } = await reader.read(); if (rd) break; parser.push(dec.decode(value, { stream: true })); }
-        ctl.signal.removeEventListener('abort', onAbort);
+        if (res.headers.get('X-Message-Id')) mid = res.headers.get('X-Message-Id');   // fallback when eve.meta is missing/late
+        await consume(res);
+        if (!done && !ctl.signal.aborted && mode === 'server' && (mid || wentHidden || document.hidden)) throw new Error('stream ended early');   // cut without [DONE] → resume / reload
         if (ctl.signal.aborted && !persisted) stopped = true;
-        parser.flush();
-        if (!done) try { reader.cancel(); } catch {}
       }
-    } catch (e) {
-      finish();
-      if (e.name === 'AbortError' || ctl.signal.aborted) { stopped = true; }
+    } catch (e0) {
+      let e = e0;
+      if (!(e.name === 'AbortError' || ctl.signal.aborted) && !e.http && mode === 'server') {
+        const bg = wentHidden || document.hidden || /load failed/i.test(e.message || '');
+        if (mid) { let rec = false; try { rec = await recover(); } catch {} if (rec) e = null; }
+        else if (bg && c.srv) {   // old server (no eve.meta): wait for foreground, reload the thread
+          await untilVisible(); finish(); document.removeEventListener('visibilitychange', onVis);
+          bubble.parentElement.remove(); c.loaded = false; await ensureMessages(c);
+          if (c.messages.at(-1)?.role === 'assistant') return;
+          addError(`네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`, retry); return;
+        }
+      }
+      if (e) finish();
+      if (!e) { /* recovered: fall through to the normal ending */ }
+      else if (e.name === 'AbortError' || ctl.signal.aborted) { stopped = true; }
       else {
+        document.removeEventListener('visibilitychange', onVis);
         if (acc || reasoning) { fillAssistant(bubble, full(), { actions: false }); c.messages.push({ role: 'assistant', content: full() }); persist(); }
         else bubble.parentElement.remove();
         const m = e.http ? e.message : `네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`;
@@ -1007,7 +1075,8 @@ if (typeof document !== 'undefined') (function () {
         return;
       }
     }
-    finish(); endThink();
+    finish(); endThink(); document.removeEventListener('visibilitychange', onVis);
+    if (mid && !persisted) persisted = { message_id: mid };
     const final = full();
     if (stopped) {
       if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
@@ -1019,9 +1088,10 @@ if (typeof document !== 'undefined') (function () {
       if (stick) scrollBottom();
       return;
     }
-    if (streamErr) {
-      if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs }); c.messages.push({ role: 'assistant', content: final }); persist(); } else bubble.parentElement.remove();
-      addError(`스트리밍 중 오류: ${streamErr.message || streamErr.code || '알 수 없음'}${streamErr.code ? ' (' + streamErr.code + ')' : ''}`, final ? null : retry);
+    if (streamErr) {   // §3.8: error event inside a 200 stream / failed status → failed message
+      const fm = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code || null, created: Date.now() }; if (persisted?.message_id) fm.id = persisted.message_id;
+      if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs, msg: fm }); c.messages.push(fm); persist(); } else bubble.parentElement.remove();
+      addError(failText(streamErr.code), final ? null : retry);
       return;
     }
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
@@ -1596,7 +1666,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.1'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.1.2'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
