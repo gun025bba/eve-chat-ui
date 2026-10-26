@@ -14,3 +14,11 @@ build/
 *.safetensors
 *.bin
 .DS_Store
+
+# e2e tests
+tests/v/
+tests/shot.png
+tests/shots/
+tests/bak/
+tests/*.bak.js
+*.log
