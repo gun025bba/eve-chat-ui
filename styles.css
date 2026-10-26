@@ -577,3 +577,34 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 /* v15 streaming: no entry/fade animations on live content (stops per-frame flicker) */
 .md.cursor .stable>*,.md.cursor .tail>*,.md.cursor .fresh{animation:none}
 #messages{overflow-anchor:none}
+/* v17 feedback reasons: inline panel under the action row */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.actions .fb-why{height:30px;min-width:44px;padding:0 8px;border-radius:15px;font-size:13px;font-weight:500;color:var(--label-2);position:relative}
+.actions .fb-why::before{content:"";position:absolute;inset:-7px 0}
+.actions .fb-why:active{background:var(--fill)}
+.fbp{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows 260ms cubic-bezier(.32,.72,0,1),opacity 260ms cubic-bezier(.32,.72,0,1)}
+.fbp.open{grid-template-rows:1fr;opacity:1}
+.fbp>.fbp-in{min-height:0;overflow:hidden;padding:0 2px}
+.fbp-hint{margin:8px 0 10px;font-size:13px;line-height:18px;color:var(--label-2)}
+.fbp-chips{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0}
+.fbchip{--chip-bg:#1C1C1E;--chip-bd:#2C2C2E;--chip-fg:rgba(235,235,245,.8);--chip-on-bg:rgba(10,132,255,.18);--chip-on-bd:rgba(10,132,255,.5);--chip-on-fg:#0A84FF;
+  position:relative;display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:5px 14px;border-radius:16px;background:var(--chip-bg);border:1px solid var(--chip-bd);
+  color:var(--chip-fg);font-size:15px;line-height:20px;font-weight:500;text-align:left;transition:transform 120ms var(--ease-out),background-color 120ms,border-color 120ms,color 120ms}
+.fbchip::before{content:"";position:absolute;left:0;right:0;top:-6px;bottom:-6px;min-width:44px}
+.fbchip svg{display:none;width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.4}
+.fbchip[aria-pressed=true]{background:var(--chip-on-bg);border-color:var(--chip-on-bd);color:var(--chip-on-fg)}
+.fbchip[aria-pressed=true] svg{display:block}
+.fbchip:active{transform:scale(.96)}
+.fbchip:focus-visible,.fbp-done:focus-visible,.fbp-memo:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-color-scheme:light){.fbchip{--chip-bg:#F2F2F7;--chip-bd:#E5E5EA;--chip-fg:rgba(60,60,67,.85);--chip-on-bg:rgba(0,122,255,.12);--chip-on-bd:rgba(0,122,255,.5);--chip-on-fg:#007AFF}}
+.fbp-note{position:relative;margin-top:8px}
+.fbp-input{width:100%;height:40px;padding:0 44px 0 12px;border-radius:10px;border:1px solid var(--separator);background:var(--bg-elev);color:var(--label);font:inherit;font-size:16px}
+.fbp-count{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--label-2)}
+.fbp-foot{display:flex;justify-content:space-between;align-items:center;min-height:44px}
+.fbp-memo{font-size:15px;padding:0;min-height:44px}
+.fbp-done{min-height:44px;min-width:44px;padding:0 4px;font-size:15px;font-weight:600;color:var(--label-2)}
+.fbp-done.primary-text{color:var(--accent)}
+.fb-thanks{font-size:13px;line-height:18px;color:var(--label-2);padding:6px 2px;transition:opacity 300ms}
+.fb-thanks.out{opacity:0}
+@media (prefers-reduced-motion:reduce){.fbp,.fbp.open{grid-template-rows:1fr;transition:opacity 260ms linear}.fbp.closing{grid-template-rows:1fr}.fbchip{transition:none}.fbchip:active{transform:none}}
+.actions .fb-why[hidden]{display:none}

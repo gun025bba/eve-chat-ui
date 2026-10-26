@@ -24,7 +24,7 @@ with sync_playwright() as p:
     if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(400)
     btn = pg.locator('#webBtn')
     af = pg.evaluate(r"""(()=>{const bad=/name|address|contact|e-?mail|phone|tel|street|city|zip|postal|이름|주소|연락|전화/i;
-      const out={}; for (const sel of ['#input','#search','#titleEdit','#fbText','#sSystem']) { const e=document.querySelector(sel);
+      const out={}; for (const sel of ['#input','#search','#titleEdit','#sSystem']) { const e=document.querySelector(sel);
         const words=[e.id,e.name,e.placeholder,e.getAttribute('aria-label'),e.className].join(' ');
         out[sel]={ok:e.getAttribute('autocomplete')==='off'&&e.hasAttribute('data-1p-ignore')&&e.dataset.lpignore==='true'&&e.dataset.formType==='other'&&!bad.test(words),words}; }
       const t=document.querySelector('#input'), f=document.querySelector('#composer');

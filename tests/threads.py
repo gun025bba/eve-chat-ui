@@ -44,10 +44,10 @@ with sync_playwright() as p:
     check('thumbs up saved', (am.get('feedback') or {}).get('rating')=='up', str(am.get('feedback')))
     check('aria-pressed up', up.get_attribute('aria-pressed')=='true')
     pg.locator('.msg.assistant .fb.down').last.click(); pg.wait_for_timeout(500)
-    check('down opens reason sheet', pg.is_visible('#fbSheet'))
-    pg.locator('#fbChips button').first.click(); pg.click('#fbSend'); pg.wait_for_timeout(700)
+    check('down opens inline reason panel', pg.locator('.msg.assistant .fbp').last.is_visible())
+    pg.locator('.msg.assistant .fbp .fbchip').first.click(); pg.locator('.msg.assistant .fbp-done').last.click(); pg.wait_for_timeout(700)
     am=[m for m in db()['messages'] if m['thread_id']==cid and m['role']=='assistant'][0]
-    check('down with comment', (am.get('feedback') or {}).get('rating')=='down' and (am['feedback'].get('comment') or ''), str(am.get('feedback')))
+    check('down with reason', (am.get('feedback') or {}).get('rating')=='down' and am['feedback'].get('reasons')==['wrong_info'], str(am.get('feedback')))
     # rollback on 400
     req('PUT','/fail/400?feedback'); pg.locator('.msg.assistant .fb.up').last.click(); pg.wait_for_timeout(900)
     check('feedback rollback on 4xx', pg.locator('.msg.assistant .fb.down').last.get_attribute('aria-pressed')=='true')
@@ -100,7 +100,7 @@ with sync_playwright() as p:
     check('retry -> done', m.get_attribute('#migrateSheet','data-view')=='done')
     imp=[t for t in db()['threads'] if t.get('client_id','').startswith('local:')]; check('7 imported', len(imp)==7, str(len(imp)))
     check('backup kept', m.evaluate("!!localStorage.getItem('llmchat.convs.bak')"))
-    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-v16'))"); check('sw v16', sw)
+    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-v17'))"); check('sw v17', sw)
     check('no page errors', not errs, str(errs[:3]))
     b.close()
 print('RESULT:', 'ALL PASS' if all(R) else f'{R.count(False)} FAIL')

@@ -98,7 +98,15 @@ class H(SimpleHTTPRequestHandler):
                 if method == 'PUT':
                     b = s.body()
                     if b.get('rating') not in ('up', 'down'): return s.j(400, err('bad_request')) or True
-                    old = msg.get('feedback') or {}; msg['feedback'] = {'message_id': msg['id'], 'rating': b['rating'], 'comment': b.get('comment'), 'created_at': old.get('created_at') or now(), 'updated_at': now()}; return s.j(200, msg['feedback']) or True
+                    STATE.setdefault('fbBodies', []).append(b)
+                    allowed = {'down': ['wrong_info', 'too_long', 'misunderstood', 'over_refusal', 'bad_source', 'other'], 'up': ['accurate', 'concise', 'helpful', 'good_source']}[b['rating']]
+                    rs = b.get('reasons', [])
+                    if not isinstance(rs, list) or any(r not in allowed for r in rs) or STATE.get('rejectReasons') and rs: return s.j(400, err('invalid_feedback_reason')) or True
+                    cm = b.get('comment')
+                    if cm is not None and not isinstance(cm, str): return s.j(400, err('bad_request')) or True
+                    if len((cm or '').strip()) > (139 if STATE.get('rejectComment') else 140): return s.j(400, err('feedback_comment_too_long')) or True
+                    cm = (cm or '').strip() or None
+                    old = msg.get('feedback') or {}; msg['feedback'] = {'message_id': msg['id'], 'rating': b['rating'], 'reasons': list(dict.fromkeys(rs)), 'comment': cm, 'created_at': old.get('created_at') or now(), 'updated_at': now()}; return s.j(200, msg['feedback']) or True
                 if method == 'DELETE': msg.pop('feedback', None); return s.j(204, None) or True
             if path == '/v1/search':
                 term = q.get('q', ''); out = []
@@ -229,11 +237,13 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/auth/'): STATE['authed'] = p.endswith('/on')
         if p.startswith('/deny/'): STATE['denied'] = p.endswith('/on')
         if p.startswith('/csp/'): STATE['csp'] = p.endswith('/on')
+        if p.startswith('/rejectcomment/'): STATE['rejectComment'] = p.endswith('/on')
+        if p.startswith('/rejectreasons/'): STATE['rejectReasons'] = p.endswith('/on')
         if p.startswith('/persist/'): STATE['persist'] = p.endswith('/on')
         if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False
         if p == '/db/reset':
-            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(fail={}, calls=[], importfix=False)
+            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
         if p.startswith('/fail/'):   # /fail/<code>?<regex>
             code, _, pat = p[6:].partition('?'); 
             if code == 'clear': STATE['fail'] = {}

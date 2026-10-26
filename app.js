@@ -264,7 +264,7 @@ if (typeof document !== 'undefined') (function () {
   const pinSet = () => new Set(load(LS.pins, []));
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
-    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, status: m.status || 'complete', created: toMs(m.created_at) };
+    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
@@ -341,7 +341,7 @@ if (typeof document !== 'undefined') (function () {
   function scheduleOutbox(ms) { clearTimeout(obTimer); obTimer = setTimeout(flushOutbox, ms); }
   async function runOp(o) {
     const p = o.payload, id = encodeURIComponent(p.id);
-    if (o.op === 'feedback') return p.rating ? api(`/v1/messages/${id}/feedback`, { method: 'PUT', body: JSON.stringify(p.comment ? { rating: p.rating, comment: p.comment } : { rating: p.rating }) }) : api(`/v1/messages/${id}/feedback`, { method: 'DELETE' });
+    if (o.op === 'feedback') return p.rating ? api(`/v1/messages/${id}/feedback`, { method: 'PUT', body: JSON.stringify({ rating: p.rating, reasons: p.reasons || [], comment: p.comment || '' }) }) : api(`/v1/messages/${id}/feedback`, { method: 'DELETE' });
     if (o.op === 'patch') return api(`/v1/threads/${id}`, { method: 'PATCH', body: JSON.stringify(p.patch) });
     if (o.op === 'archive') return api(`/v1/threads/${id}`, { method: 'DELETE' });
   }
@@ -353,6 +353,8 @@ if (typeof document !== 'undefined') (function () {
         try { await runOp(o); outbox = outbox.filter(x => x !== o); }
         catch (e) {
           if (isNet(e) || e.http >= 500 || e.http === 429) { o.tries++; o.nextAt = Date.now() + Math.min(60, 2 ** o.tries) * 1000; }
+          else if (o.op === 'feedback' && e.code === 'feedback_comment_too_long' && o.payload.comment) { o.payload = { ...o.payload, comment: o.payload.comment.trim().slice(0, 139) }; o.tries = 0; o.nextAt = 0; }
+          else if (o.op === 'feedback' && e.code === 'invalid_feedback_reason' && o.payload.reasons?.length) { o.payload = { ...o.payload, reasons: [] }; o.tries = 0; o.nextAt = 0; fbReasonRejected(o.payload.id); }
           else { outbox = outbox.filter(x => x !== o); obFailed++; o.onFail?.(); }
         }
       }
@@ -366,7 +368,8 @@ if (typeof document !== 'undefined') (function () {
     try { await runOp({ op, payload }); outbox = outbox.filter(o => o.key !== key); saveOutbox(); renderSync(); }
     catch (e) {
       if (isNet(e) || e.http >= 500 || e.http === 429) return enqueue(op, key, payload);
-      rollback?.(); showToast(failText || '저장하지 못했어요', '다시 시도', () => write(op, key, payload, rollback, failText), 4000);
+      if (rollback?.(e) === 'handled') return;
+      showToast(failText || '저장하지 못했어요', '다시 시도', () => write(op, key, payload, rollback, failText), 4000);
     }
   }
   setInterval(() => { if (outbox.length) flushOutbox(); }, 30000);
@@ -649,11 +652,11 @@ if (typeof document !== 'undefined') (function () {
     if (!live && (opts.stopped || opts.msg?.status === 'incomplete')) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
-      const m = opts.msg, fbOk = mode === 'server' && m && m.id;
-      a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}${fbOk ? `<button type="button" class="fb up" aria-label="좋아요" aria-pressed="false">${ICON.up}</button><button type="button" class="fb down" aria-label="별로예요" aria-pressed="false">${ICON.down}</button>` : ''}${opts.usage ? `<span class="usage">${escapeHtml(opts.usage)}</span>` : ''}`;
+      const m = opts.msg, fbOk = !!m && (mode === 'server' ? !!m.id : true);
+      a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}${fbOk ? `<button type="button" class="fb up" aria-label="좋아요" aria-pressed="false">${ICON.up}</button><button type="button" class="fb down" aria-label="별로예요" aria-pressed="false">${ICON.down}</button><button type="button" class="fb-why" hidden></button>` : ''}${opts.usage ? `<span class="usage">${escapeHtml(opts.usage)}</span>` : ''}`;
       a.querySelector('.c').onclick = e => copyText(e.currentTarget, answer.trim());
       a.querySelector('.r')?.addEventListener('click', regenerate);
-      if (fbOk) { paintFb(a, m.feedback); a.querySelectorAll('.fb').forEach(b => b.onclick = () => setFeedback(m, b.classList.contains('up') ? 'up' : 'down', a, b)); }
+      if (fbOk) { paintFb(a, m.feedback, m); a.querySelectorAll('.fb').forEach(b => b.onclick = () => setFeedback(m, b.classList.contains('up') ? 'up' : 'down', a, b)); a.querySelector('.fb-why').onclick = () => openFbPanel(m, a); }
       msg.appendChild(a);
     }
   }
@@ -668,34 +671,117 @@ if (typeof document !== 'undefined') (function () {
     const b = e.target.closest('.code-head .copy'); if (!b) return;
     copyText(b, b.closest('.codeblock').querySelector('code').textContent, true);
   });
-  /* ---------- feedback 👍/👎 (THREADS-SPEC §3) ---------- */
-  function paintFb(a, rating) {
+  /* ---------- feedback 👍/👎 + reasons (THREADS-SPEC §3, feedback-reasons spec v17) ---------- */
+  const FB_CHIPS = {
+    down: [['wrong_info', '정보가 틀려요'], ['too_long', '너무 길어요'], ['misunderstood', '질문을 잘못 이해했어요'], ['over_refusal', '거절이 과해요'], ['bad_source', '출처가 이상해요'], ['other', '기타']],
+    up: [['accurate', '정확해요'], ['concise', '간결해요'], ['helpful', '유용해요'], ['good_source', '출처가 좋아요']] };
+  const FB_MAX = 140;
+  const fbLive = t => { const el = $('#fbLive'); if (!el) return; el.textContent = ''; setTimeout(() => { el.textContent = t; }, 30); };
+  function paintFb(a, rating, m) {
     a.querySelectorAll('.fb').forEach(b => { const on = b.classList.contains(rating === 'up' ? 'up' : 'down') && !!rating; b.setAttribute('aria-pressed', String(on)); b.classList.toggle('on', on); b.classList.toggle('dim', !!rating && !on); });
+    const why = a.querySelector('.fb-why'); if (!why) return;
+    const n = (m?.fbReasons?.length || 0) + (m?.fbComment ? 1 : 0);
+    why.hidden = !rating || !!a.parentElement?.querySelector('.fbp:not(.closing)');
+    why.textContent = n ? `사유 ${n}` : '사유';
+    why.setAttribute('aria-label', n ? `피드백 사유 ${n}개 수정` : '피드백 사유 고르기');
   }
-  function setFeedback(m, rating, a, btn, comment) {
-    const prev = m.feedback, next = comment ? rating : (prev === rating ? null : rating);
-    m.feedback = next; persist(); paintFb(a, next); buzz(8);
+  const fbPayload = m => ({ id: m.id, rating: m.feedback, reasons: m.feedback ? [...(m.fbReasons || [])] : [], comment: m.feedback ? (m.fbComment || '') : '' });
+  // full-replacement save of {rating, reasons, comment}; local-only mode just persists on the device
+  function saveFb(m, a, rollbackTo) {
+    persist();
+    if (mode !== 'server') return Promise.resolve();
+    return write('feedback', 'fb:' + m.id, fbPayload(m), e => {
+      if (e?.code === 'invalid_feedback_reason' && m.feedback) {   // keep the rating, drop the rejected reasons
+        m.fbReasons = []; persist(); if (a.isConnected) paintFb(a, m.feedback, m);
+        write('feedback', 'fb:' + m.id, fbPayload(m)); showToast('사유를 저장하지 못했어요. 평가는 저장됐어요', '', null, 2400); return 'handled';
+      }
+      if (e?.code === 'feedback_comment_too_long' && m.feedback) {   // keep rating+reasons, trim note to the limit and resend
+        m.fbComment = (m.fbComment || '').trim().slice(0, FB_MAX - 1); persist();
+        write('feedback', 'fb:' + m.id, fbPayload(m)); showToast('메모가 너무 길어 줄여서 저장했어요', '', null, 2400); return 'handled';
+      }
+      Object.assign(m, rollbackTo); persist(); if (a.isConnected) { paintFb(a, m.feedback, m); a.querySelector('.fb.' + (rollbackTo.feedback || 'up'))?.classList.add('err'); closeFbPanel(a, false); }
+    }, '피드백을 저장하지 못했어요');
+  }
+  function fbReasonRejected(id) {   // outbox replay got 400 invalid_feedback_reason
+    for (const c of convs) for (const m of c.messages || []) if (m.id === id) { m.fbReasons = []; persist(); }
+    showToast('사유를 저장하지 못했어요. 평가는 저장됐어요', '', null, 2400);
+  }
+  function setFeedback(m, rating, a, btn) {
+    const prev = { feedback: m.feedback, fbReasons: m.fbReasons || [], fbComment: m.fbComment || '' };
+    const next = prev.feedback === rating ? null : rating;
+    m.feedback = next; if (next !== prev.feedback) { m.fbReasons = []; m.fbComment = ''; }
+    paintFb(a, next, m); buzz(8);
     if (next) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+    a.querySelectorAll('.fb').forEach(b => b.classList.remove('err'));
     btn.classList.add('sending');
-    const payload = { id: m.id, rating: next }; if (comment) payload.comment = comment;
-    write('feedback', 'fb:' + m.id, payload, () => { m.feedback = prev; persist(); if (a.isConnected) { paintFb(a, prev); btn.classList.add('err'); } }, '피드백을 저장하지 못했어요')
-      .finally(() => btn.classList.remove('sending'));
-    if (next === 'down' && !comment) setTimeout(() => openFbSheet(m, a, btn), 300);
+    Promise.resolve(saveFb(m, a, prev)).finally(() => btn.classList.remove('sending'));   // rating saves now, never waits for chips
+    if (next) { openFbPanel(m, a); fbLive('피드백을 저장했어요. 사유를 고를 수 있어요'); } else closeFbPanel(a, false);
   }
-  const FB_REASONS = ['사실과 달라요', '질문을 잘못 이해했어요', '너무 길어요', '너무 짧아요', '코드가 동작하지 않아요', '기타'];
-  function openFbSheet(m, a, btn) {
-    const today = new Date().toDateString(), sk = load(LS.fbSkip, {});
-    if (sk.d === today && sk.n >= 3) return;
-    const sh = $('#fbSheet'), chips = $('#fbChips'), ta = $('#fbText'), sendB = $('#fbSend');
-    chips.innerHTML = FB_REASONS.map(r => `<button type="button" class="fchip" aria-pressed="false">${r}</button>`).join(''); ta.value = '';
-    const upd = () => { sendB.disabled = !chips.querySelector('[aria-pressed=true]') && !ta.value.trim(); };
-    chips.querySelectorAll('.fchip').forEach(c => c.onclick = () => { c.setAttribute('aria-pressed', String(c.getAttribute('aria-pressed') !== 'true')); upd(); });
-    ta.oninput = upd; upd();
-    sendB.onclick = () => { const reasons = [...chips.querySelectorAll('[aria-pressed=true]')].map(c => c.textContent); const comment = [reasons.join(', '), ta.value.trim()].filter(Boolean).join(' — ');
-      closeMini(sh); if (m.feedback === 'down') setFeedback(m, 'down', a, btn, comment); showToast('피드백 감사합니다', '', null, 1200); };
-    $('#fbSkip').onclick = () => { save(LS.fbSkip, { d: today, n: (sk.d === today ? sk.n : 0) + 1 }); closeMini(sh); };
-    openMini(sh);
+  let fbObserver = null;
+  function openFbPanel(m, a) {
+    const msg = a.parentElement; msg.querySelector('.fbp')?.remove(); msg.querySelector('.fb-thanks')?.remove();
+    const kind = m.feedback; if (!kind) return;
+    const picks = new Set(m.fbReasons || []);
+    const p = document.createElement('div'); p.className = 'fbp'; p._m = m; p._a = a;
+    const hint = kind === 'down' ? '어떤 점이 아쉬웠나요? (선택)' : '어떤 점이 좋았나요? (선택)';
+    const nid = 'fbn' + Math.random().toString(36).slice(2, 8);
+    p.innerHTML = `<div class="fbp-in"><p class="fbp-hint">${hint}</p>
+      <div class="fbp-chips" role="group" aria-label="${kind === 'down' ? '아쉬운 점' : '좋았던 점'}">${FB_CHIPS[kind].map(([k, t]) => `<button type="button" class="fbchip" data-k="${k}" aria-pressed="${picks.has(k)}">${ICON.check}<span>${t}</span></button>`).join('')}</div>
+      <div class="fbp-note" hidden><label for="${nid}" class="sr-only">메모</label><input id="${nid}" class="fbp-input" type="text" maxlength="${FB_MAX}" enterkeyhint="send" autocomplete="off" autocorrect="on" autocapitalize="sentences" data-1p-ignore data-lpignore="true" data-form-type="other" placeholder="한 줄로 남겨 주세요"><span class="fbp-count" aria-live="polite" hidden></span></div>
+      <div class="fbp-foot"><button type="button" class="fbp-memo text-btn">메모 추가</button><button type="button" class="fbp-done"></button></div></div>`;
+    a.insertAdjacentElement('afterend', p);
+    const inp = p.querySelector('.fbp-input'), note = p.querySelector('.fbp-note'), cnt = p.querySelector('.fbp-count'), done = p.querySelector('.fbp-done'), memo = p.querySelector('.fbp-memo');
+    inp.value = m.fbComment || '';
+    const showNote = focus => { note.hidden = false; memo.hidden = true; if (focus) inp.focus({ preventScroll: true }); };
+    if (inp.value) showNote(false);
+    const upd = () => {
+      const any = picks.size > 0 || !!inp.value.trim();
+      done.textContent = any ? '완료' : '건너뛰기'; done.classList.toggle('primary-text', any);
+      const left = FB_MAX - inp.value.length; cnt.hidden = inp.value.length <= 120; cnt.textContent = String(left);
+    };
+    p.querySelectorAll('.fbchip').forEach(c => c.onclick = () => {
+      const k = c.dataset.k, on = !picks.has(k); on ? picks.add(k) : picks.delete(k); c.setAttribute('aria-pressed', String(on));
+      if (k === 'other' && on) showNote(true); p._dirty = true; upd();
+    });
+    memo.onclick = () => showNote(true);
+    inp.oninput = () => { p._dirty = true; upd(); };
+    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); } };
+    p.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); closeFbPanel(a, true); } });
+    const submit = () => {
+      const comment = inp.value.trim().slice(0, FB_MAX), reasons = FB_CHIPS[kind].map(c => c[0]).filter(k => picks.has(k));
+      const prev = { feedback: m.feedback, fbReasons: m.fbReasons || [], fbComment: m.fbComment || '' };
+      const changed = comment !== prev.fbComment || reasons.join() !== prev.fbReasons.join();
+      m.fbReasons = reasons; m.fbComment = comment;
+      p._closing = true; collapse(p);
+      if (changed) saveFb(m, a, prev);
+      paintFb(a, m.feedback, m);
+      if (reasons.length || comment) thanks(a);
+    };
+    p._submit = submit; p._picks = picks; p._inp = inp;
+    done.onclick = submit; upd();
+    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('open')));
+    paintFb(a, m.feedback, m);
+    // auto-skip when scrolled offscreen (after it was seen)
+    if ('IntersectionObserver' in window) {
+      fbObserver ||= new IntersectionObserver(es => es.forEach(en => {
+        const el = en.target; if (en.isIntersecting) { el._seen = true; return; }
+        if (el._seen && !el._closing && document.activeElement !== el._inp && Math.abs(box.scrollTop - el._st) > 40) closeFbPanel(el._a, true);   // only after the user scrolled it away
+      }), { root: box, threshold: 0 });
+      setTimeout(() => { if (p.isConnected && !p._closing) { p._st = box.scrollTop; fbObserver.observe(p); } }, 320);
+    }
   }
+  function collapse(p) { fbObserver?.unobserve(p); p.classList.remove('open'); p.classList.add('closing'); setTimeout(() => p.remove(), 280); }
+  function thanks(a) {
+    const t = document.createElement('div'); t.className = 'fb-thanks'; t.textContent = '고마워요'; a.insertAdjacentElement('afterend', t);
+    fbLive('고마워요'); setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 1500);
+  }
+  // skip=true: auto/explicit skip — still saves chips/note already picked
+  function closeFbPanel(a, skip) {
+    const p = a?.parentElement?.querySelector('.fbp'); if (!p || p._closing) return;
+    if (skip && (p._picks.size || p._inp.value.trim()) && p._dirty) return p._submit();
+    p._closing = true; collapse(p); setTimeout(() => { if (a.isConnected) paintFb(a, p._m.feedback, p._m); }, 290);
+  }
+  function closeAllFbPanels() { box.querySelectorAll('.fbp').forEach(p => closeFbPanel(p._a, true)); }
   function usageText(u, secs) {
     if (!u) return secs ? `${secs}s` : '';
     const ct = u.completion_tokens;
@@ -765,7 +851,7 @@ if (typeof document !== 'undefined') (function () {
     let c = cur();
     if (!c || c.archived) { c = blankConv(); convs.unshift(c); currentId = c.id; }
     if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); $('#title').textContent = c.title; }
-    clearErrors();
+    clearErrors(); closeAllFbPanels();
     box.querySelectorAll('.actions .r').forEach(r => r.remove());
     c.messages.push({ role: 'user', content: text, created: Date.now() });
     c.updated = Date.now(); persist(); renderList();
@@ -920,7 +1006,7 @@ if (typeof document !== 'undefined') (function () {
     const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
-    if (msg.id) { bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
+    if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
     if (stick) scrollBottom();
   }
 
@@ -1343,7 +1429,7 @@ if (typeof document !== 'undefined') (function () {
     sh.style.transition = `transform 300ms ${SHEET_EASE}`; sh.style.transform = 'translateY(110%)';
     setTimeout(() => { sh.hidden = true; sh.style.transition = sh.style.transform = ''; scrim?.remove(); }, 300);
   }
-  ['#renameSheet', '#fbSheet'].forEach(id => sheetDrag($(id), null, () => closeMini($(id))));
+  ['#renameSheet'].forEach(id => sheetDrag($(id), null, () => closeMini($(id))));
   // rename from chat title (THREADS-SPEC §2.3)
   function openRenameSheet(c) {
     if (!c) return; const sh = $('#renameSheet'), inp = $('#titleEdit');
@@ -1480,7 +1566,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v16'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = 'v17'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -1495,5 +1581,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();
