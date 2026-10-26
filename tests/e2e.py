@@ -1,12 +1,12 @@
 from playwright.sync_api import sync_playwright
 import urllib.request
 import json
-def put(path): return json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765'+path,method='PUT')))
+def put(path): return json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''+path,method='PUT')))
 FAIL=[]
 def check(name,ok,info=''):
     print(('PASS ' if ok else 'FAIL ')+name+(' '+str(info) if info and not ok else ''))
     if not ok: FAIL.append(name)
-def last(): return __import__('json').load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765/x',method='PUT')))['last']
+def last(): return __import__('json').load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/x',method='PUT')))['last']
 with sync_playwright() as p:
     b=p.chromium.launch(); pg=b.new_page(viewport={'width':390,'height':844})
     errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
@@ -14,7 +14,7 @@ with sync_playwright() as p:
     put('/auth/on'); put('/reset'); put('/persist/off')   # local-only mode (threads API 503); server mode is covered by threads.py
     # legacy key + old :8000 base override must be wiped on startup
     pg.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);localStorage.setItem('llmchat.settings',JSON.stringify({base:'http://192.0.2.1:8000',key:'oldkey',model:'mlx-community/Qwen3-30B-A3B-4bit'}))}")
-    pg.goto('http://127.0.0.1:8765/ui/'); pg.wait_for_timeout(500)
+    pg.goto('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'); pg.wait_for_timeout(500)
     st=pg.evaluate("JSON.parse(localStorage.getItem('llmchat.settings'))")
     check('legacy key removed', 'key' not in st, st); check('legacy :8000/IP base reset', st.get('base')=='', st)
     check('no onboarding settings sheet on start', not pg.evaluate("document.querySelector('#settings').open"))
@@ -52,7 +52,7 @@ with sync_playwright() as p:
     print('sent last msg:',repr(last()))
     pg.fill('#input','long stop'); pg.click('#sendBtn'); pg.wait_for_timeout(1500); pg.click('#sendBtn'); pg.wait_for_timeout(400)
     print('stop label:',pg.locator('.msg.assistant').last.locator('.stopped').text_content())
-    print('stream_options sent:',__import__('json').load(__import__('urllib.request').request.urlopen(__import__('urllib.request').request.Request('http://127.0.0.1:8765/x',method='PUT'))).get('so'))
+    print('stream_options sent:',__import__('json').load(__import__('urllib.request').request.urlopen(__import__('urllib.request').request.Request('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/x',method='PUT'))).get('so'))
     print('word-break:',pg.evaluate("getComputedStyle(document.body).wordBreak"))
     pg.reload(); pg.wait_for_timeout(300); print('after reload msgs:',pg.locator('.msg').count(),'usage lines:',pg.locator('.usage').count())
     # 401 handling: chat call + whoami retry

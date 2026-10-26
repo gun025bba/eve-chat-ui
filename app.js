@@ -149,6 +149,7 @@ if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThin
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {
   const $ = s => document.querySelector(s);
+  let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
   const ICON = {
     copy: COPY_SVG,
@@ -192,8 +193,9 @@ if (typeof document !== 'undefined') (function () {
   const persist = () => { try { save(mode === 'server' ? LS.srv : LS.convs, convs); } catch {} save(LS.current, currentId); };
   const normBase = b => (b || '').trim().replace(/\/+$/, '').replace(/\/v1$/, ''); // '' => relative /v1/... (same origin)
   const apiBase = () => normBase(settings.base);
-  const MUTATING = /^(POST|PUT|PATCH|DELETE)$/i;
-  const headers = (method = 'GET') => ({ 'Content-Type': 'application/json', ...(MUTATING.test(method) ? { 'X-Eve-Request': '1' } : {}) });  // X-Eve-Request: server CSRF check on mutating requests   // no Authorization: gateway trusts Tailscale identity
+  // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
+  // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
+  const headers = (_method) => ({ 'Content-Type': 'application/json', 'X-Eve-Request': '1' });   // sent on every request (GET too): body-less POST/DELETE included
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -252,12 +254,12 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
   async function api(path, opts = {}) {
-    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...headers(opts.method), ...(opts.headers || {}) } });
+    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), ...headers() } });
     if (r.status === 204) return null;
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
     if (!r.ok) {
-      const code = j?.error?.code;
-      if (r.status === 401) showAuthNotice(null, code);
+      const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
+      if (r.status === 401) { clearCards(); showAuthNotice(null, code); }
       throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code });
     }
     return j;
@@ -265,19 +267,30 @@ if (typeof document !== 'undefined') (function () {
   const isNet = e => !e.http;                       // fetch failed: offline / unreachable
   const toMs = t => { const v = Date.parse(t || ''); return isNaN(v) ? Date.now() : v; };
   const pinSet = () => new Set(load(LS.pins, []));
+  // confirm tokens must never reach localStorage, even if proactive.js failed to load (security review Low 1)
+  const scrubAction = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
+  // drop stored confirm-card contents (pending_actions) — on sign-out / identity loss (security review Low 2)
+  function clearCards() {
+    let n = 0; const strip = list => (list || []).forEach(c => (c.messages || []).forEach(m => { if (m.pendingActions) { delete m.pendingActions; n++; } }));
+    strip(convs); try { const s = load(LS.srv, []); strip(s); save(LS.srv, s); } catch {}
+    if (n) persist(); return n;
+  }
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
+    const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
+    if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
   }
   function fromServerThread(t, old) {
     const updated = toMs(t.updated_at);
     return { id: t.id, srv: true, title: t.title || '새 대화', updated, created: toMs(t.created_at), archived: !!t.archived,
-      preview: t.last_message_preview || '', count: t.message_count || 0, pinned: pinSet().has(t.id),
+      preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
+  let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
@@ -289,11 +302,11 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
-        if (mode === 'server') { mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
+        if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
       renderSync();
@@ -347,6 +360,8 @@ if (typeof document !== 'undefined') (function () {
     if (o.op === 'feedback') return p.rating ? api(`/v1/messages/${id}/feedback`, { method: 'PUT', body: JSON.stringify({ rating: p.rating, reasons: p.reasons || [], comment: p.comment || '' }) }) : api(`/v1/messages/${id}/feedback`, { method: 'DELETE' });
     if (o.op === 'patch') return api(`/v1/threads/${id}`, { method: 'PATCH', body: JSON.stringify(p.patch) });
     if (o.op === 'archive') return api(`/v1/threads/${id}`, { method: 'DELETE' });
+    if (o.op === 'readThread') return api(`/v1/threads/${id}/read`, { method: 'POST', body: '{}' }).catch(e => { if (e.http === 404) return null; throw e; });   // CT Q6
+    if (o.op === 'read') return api(`/v1/messages/${id}/read`, { method: 'POST', body: '{}' }).catch(e => { if (e.http === 404) return null; throw e; });   // 선톡 읽음 (spec A3.3)
   }
   async function flushOutbox() {
     if (mode !== 'server' || flushOutbox.busy) return; flushOutbox.busy = true;
@@ -489,6 +504,7 @@ if (typeof document !== 'undefined') (function () {
     li.querySelector('.row-title').textContent = (c.pinned ? '📌 ' : '') + c.title;
     li.querySelector('time').textContent = fmtTime(c.updated || Date.now());
     const sub = li.querySelector('.row-sub');
+    PRO?.decorateRow(li, c);
     if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = preview(c);
     return li;
   }
@@ -813,8 +829,10 @@ if (typeof document !== 'undefined') (function () {
     const lastA = c.messages.map(m => m.role).lastIndexOf('assistant');
     c.messages.forEach((m, i) => {
       if (m.role === 'user') addMsgEl('user', m.content, m);
-      else fillAssistant(addMsgEl('assistant', '', m), m.content, { usage: m.usageText || (m.usage ? usageText(m.usage) : ''), regen: !c.archived && i === lastA && i === c.messages.length - 1, thinkSecs: m.thinkSecs, msg: m });
+      else fillAssistant(addMsgEl('assistant', '', m), m.content, { usage: m.usageText || (m.usage ? usageText(m.usage) : ''), regen: !c.archived && m.origin !== 'proactive' && i === lastA && i === c.messages.length - 1, thinkSecs: m.thinkSecs, msg: m });
+      PRO?.decorateMsg([...box.querySelectorAll(':scope > .msg')].pop() || null, m, i, c.messages);
     });
+    PRO?.afterRender(c);
     requestAnimationFrame(() => { box.classList.remove('no-anim'); if (!keep) { stick = true; scrollBottom(); } });
   }
   function renderAll() { renderList(); renderMessages(); }
@@ -900,7 +918,7 @@ if (typeof document !== 'undefined') (function () {
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
     const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
     let sources = null; const ws = webOn(); bubble._ws = ''; bubble._sources = null;
-    let acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
+    let confs = null, acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
     const view = () => reasoning && !acc ? '<think>' + reasoning : full();
@@ -955,6 +973,8 @@ if (typeof document !== 'undefined') (function () {
             if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; }
             setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
           }
+          if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
+          if (j.object === 'chat.completion.action_result') { PRO?.actionResult(j); return; }
           if (j.object === 'chat.completion.sources') { if (Array.isArray(j.sources)) { sources = j.sources; bubble._sources = sources; } return; }
           ids(j);
           if (j.usage) usage = j.usage;
@@ -1007,7 +1027,7 @@ if (typeof document !== 'undefined') (function () {
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
     const ut = usageText(usage, secs);
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
-    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
+    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
     if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
@@ -1285,7 +1305,7 @@ if (typeof document !== 'undefined') (function () {
     try {
       const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });
       const j = await r.json().catch(() => null);
-      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); showAuthNotice(null, j?.error?.code); return false; }
+      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, j?.error?.code); return false; }   // signed out: drop stored card contents
       if (r.ok) { whoami = j; renderWho(); }
       hideAuthNotice(); return true;
     } catch { return true; }   // offline / network error: chat path reports it
@@ -1365,15 +1385,18 @@ if (typeof document !== 'undefined') (function () {
       setModelOptions(ids); st.textContent = `연결 성공 · 모델 ${ids.length}개`;
     } catch (e) { st.className = 'status err'; st.textContent = e.http ? e.message : '연결 실패: ' + e.message; }
   }
+  const crossOrigin = b => { if (!b) return false; try { return new URL(b, location.href).origin !== location.origin; } catch { return true; } };
+  const baseWarn = () => { $('#sBaseWarn').hidden = !crossOrigin(normBase($('#sBase').value)); };   // other origin: all calls go there, approve blocked
+  $('#sBase').addEventListener('input', baseWarn);
   function openSettings() {
     renderSync(); { const mg = localStorage.getItem(LS.migrated); $('#sMigrateRow').hidden = !(mode === 'server' && localConvs().length && (!mg || mg === 'skip')); }
-    $('#sBase').value = settings.base; $('#sSystem').value = settings.system;
+    $('#sBase').value = settings.base; $('#sSystem').value = settings.system; baseWarn();
     $('#sShowThink').checked = settings.showThink; $('#sNoThink').checked = !!settings.noThink;
     setModelOptions([]); $('#sStatus').textContent = '';
     $('#a2hsRow').hidden = isStandalone();
     snap = formState();
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
-    renderWho(); loadModels();
+    renderWho(); loadModels(); PRO?.openSettings();
   }
   $('#openSettings').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
@@ -1383,7 +1406,7 @@ if (typeof document !== 'undefined') (function () {
   $('#showA2hs').onclick = () => animateOut(dlg, () => { dlg.close(); openA2HS(true); });
   sform.addEventListener('submit', () => {
     settings = { noThink: $('#sNoThink').checked, base: normBase($('#sBase').value), model: $('#sModel').value || DEFAULT_MODEL, system: $('#sSystem').value, showThink: $('#sShowThink').checked };
-    save(LS.settings, settings); renderMessages();
+    save(LS.settings, settings); renderMessages(); PRO?.saveSettings();
   });
 
   /* ---------- add to home screen (§11) ---------- */
@@ -1557,7 +1580,10 @@ if (typeof document !== 'undefined') (function () {
   if (currentId && !cur()) currentId = convs[0]?.id || null;
   if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
   if (params.has('new')) route = 'chat';
-  history.replaceState({ route: 'list' }, '', location.pathname + '#/');
+  history.replaceState({ route: 'list' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
+  if (self.EveProactive) try {
+    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+  } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
   else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
@@ -1570,7 +1596,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.0.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.1.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -1585,5 +1611,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();

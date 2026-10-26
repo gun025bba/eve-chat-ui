@@ -1,7 +1,7 @@
 """v15: streaming must not re-render completed blocks or re-trigger animations per token."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json
-B = 'http://127.0.0.1:8765'
+B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
 def put(path):
     return json.load(urllib.request.urlopen(urllib.request.Request(B + path, method='PUT')))
 FAIL = []

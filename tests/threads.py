@@ -1,7 +1,7 @@
 # Server-persisted threads (v10) e2e against mock.py
 import json, urllib.request
 from playwright.sync_api import sync_playwright
-M='http://127.0.0.1:8765'; BASE=M+'/ui/'
+M='http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''; BASE=M+'/ui/'
 def req(method, path, body=None):
     r=urllib.request.Request(M+path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(r) as f: t=f.read(); return json.loads(t) if t else None
@@ -100,7 +100,7 @@ with sync_playwright() as p:
     check('retry -> done', m.get_attribute('#migrateSheet','data-view')=='done')
     imp=[t for t in db()['threads'] if t.get('client_id','').startswith('local:')]; check('7 imported', len(imp)==7, str(len(imp)))
     check('backup kept', m.evaluate("!!localStorage.getItem('llmchat.convs.bak')"))
-    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-1.0.2'))"); check('sw 1.0.2', sw)
+    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-1.1.0'))"); check('sw 1.1.0', sw)
     check('no page errors', not errs, str(errs[:3]))
     b.close()
 print('RESULT:', 'ALL PASS' if all(R) else f'{R.count(False)} FAIL')

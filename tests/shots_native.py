@@ -1,5 +1,5 @@
 from playwright.sync_api import sync_playwright
-BASE='http://127.0.0.1:8765/ui/'
+BASE='http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'
 IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
 SEED="""(()=>{ if(localStorage.getItem('seeded'))return; localStorage.setItem('seeded','1');
  localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));

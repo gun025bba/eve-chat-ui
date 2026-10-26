@@ -1,6 +1,6 @@
 import json, time
 from playwright.sync_api import sync_playwright
-BASE='http://127.0.0.1:8765/ui/'
+BASE='http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'
 IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
 SEED="""(()=>{ if(localStorage.getItem('seeded'))return; localStorage.setItem('seeded','1');
  localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
@@ -26,7 +26,7 @@ def swipe(pg, cdp, x0, y0, x1, y1, steps=12, dt=16, hold=0):
 def longpress(pg, cdp, x, y, ms=650): touch(cdp,'touchStart',[(x,y)]); pg.wait_for_timeout(ms); touch(cdp,'touchEnd',[]); pg.wait_for_timeout(350)
 route=lambda pg: pg.evaluate("document.querySelector('#app').dataset.route")
 import urllib.request
-urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765/persist/off',method='PUT'))   # local-only mode; server mode in threads.py
+urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/persist/off',method='PUT'))   # local-only mode; server mode in threads.py
 with sync_playwright() as p:
     b=p.chromium.launch()
     # ---------- standalone ----------
@@ -103,7 +103,7 @@ with sync_playwright() as p:
     c=ctx(p,b,standalone=True); pg=c.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     pg.goto(BASE); pg.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller", timeout=10000) if False else None
     pg.evaluate("navigator.serviceWorker.ready"); pg.reload(); pg.wait_for_timeout(800)
-    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-1.0.2', keys==['llmchat-1.0.2'], str(keys))
+    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-1.1.0', keys==['llmchat-1.1.0'], str(keys))
     check('SW controls page', pg.evaluate("!!navigator.serviceWorker.controller"))
     c.set_offline(True); pg.reload(); pg.wait_for_timeout(800)
     check('offline: app shell loads from cache', pg.is_visible('#composer') and pg.locator('.msg').count()>0)
@@ -112,7 +112,7 @@ with sync_playwright() as p:
     check('offline fallback screen for uncached page', '오프라인 상태입니다' in pg.text_content('body'))
     c.set_offline(False); pg.goto(BASE); pg.wait_for_timeout(600)
     r=pg.evaluate("fetch('/v1/models').then(r=>r.status)")
-    inCache=pg.evaluate("caches.open('llmchat-1.0.2').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
+    inCache=pg.evaluate("caches.open('llmchat-1.1.0').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
     check('API never cached (network-only)', r==200 and not inCache)
     pg.evaluate("window.__app.showToast('새 버전이 있어요','새로고침',()=>{})"); pg.wait_for_timeout(400)
     check('update toast renders', pg.is_visible('#toast') and '새로고침' in pg.text_content('#toast'))
