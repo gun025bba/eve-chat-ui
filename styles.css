@@ -86,7 +86,7 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 .btn.retry{height:32px;padding:0 14px;border-radius:999px;background:var(--fill);color:var(--label);font-size:13px;font-weight:600}
 /* empty */
 .empty{min-height:calc(var(--vvh) - var(--composer-h) - var(--header-h) - 80px);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;max-width:720px;margin:0 auto}
-.empty .mark{width:44px;height:44px;border-radius:50%;background:conic-gradient(from 200deg,#0A84FF,#BF5AF2,#FF375F,#FF9F0A,#0A84FF);margin-bottom:var(--s5);animation:msgIn 400ms var(--ease-out) both}
+.empty .mark{width:44px;height:44px;background:url(icons/mark-dark.svg) center/contain no-repeat;margin-bottom:var(--s5);animation:msgIn 400ms var(--ease-out) both}
 .empty h1{font-size:28px;line-height:34px;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
 .empty small{font-size:13px;color:var(--label-3);margin-top:6px}
 .chips{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:var(--s8)}
@@ -508,3 +508,5 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .ctx-title{padding:12px 16px;font-size:13px;color:var(--label-2);text-align:center}
 #titleWrap{cursor:pointer}
 @media (prefers-reduced-motion:reduce){.actions .fb.pop svg,#syncStatus .dot,li.skel i{animation:none}}
+
+@media (prefers-color-scheme:light){.empty .mark{background-image:url(icons/mark-light.svg)}}
