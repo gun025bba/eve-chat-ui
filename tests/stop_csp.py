@@ -1,7 +1,7 @@
 """v14: generation stop (stream + non-stream, local + server) and CSP compliance under the gateway's /ui policy."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json, time
-B = 'http://127.0.0.1:8765'
+B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
 def put(path, body=None):
     r = urllib.request.Request(B + path, method='PUT', data=json.dumps(body).encode() if body else None, headers={'Content-Type': 'application/json'})
     return json.load(urllib.request.urlopen(r))

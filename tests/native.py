@@ -1,6 +1,6 @@
 import json, time
 from playwright.sync_api import sync_playwright
-BASE='http://127.0.0.1:8765/ui/'
+BASE='http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'
 IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
 SEED="""(()=>{ if(localStorage.getItem('seeded'))return; localStorage.setItem('seeded','1');
  localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));
@@ -26,7 +26,7 @@ def swipe(pg, cdp, x0, y0, x1, y1, steps=12, dt=16, hold=0):
 def longpress(pg, cdp, x, y, ms=650): touch(cdp,'touchStart',[(x,y)]); pg.wait_for_timeout(ms); touch(cdp,'touchEnd',[]); pg.wait_for_timeout(350)
 route=lambda pg: pg.evaluate("document.querySelector('#app').dataset.route")
 import urllib.request
-urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8765/persist/off',method='PUT'))   # local-only mode; server mode in threads.py
+urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/persist/off',method='PUT'))   # local-only mode; server mode in threads.py
 with sync_playwright() as p:
     b=p.chromium.launch()
     # ---------- standalone ----------

@@ -5,7 +5,7 @@ def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, x
 with sync_playwright() as p:
     b=p.chromium.launch(); c=b.new_context(viewport={'width':393,'height':852},is_mobile=True,has_touch=True)
     c.add_init_script("localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit'}))")
-    pg=c.new_page(); pg.goto('http://127.0.0.1:8765/ui/'); pg.wait_for_timeout(1000)
+    pg=c.new_page(); pg.goto('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'); pg.wait_for_timeout(1000)
     r=pg.evaluate("""()=>{const tb=document.querySelector('#topbar');const t=document.querySelector('#title').textContent.trim();
      const vis=[...tb.querySelectorAll('*')].filter(e=>{const cs=getComputedStyle(e);const r=e.getBoundingClientRect();
        return [...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim()===t)&&cs.visibility!=='hidden'&&cs.display!=='none'&&r.width>0});

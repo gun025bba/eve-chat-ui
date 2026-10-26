@@ -193,7 +193,9 @@ if (typeof document !== 'undefined') (function () {
   const persist = () => { try { save(mode === 'server' ? LS.srv : LS.convs, convs); } catch {} save(LS.current, currentId); };
   const normBase = b => (b || '').trim().replace(/\/+$/, '').replace(/\/v1$/, ''); // '' => relative /v1/... (same origin)
   const apiBase = () => normBase(settings.base);
-  const headers = () => ({ 'Content-Type': 'application/json' });   // no Authorization: gateway trusts Tailscale identity
+  // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
+  // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
+  const headers = () => ({ 'Content-Type': 'application/json', 'X-Eve-Request': '1' });
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -252,12 +254,12 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
   async function api(path, opts = {}) {
-    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), ...headers() } });
     if (r.status === 204) return null;
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
     if (!r.ok) {
-      const code = j?.error?.code;
-      if (r.status === 401) showAuthNotice(null, code);
+      const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
+      if (r.status === 401) { clearCards(); showAuthNotice(null, code); }
       throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code });
     }
     return j;
@@ -265,12 +267,20 @@ if (typeof document !== 'undefined') (function () {
   const isNet = e => !e.http;                       // fetch failed: offline / unreachable
   const toMs = t => { const v = Date.parse(t || ''); return isNaN(v) ? Date.now() : v; };
   const pinSet = () => new Set(load(LS.pins, []));
+  // confirm tokens must never reach localStorage, even if proactive.js failed to load (security review Low 1)
+  const scrubAction = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
+  // drop stored confirm-card contents (pending_actions) — on sign-out / identity loss (security review Low 2)
+  function clearCards() {
+    let n = 0; const strip = list => (list || []).forEach(c => (c.messages || []).forEach(m => { if (m.pendingActions) { delete m.pendingActions; n++; } }));
+    strip(convs); try { const s = load(LS.srv, []); strip(s); save(LS.srv, s); } catch {}
+    if (n) persist(); return n;
+  }
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
-    if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(a => PRO ? PRO.sanitize(a) : a);
+    if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
   }
@@ -280,6 +290,7 @@ if (typeof document !== 'undefined') (function () {
       preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
+  let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
@@ -291,11 +302,11 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); PRO?.refresh();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
-        if (mode === 'server') { mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
+        if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
       renderSync();
@@ -1016,7 +1027,7 @@ if (typeof document !== 'undefined') (function () {
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
     const ut = usageText(usage, secs);
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
-    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs; if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
+    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
     if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
@@ -1566,9 +1577,9 @@ if (typeof document !== 'undefined') (function () {
   if (currentId && !cur()) currentId = convs[0]?.id || null;
   if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
   if (params.has('new')) route = 'chat';
-  history.replaceState({ route: 'list' }, '', location.pathname + '#/');
+  history.replaceState({ route: 'list' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
   if (self.EveProactive) try {
-    PRO = self.EveProactive.init({ api, enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => { const b = apiBase(); if (!b) return true; try { return new URL(b, location.href).origin === location.origin; } catch { return false; } }, enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
@@ -1597,5 +1608,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();

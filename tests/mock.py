@@ -1,10 +1,12 @@
 """Mock gateway: OpenAI-compatible chat + threads/messages/feedback/search/import (backend contract v10)."""
+import os
+PORT = os.environ.get('EVE_PORT', '8765')   # tests may run on another port
 import json, time, os, re, html, threading
 from datetime import datetime, timezone, timedelta
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
-UI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
@@ -13,7 +15,7 @@ pro_reset()
 LOCK = threading.RLock()
 def now(off=0): return (datetime.now(timezone.utc) + timedelta(seconds=off)).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 def nid(p):
-    DB['seq'] += 1; return f'01JMOCK{p.upper()[:1]}{DB["seq"]:018d}'   # 26-char ULID-like
+    DB['seq'] += 1; return f'01JMQCK{p.upper()[:1]}{DB["seq"]:018d}'   # 26-char ULID-like
 def preview(tid):
     ms = [m for m in DB['messages'].values() if m['thread_id'] == tid]
     return ms[-1]['content'][:80] if ms else ''
@@ -27,6 +29,7 @@ def new_thread(title, created=None, archived=False, client_id=None):
 def add_msg(tid, role, content, **kw):
     m = {'id': nid('m'), 'thread_id': tid, 'role': role, 'content': content, 'created_at': kw.pop('created_at', None) or now(), 'status': 'complete'}
     m.update(kw); DB['messages'][m['id']] = m; DB['threads'][tid]['updated_at'] = now(); return m
+def ec(code): return {'error_code': code}   # 선톡/actions API error body
 def err(code, typ='invalid_request_error', msg=None): return {"error": {"code": code, "message": msg or code, "type": typ, "request_id": "req_mock"}}
 class H(SimpleHTTPRequestHandler):
     protocol_version = 'HTTP/1.0'
@@ -51,21 +54,22 @@ class H(SimpleHTTPRequestHandler):
         """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
         import re as _re
         m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
-        if not (path in ('/v1/notifications', '/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev): return False
+        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev): return False
         if not s.auth(): return True
-        if not PRO['supported']: s.j(404, err('not_found')); return True
-        if method != 'GET':
-            PRO['origins'].append(s.headers.get('Origin'))
-            if s.headers.get('Origin') in (None, 'null'): s.j(403, err('origin_required')); return True
+        if not PRO['supported']: s.j(404, ec('not_found')); return True
+        if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
         b = s.body() if method in ('POST', 'PATCH', 'DELETE') else {}
         PRO['bodies'].append({'m': method, 'p': path, 'b': b})
         with LOCK:
-            if path == '/v1/notifications':
-                ns = [{'id': m['id'], 'thread_id': m['thread_id'], 'created_at': m['created_at'], 'job_id': m.get('job_id')} for m in DB['messages'].values() if m.get('origin') == 'proactive' and not m.get('read_at')]
-                s.j(200, {'data': ns}); return True
+            m_one = _re.fullmatch(r'/v1/actions/([^/]+)', path)
+            if m_one and method == 'GET':
+                if PRO.get('getDelay'): __import__('time').sleep(PRO['getDelay'])
+                a = PRO['actions'].get(m_one.group(1))
+                if not a or PRO.get('noSingleGet'): s.j(404, ec('not_found')); return True
+                s.j(200, {k: v for k, v in a.items() if k != 'token'}); return True
             if m_read:
                 m = DB['messages'].get(m_read.group(1))
-                if not m or m.get('origin') != 'proactive': s.j(404, err('not_found')); return True
+                if not m or m.get('origin') != 'proactive': s.j(404, ec('not_found')); return True
                 m['read_at'] = now(); PRO['reads'].append(m['id']); s.j(204, None); return True
             if m_tread:
                 PRO['threadReads'] = PRO.get('threadReads', []) + [m_tread.group(1)]
@@ -74,46 +78,55 @@ class H(SimpleHTTPRequestHandler):
                 s.j(200, {'unread_count': 0}); return True
             if m_rev:
                 a = PRO['actions'].get(m_rev.group(1))
-                if PRO.get('revise410'): s.j(410, err('action_expired')); return True
-                if not a or a['status'] not in ('pending', 'expired'): s.j(409, err('action_already_decided')); return True
+                if PRO.get('revise410'): s.j(410, ec('expired')); return True
+                if not a or a['status'] not in ('pending', 'expired'): s.j(409, ec('conflict')); return True
                 ids = b.get('item_ids'); items = (a.get('payload_view') or {}).get('items', [])
-                if ids is not None and (not ids or not set(ids) <= {i.get('id') for i in items}): s.j(400, err('not_subset')); return True
+                if ids is not None and (not ids or not set(ids) <= {i.get('id') for i in items}): s.j(409, ec('item_gone')); return True
                 PRO['revisions'] = PRO.get('revisions', 0) + 1; nid = a['action_id'][:-2] + 'V%d' % PRO['revisions']
                 pv = dict(a.get('payload_view') or {}); 
                 if ids is not None: pv['items'] = [i for i in items if i.get('id') in ids]
                 a['status'] = 'superseded'
                 na = dict(a, action_id=nid, payload_view=pv, payload_hash='sha256:rev%d' % PRO['revisions'], status='pending', token='revtok%d' % PRO['revisions'], expires_at=now(600))
                 PRO['actions'][nid] = na
-                s.j(200, dict({k: v for k, v in na.items() if k not in ('token', 'status')}, confirm_token=na['token'], token_expires_at=now(PRO.get('tokenTtl', 120)))); return True
+                if set(b) - {'item_ids'}: s.j(400, ec('invalid')); return True
+                out = {k: v for k, v in na.items() if k not in ('token', 'status', 'thread_id')}
+                if PRO.get('reviseNoToken'): na['token'] = None
+                else: out.update(confirm_token=na['token'], token_expires_at=now(PRO.get('tokenTtl', 120)))
+                s.j(200, out); return True
             if path == '/v1/settings':
                 if method == 'PATCH':
-                    if PRO.get('failSettings'): s.j(500, err('boom', 'server_error')); return True
+                    if PRO.get('failSettings'): s.j(500, ec('invalid')); return True
                     ok = set(b) <= {'proactive', 'memory'}   # system.* is read-only → 400 and set(b.get('proactive') or {}) <= {'enabled', 'quiet_hours', 'memory_read'} and set(b.get('memory') or {}) <= {'enabled'}
                     q = (b.get('proactive') or {}).get('quiet_hours')
                     if q is not None and (set(q) != {'start', 'end'} or not all(_re.fullmatch(r'\d{2}:\d{2}', q[k]) for k in q)): ok = False
-                    if not ok: s.j(400, err('invalid_settings')); return True
+                    if not ok: s.j(400, ec('invalid')); return True
                     for k, v in b.items(): PRO['settings'][k].update(v)
                 s.j(200, dict(PRO['settings'], system=PRO['system'])); return True
             if path == '/v1/actions':
                 s.j(200, {'data': [{k: v for k, v in a.items() if k not in ('token',)} for a in PRO['actions'].values() if a['status'] == 'pending' and a.get('thread_id')]}); return True
             if path == '/v1/push/vapid-public-key':
-                s.j(200, {'key': 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', 'key_id': 'k1'}); return True
+                s.j(200, {'key': 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', 'key_id': PRO.get('kid', 'k1')}); return True
             if path == '/v1/push/subscriptions':
                 if method == 'POST': PRO['subs'].append(b); s.j(201, {'ok': True})
                 else: PRO['subs'] = [x for x in PRO['subs'] if x.get('endpoint') != b.get('endpoint')]; s.j(204, None)
                 return True
             aid, op = m_act.groups(); a = PRO['actions'].get(aid)
-            if not a: s.j(404, err('not_found')); return True
+            if not a: s.j(404, ec('not_found')); return True
             if op == 'reissue':
-                if a['status'] != 'pending': s.j(409, err('action_already_decided')); return True
+                if a['status'] != 'pending': s.j(409, ec('conflict')); return True
+                a['_re'] = a.get('_re', 0) + 1
+                if a['_re'] > 3: s.j(422, ec('cap_exceeded')); return True
                 PRO['issued'] += 1; a['token'] = f'tok{PRO["issued"]}'; s.j(200, {'confirm_token': a['token'], 'token_expires_at': now(PRO.get('tokenTtl', 120))}); return True
             if op == 'reject':
                 a['status'] = 'rejected'; s.j(200, {'status': 'rejected'}); return True
-            if not b.get('confirm_token'): s.j(400, err('confirm_token_required')); return True
-            if a['status'] != 'pending': s.j(409, err('action_already_decided')); return True
-            if b.get('payload_hash') != a['payload_hash']: s.j(422, err('payload_mismatch')); return True
-            if b['confirm_token'] != a.get('token'): s.j(403, err('invalid_token')); return True
-            a['status'] = 'executed'; a['token'] = None; s.j(200, {'status': 'executed', 'result': {}}); return True
+            if PRO.get('approveCode'): st, code = PRO.pop('approveCode'); s.j(st, ec(code)); return True
+            if not b.get('confirm_token'): s.j(400, ec('invalid')); return True
+            if a['status'] != 'pending': s.j(409, ec('conflict')); return True
+            if b.get('payload_hash') != a['payload_hash']: s.j(422, ec('payload_mismatch')); return True
+            if b['confirm_token'] != a.get('token'): s.j(404, ec('not_found')); return True
+            a['status'] = 'executed'; a['token'] = None
+            if PRO.get('approveDrop'): PRO['approveDrop'] = False; s.close_connection = True; s.connection.shutdown(2); return True   # executed, response lost
+            s.j(200, {'status': 'executed', 'result': {}}); return True
     def threads_api(s, method):
         u = urlparse(s.path); q = {k: v[0] for k, v in parse_qs(u.query).items()}; path = u.path
         if s.pro_api(method, path): return True
@@ -127,6 +140,7 @@ class H(SimpleHTTPRequestHandler):
             if path == '/v1/threads' and method == 'GET':
                 arch = q.get('archived', 'false') == 'true'; lim = int(q.get('limit', 20)); off = int(q.get('cursor') or 0)
                 ts = sorted([t for t in DB['threads'].values() if t['archived'] == arch], key=lambda t: t['updated_at'], reverse=True)
+                if q.get('unread') == 'true': ts = [t for t in ts if tview(t)['unread_count'] > 0]
                 page = ts[off:off + lim]
                 return s.j(200, {'data': [tview(t) for t in page], 'next_cursor': str(off + lim) if off + lim < len(ts) else None}) or True
             if path == '/v1/threads' and method == 'POST':
@@ -200,10 +214,24 @@ class H(SimpleHTTPRequestHandler):
         if s.path.startswith('/ui'): s.path = s.path[3:] or '/'; s._csp = bool(STATE.get('csp'))
         else: s.send_response(404); s.end_headers(); return
         super().do_GET()
-    def do_PATCH(s): s.threads_api('PATCH') or s.j(404, err('not_found'))
-    def do_DELETE(s): s.threads_api('DELETE') or s.j(404, err('not_found'))
+    ORIGIN = 'http://127.0.0.1:' + PORT
+    def gate(s, method):
+        """Server rule: every POST/PUT/PATCH/DELETE on the API needs X-Eve-Request: 1 + exact allow-listed Origin,
+        and a JSON Content-Type when it has a body → else 403 {error_code:'invalid'}. Test-control routes are exempt."""
+        p = urlparse(s.path).path
+        if not (p.startswith('/v1/') or p == '/whoami'): return True
+        h = s.headers; has_body = int(h.get('Content-Length') or 0) > 0
+        ok = h.get('X-Eve-Request') == '1' and h.get('Origin') == s.ORIGIN and (not has_body or (h.get('Content-Type') or '').split(';')[0].strip() == 'application/json')
+        STATE.setdefault('mut', []).append({'m': method, 'p': p, 'ok': ok, 'xer': h.get('X-Eve-Request'), 'origin': h.get('Origin'), 'ct': h.get('Content-Type'), 'body': has_body})
+        if not ok:
+            if has_body: s.rfile.read(int(h.get('Content-Length')))
+            s.j(403, ec('invalid'))
+        return ok
+    def do_PATCH(s): s.gate('PATCH') and (s.threads_api('PATCH') or s.j(404, err('not_found')))
+    def do_DELETE(s): s.gate('DELETE') and (s.threads_api('DELETE') or s.j(404, err('not_found')))
     def ev(s, o): s.wfile.write(f'data: {json.dumps(o)}\n\n'.encode()); s.wfile.flush(); time.sleep(0.08)
     def do_POST(s):
+        if not s.gate('POST'): return
         if s.threads_api('POST'): return
         body = s.body()
         if not s.auth(): return
@@ -247,10 +275,11 @@ class H(SimpleHTTPRequestHandler):
             return
         if last.startswith('confirm'):
             act = {"action_id": "01JACT0000000000000000000S", "tool": "calendar_create_event", "tool_version": "1.0.0", "summary": "10/28 15:00 치과 일정 추가",
-                   "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "confirm_token": "streamtok", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "token_expires_at": now(PRO.get('tokenTtl', 120)), "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+                   "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
             if last.startswith('confirmdeny'):
                 act = {"action_id": "01JACT0000000000000000000D", "tool": "memory.propose", "status": "denied", "error_code": "secret_detected", "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
-            PRO['actions'][act['action_id']] = dict(act, status='pending', token='streamtok')
+            PRO['actions'][act['action_id']] = dict(act, status='pending', token=None)
+            if PRO.get('sseToken'): act = dict(act, confirm_token='ssetok-must-be-ignored')   # contract forbids this; client must ignore it
             s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
             try:
                 s.ev({"id": "c-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "일정을 추가할까요?"}, "finish_reason": None}]})
@@ -317,6 +346,7 @@ class H(SimpleHTTPRequestHandler):
                 m = DB['messages'][rep]; m.pop('metadata', None); m.update(content=text, reasoning=reasoning, status=status, updated_at=now(), **extra); m.pop('feedback', None); th['updated_at'] = now(); return m
             return add_msg(th['id'], 'assistant', text, reasoning=reasoning, status=status, model='mlx-community/Qwen3-30B-A3B-4bit', usage={'prompt_tokens': 12, 'completion_tokens': 34}, latency_ms=900, **extra)
     def do_PUT(s):
+        if not s.gate('PUT'): return
         if s.threads_api('PUT'): return
         p = s.path
         if p.startswith('/auth/'): STATE['authed'] = p.endswith('/on')
@@ -337,6 +367,8 @@ class H(SimpleHTTPRequestHandler):
         if p == '/pro/reset': pro_reset()
         if p.startswith('/pro/set'): PRO.update(s.body()); return s.j(200, {})
         if p.startswith('/pro/supported/'): PRO['supported'] = p.endswith('/on')
+        if p == '/__mut': return s.j(200, STATE.get('mut', []))
+        if p == '/mut/reset': STATE['mut'] = []
         if p == '/__pro': return s.j(200, {k: v for k, v in PRO.items()})
         if p == '/pro/seed':   # {thread, proactive:[text], actions:[{...}], scheduler_action:{...}}
             b = s.body(); out = {}
@@ -365,4 +397,4 @@ def mark(text, term):
     i = text.lower().find(term.lower()); a = max(0, i - 20)
     seg = text[a:i + len(term) + 40]; j = i - a
     return html.escape(seg[:j]) + '<mark>' + html.escape(seg[j:j + len(term)]) + '</mark>' + html.escape(seg[j + len(term):])
-ThreadingHTTPServer(('127.0.0.1', 8765), H).serve_forever()
+ThreadingHTTPServer(('127.0.0.1', int(PORT)), H).serve_forever()

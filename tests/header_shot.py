@@ -10,7 +10,7 @@ with sync_playwright() as p:
     pg = c.new_page()
     cdp = c.new_cdp_session(pg)
     cdp.send('Emulation.setEmulatedMedia', {'features':[{'name':'display-mode','value':'standalone'}]})
-    pg.goto('http://127.0.0.1:8765/ui/'); pg.wait_for_timeout(1200)
+    pg.goto('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'); pg.wait_for_timeout(1200)
     pg.add_style_tag(content=':root{--sat:47px}') 
     pg.evaluate("document.documentElement.style.setProperty('--fake','1')")
     pg.screenshot(path=out, clip={'x':0,'y':0,'width':393,'height':140})

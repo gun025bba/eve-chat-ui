@@ -1,7 +1,7 @@
 # Server-persisted threads (v10) e2e against mock.py
 import json, urllib.request
 from playwright.sync_api import sync_playwright
-M='http://127.0.0.1:8765'; BASE=M+'/ui/'
+M='http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''; BASE=M+'/ui/'
 def req(method, path, body=None):
     r=urllib.request.Request(M+path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(r) as f: t=f.read(); return json.loads(t) if t else None

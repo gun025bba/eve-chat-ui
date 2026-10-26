@@ -1,12 +1,12 @@
 /* Eve 선톡 P1 UI (eve-chat-ui-design PROACTIVE-MEMORY-SPEC v2 @6221745 + eve-serving PR #12 contract, Part A + §C):
  * in-thread proactive messages, unread dot/pill + title/app badge, read-on-view via outbox,
  * the shared .confirm-card, and Settings › 선톡. Server calls go through proactive-api.js only.
- * Security: confirm tokens live in memory only (never storage/logs) and are dropped after one use;
+ * Security: a confirm token is fetched only when approve is pressed (POST reissue → approve, contract §3.5.4), held in a local variable, never stored/logged; SSE tokens are ignored;
  * push payloads are never rendered (sw.js shows fixed text). */
 (function () {
   const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
   const PUSH_HOSTS = ['web.push.apple.com'];          // exact host, mirrors the server allowlist (PM §2.2.1)
-  const POLL_MS = 60000, LS_PUSH = 'eve.push';
+  const POLL_MS = 60000, LS_PUSH = 'eve.push', LS_KID = 'eve.push.kid';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
   const IC = {
@@ -38,14 +38,9 @@
 
   /* ================= §C shared .confirm-card (spec v2 C1–C4) ================= */
   const F = () => self.EveProactiveAPI.FIELDS;         // all server field names live in proactive-api.js
-  const tokens = new Map();                            // action_id -> {token, exp}; memory only, never storage/logs
   const cards = new Map();                             // action_id -> card element
   let SYS = { proactive: true, tools: true, memoryRO: false };   // GET /v1/settings system.* (read-only)
   const sanitize = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
-  function stashToken(a) {
-    if (!a || !a.action_id || !a.confirm_token) return;
-    tokens.set(a.action_id, { token: a.confirm_token, exp: Date.parse(a.token_expires_at || '') || Date.now() + 120000 });
-  }
   function variantOf(x) {                              // spec C4
     if (x.tool === 'memory.propose') return x.op === 'delete' ? 'forget' : 'remember';
     if (x.tool === 'proactive.propose_followup') return 'proactive';
@@ -54,7 +49,9 @@
   // danger (spec §F-1): only send verbs and delete ops are red; write stays accent
   const dangerOf = (x, variant) => variant === 'forget' || x.op === 'delete' || x.verbs.includes('send') || x.verbs.includes('delete');
   const DENIED = { secret_detected: '비밀번호나 키처럼 보여서 진행하지 않았어요', cap_exceeded: '허용된 한도를 넘어서 진행하지 않았어요', tainted: '외부 내용이 섞인 요청이라 진행하지 않았어요',
-    scope_denied: '이 작업은 할 수 있는 권한이 없어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+    scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '이미 바뀌거나 지워진 항목이 있어서 진행하지 않았어요',
+    conflict: '이미 처리된 요청이라 진행하지 않았어요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+  const CROSS = '서버 주소가 이 앱과 다른 곳으로 설정되어 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 승인할 수 있어요';
   const RTF = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }), YTF = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   function shortDate(iso) {                            // spec B2: 오늘 / N일 전 / 10월 21일 / 2025년 3월 2일
     const d = new Date(iso); if (isNaN(d)) return '';
@@ -69,6 +66,7 @@
     tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => x.verbs.includes('delete') ? '삭제' : x.verbs.includes('send') ? '보내기' : /create|add/.test(x.tool) ? '추가' : '실행', secondary: '취소', done: () => '실행했어요' }
   };
   const EXPIRED = '시간이 지나 취소됐어요';
+  const deniedText = c => DENIED[c] || (c ? DENIED.invalid : '진행하지 않았어요');   // SSE denied without code → generic; unknown API code → invalid
   let seq = 0;
   function renderConfirmCard(action, opts) {
     const P = opts.P, a = sanitize(action), x = F().action(action), id = x.id;
@@ -82,7 +80,7 @@
     const result = el('p', 'cc-result'); result.tabIndex = -1; result.hidden = true;
     if (x.status === 'denied') {                       // spec C3 denied: one line, no body, no buttons
       card.dataset.state = 'denied'; head.remove(); result.hidden = false;
-      result.insertAdjacentHTML('beforeend', IC.err); result.appendChild(el('span', null, DENIED[x.errorCode] || '진행하지 않았어요'));
+      result.insertAdjacentHTML('beforeend', IC.err); result.appendChild(el('span', null, deniedText(x.errorCode)));
       card.appendChild(result); card.removeAttribute('aria-labelledby'); card.setAttribute('aria-label', result.textContent); say(result.textContent);
       return card;
     }
@@ -125,72 +123,60 @@
     const resRow = el('div', 'cc-result-row'); resRow.append(result, again); card.appendChild(resRow);
     const meta = el('p', 'cc-meta'); card.appendChild(meta);
     const checked = () => boxes.filter(b => b.checked);
-    const blocked = () => (variant === 'tool' && !SYS.tools) || ((variant === 'remember' || variant === 'forget') && SYS.memoryRO);
+    const cross = () => !P.sameOrigin();          // custom base on another origin: no token / approve calls (no CORS)
+    const blocked = () => cross() || (variant === 'tool' && !SYS.tools) || ((variant === 'remember' || variant === 'forget') && SYS.memoryRO);
     function paintPrimary() { yes.textContent = V.primary(x, checked().length); if (state === 'pending') yes.disabled = !P.online() || blocked() || (variant === 'forget' && !checked().length); }
-    let reissues = 0, timer = 0, state = '', retryFn = null, gone = !!opts.gone;   // gone: revise returned 410 (past 24h)
+    let timer = 0, state = '', retryFn = null, gone = !!opts.gone;   // gone: revise returned 410 (past 24h)
     const expired = () => x.expiresAt && x.expiresAt <= Date.now();
     function setState(s, msg, opt = {}) {
       state = s; card.dataset.state = s;
-      const settled = ['confirmed', 'declined', 'expired', 'error'].includes(s), busy = s === 'preparing' || s === 'revising';
+      const settled = ['confirmed', 'declined', 'expired', 'error', 'denied'].includes(s), busy = s === 'preparing' || s === 'revising' || s === 'checking';
       const hadFocus = card.contains(document.activeElement) && document.activeElement.tagName === 'BUTTON';
       yes.disabled = no.disabled = s !== 'pending' || !P.online();
       boxes.forEach(b => { b.disabled = s !== 'pending'; });
       card.setAttribute('aria-busy', String(s === 'submitting' || busy));
       yes.classList.toggle('loading', busy || (s === 'submitting' && opt.which !== 'no')); no.classList.toggle('loading', s === 'submitting' && opt.which === 'no');
-      if (busy) yes.textContent = '준비 중…'; else paintPrimary();
-      if (s === 'pending') no.disabled = !P.online();
+      if (busy) yes.textContent = s === 'checking' ? '확인 중…' : '준비 중…'; else paintPrimary();
+      if (s === 'pending') no.disabled = !P.online() || cross();
       acts.hidden = settled && !(s === 'error' && opt.retry);
       if (s === 'error' && opt.retry) { no.hidden = true; yes.textContent = '다시 시도'; yes.disabled = false; yes.classList.remove('cc-danger'); } else { no.hidden = false; yes.classList.toggle('cc-danger', danger); }
       result.hidden = !settled; result.textContent = '';
       again.hidden = !(s === 'expired' && !gone && P.online());
       if (settled) {
-        result.insertAdjacentHTML('beforeend', s === 'error' ? IC.err : s === 'confirmed' ? IC.check : '');
+        result.insertAdjacentHTML('beforeend', s === 'error' || s === 'denied' ? IC.err : s === 'confirmed' ? IC.check : '');
+        if (s === 'denied') { [head, body, card.querySelector('.cc-taint'), card.querySelector('.cc-prov')].forEach(e => e && (e.hidden = true)); }
         result.appendChild(el('span', null, msg || ''));
-        tokens.delete(id); if (s !== 'expired') clearInterval(timer); meta.textContent = '';
+        if (s !== 'expired') clearInterval(timer); meta.textContent = '';
         if (msg) say(msg);
         if (hadFocus) result.focus();
       }
-      if (!settled && !P.online()) meta.textContent = '연결되면 확인할 수 있어요';
+      if (s === 'pending' && cross()) meta.textContent = CROSS;
+      else if (!settled && !P.online()) meta.textContent = '연결되면 확인할 수 있어요';
       else if (s === 'pending' && blocked()) meta.textContent = variant === 'tool' ? '지금은 실행할 수 없어요' : '지금은 메모리를 바꿀 수 없어요';
       if (opts.onSettled && settled) opts.onSettled(id, s);
     }
-    function tick() {                                  // countdown + auto reissue run off token_expires_at (CT Q10)
-      if (state !== 'pending' && state !== 'preparing') return;
+    function tick() {                                  // proposal expiry only (expires_at); no token countdown/auto-reissue (contract §3.5.4)
+      if (state !== 'pending') return;
       if (expired()) { setState('expired', EXPIRED); return; }
       if (!P.online()) { meta.textContent = '연결되면 확인할 수 있어요'; return; }
-      if (blocked()) return;
-      const t = tokens.get(id); if (!t) { meta.textContent = ''; return; }
-      const left = Math.ceil((t.exp - Date.now()) / 1000);
-      if (left <= 0 && state === 'pending') { tokens.delete(id); prepare(); return; }
-      meta.textContent = left <= 30 ? `${left}초 뒤 만료` : '';
-    }
-    async function prepare() {                         // tokenless or token-expired proposal: POST reissue (≤3 incl. first)
-      if (tokens.get(id) && tokens.get(id).exp > Date.now() + 2000) return setState('pending');
-      if (reissues >= 3) return setState('expired', EXPIRED);
-      if (!P.online()) return setState('pending');
-      setState('preparing'); reissues++;
-      try { const r = await P.api.reissue(id); stashToken(Object.assign({ action_id: id }, r)); setState(tokens.get(id) ? 'pending' : 'error', tokens.get(id) ? '' : '실행하지 못했어요'); }
-      catch (e) { settleErr(e, () => { setState('pending'); prepare(); }); }
+      if (cross()) meta.textContent = CROSS;
     }
     function settleErr(e, retry) {
-      if (!e.http) return setState('error', '연결이 끊겼어요', { retry });
-      if (e.http === 409) return setState('declined', '이미 처리된 요청이에요');
-      if (e.http === 410) return setState('expired', EXPIRED);
-      if (e.http === 422) return setState('error', '내용이 바뀌어 실행하지 않았어요');
-      if (e.http === 403) return setState('error', '이 요청을 승인할 수 없어요');
-      return setState('error', '실행하지 못했어요');
+      if (!e.http) return setState('error', '연결이 끊겼어요', { retry });   // network only: retryable
+      if (e.code === 'expired') return setState('expired', EXPIRED);          // branch on body.error_code, never on HTTP status
+      return setState('denied', deniedText(e.code || 'invalid'));
     }
     async function revise(itemIds, nextRetries) {     // partial forget / 다시 요청 → new proposal replaces this card in place
       setState('revising');
       try {
         const next = await P.api.revise(id, itemIds);
         if (!next || !next.action_id) throw Object.assign(new Error('bad'), { http: 400 });
-        tokens.delete(id); cards.delete(id); clearInterval(timer);
+        cards.delete(id); clearInterval(timer);   // any token in the revise response is ignored: approve fetches its own
         return card._replace(next, nextRetries);
       } catch (e) {
-        if (e.http === 410) { gone = true; return setState('expired', EXPIRED); }   // past 24h: hide 다시 요청
         if (!e.http) { retryFn = () => revise(itemIds, nextRetries); return setState('error', '연결이 끊겼어요', { retry: retryFn }); }
-        setState('error', '다시 제안하지 못했어요');
+        if (e.code === 'expired') { gone = true; return setState('expired', EXPIRED); }   // 24h from the root proposal: hide 다시 요청
+        setState('denied', deniedText(e.code || 'invalid'));
       }
     }
     again.onclick = () => {
@@ -205,15 +191,43 @@
         if (!checked().length) return;
         return revise(checked().map(b => b.dataset.iid).filter(Boolean), retries);
       }
-      let t = tokens.get(id);
-      if (!t || t.exp <= Date.now() + 2000) { await prepare(); t = tokens.get(id); if (!t || state !== 'pending') return; }
-      tokens.delete(id);                               // one-time: never reused, even if the request fails
+      if (cross()) return;
+      // §3.5.4: token only on press — POST reissue, then approve at once. Token lives in this local only; never stored or logged.
       setState('submitting', '', { which: 'yes' });
+      let tok;
+      try { const r = await P.api.reissue(id); tok = r && r.confirm_token; }
+      catch (e) { retryFn = () => { setState('pending'); yes.onclick(); }; return settleErr(e, retryFn); }   // approve not sent yet: retry is safe
+      if (!tok) return setState('error', '실행하지 못했어요');
       try {
-        const r = await P.api.approve(id, t.token, x.hash);
+        const r = await P.api.approve(id, tok, x.hash); tok = null;
         if (r && r.status === 'failed') setState('error', '실행하지 못했어요'); else setState('confirmed', V.done(x, checked().length || x.items.length));
-      } catch (e) { retryFn = () => { setState('pending'); prepare(); }; settleErr(e, retryFn); }
+      } catch (e) {
+        tok = null;
+        if (!e.http) return recheck();                 // may have executed server-side: never blind-retry approve (security review Low 4)
+        retryFn = () => { setState('pending'); }; settleErr(e, retryFn);
+      }
     };
+    async function recheck() {                         // GET /v1/actions/{id} (fallback: pending list) to learn the real outcome
+      setState('checking'); meta.textContent = '결과를 확인하는 중이에요'; say('결과를 확인하는 중이에요');
+      for (let i = 0; i < 6; i++) {
+        if (i) await new Promise(r => setTimeout(r, Math.min(8000, 1000 * 2 ** i)));
+        if (!P.online()) continue;
+        let st = null;
+        try { const r = await P.api.getAction(id); st = r && r.status; }
+        catch (e) {
+          if (!e.http) continue;
+          try { const l = await P.api.pendingActions(); st = (l && l.data || []).some(z => z.action_id === id) ? 'pending' : 'unknown'; } catch (e2) { if (!e2.http) continue; st = 'unknown'; }
+        }
+        meta.textContent = '';
+        if (st === 'executed' || st === 'executing') return setState('confirmed', V.done(x, checked().length || x.items.length));
+        if (st === 'pending') return setState('pending');   // not executed: user may press again (fresh reissue → approve)
+        if (st === 'rejected') return setState('declined', '취소했어요');
+        if (st === 'expired') return setState('expired', EXPIRED);
+        if (st === 'failed') return setState('error', '실행하지 못했어요');
+        return setState('error', '결과를 확인하지 못했어요. 대화를 새로고침해 확인해 주세요');
+      }
+      meta.textContent = ''; setState('error', '결과를 확인하지 못했어요. 연결되면 다시 확인할게요', { retry: recheck });
+    }
     no.onclick = async () => {
       if (state !== 'pending') return;
       setState('submitting', '', { which: 'no' });
@@ -226,15 +240,10 @@
     else if (st === 'expired' || expired()) setState('expired', EXPIRED);
     else if (st === 'failed') setState('error', '실행하지 못했어요');
     else if (st && st !== 'pending') setState('declined', '이미 처리된 요청이에요');
-    else if (tokens.get(id)) setState('pending');
-    else {                                             // preparing on viewport entry (spec A4/C3)
-      setState('preparing');
-      if ('IntersectionObserver' in self) { const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); prepare(); } }); io.observe(card); }
-      else prepare();
-    }
+    else setState('pending');                          // no token fetched on render/viewport (§3.5.4)
     timer = setInterval(tick, 1000); tick();
     card._setState = setState;
-    card._replace = (next, r) => { stashToken(next); const c2 = renderConfirmCard(next, Object.assign({}, opts, { retries: r == null ? retries : r })); card.replaceWith(c2); return c2; };
+    card._replace = (next, r) => { const c2 = renderConfirmCard(next, Object.assign({}, opts, { retries: r == null ? retries : r })); card.replaceWith(c2); return c2; };
     if (!st || st === 'pending') say('확인이 필요해요: ' + V.title(x));
     return card;
   }
@@ -247,15 +256,15 @@
 
   /* ================= Part A: proactive messages ================= */
   function init(h) {
-    const api = self.EveProactiveAPI.make(h.api);
-    const P = { api, online: h.online };
+    const api = self.EveProactiveAPI.make(h.api, h.sameOrigin || (() => true));
+    const P = { api, online: h.online, sameOrigin: h.sameOrigin || (() => true) };
     let sysLoaded = false, notif = new Map(), supported = true, pollT = null, pendingNid = null, total = 0, lastTotal = 0;
     const qs = new URLSearchParams(location.search);
     if (ULID.test(qs.get('nid') || '')) { pendingNid = qs.get('nid'); qs.delete('nid'); history.replaceState(history.state, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash); }
-    const unreadOf = c => Math.max(c.unread || 0, notif.get(c.id)?.size || 0);
+    const unreadOf = c => c.unread || 0;
     function badge() {
       const convs = h.convs ? h.convs() : []; let n = 0; const seen = new Set();
-      convs.forEach(c => { n += unreadOf(c); seen.add(c.id); }); notif.forEach((s, tid) => { if (!seen.has(tid)) n += s.size; });
+      convs.forEach(c => { n += unreadOf(c); seen.add(c.id); }); notif.forEach((k, tid) => { if (!seen.has(tid)) n += k; });
       total = n; document.title = n ? `(${n}) Eve` : 'Eve';
       try { if (navigator.setAppBadge) { (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } } catch {}
       const cur = h.cur(), b = document.getElementById('backBadge');
@@ -265,16 +274,25 @@
       if (!supported || !h.isServer() || !h.online()) return badge();
       if (!sysLoaded) { sysLoaded = true; api.getSettings().then(j => { SYS = F().system(j); }).catch(() => { sysLoaded = false; }); }
       try {
-        const j = await api.notifications(); const m = new Map();
-        (j && j.data || []).forEach(x => { if (!x || !x.id || !x.thread_id || x.read_at) return; if (!m.has(x.thread_id)) m.set(x.thread_id, new Set()); m.get(x.thread_id).add(x.id); });
-        (h.convs ? h.convs() : []).forEach(c => { if (c.unread && !m.has(c.id)) c.unread = 0; else if (m.has(c.id)) c.unread = m.get(c.id).size; });   // other-device reads vanish
+        const j = await api.unreadThreads(); const m = new Map();   // GET /v1/threads?unread=true → server unread_count per thread
+        (j && j.data || []).forEach(t => { const n = F().unread(t); if (t && t.id && n > 0) m.set(t.id, n); });
+        (h.convs ? h.convs() : []).forEach(c => { c.unread = m.get(c.id) || 0; });   // other-device reads vanish
         notif = m; h.renderList(); badge();
-        if (pendingNid) { let tid = null; (j.data || []).forEach(x => { if (x.id === pendingNid) tid = x.thread_id; }); pendingNid = null; if (tid) h.openConv(tid); }
+        if (pendingNid && (!h.ready || h.ready())) { const mid = pendingNid; pendingNid = null; await openByMessage(mid, m); }
         const c = h.cur(); if (c && total > lastTotal && h.route() === 'chat' && m.has(c.id) && h.reload) { h.reload(c); say('Eve가 새 메시지를 보냈어요'); }
         lastTotal = total;
       } catch (e) {
         if (api.unsupported(e)) { supported = false; clearInterval(pollT); badge(); return; }
         if (pendingNid && !e.http) connectScreen();
+      }
+    }
+    async function openByMessage(mid, unreadMap) {   // push nid = message_id → its thread, scrolled to it
+      const cur = h.cur(); if (cur && (cur.messages || []).some(x => x.id === mid)) return h.openHit(cur.id, mid);
+      const tids = [...unreadMap.keys(), ...(h.convs ? h.convs() : []).map(c => c.id).filter(id => !unreadMap.has(id)).slice(0, 5)];
+      for (const tid of tids) {
+        const c = (h.convs ? h.convs() : []).find(x => x.id === tid);
+        if (c && (c.messages || []).some(x => x.id === mid)) return h.openHit(tid, mid);
+        try { const r = await api.threadMessages(tid); if ((r && r.data || []).some(x => x.id === mid)) return h.openHit(tid, mid); } catch {}
       }
     }
     function connectScreen() {                         // spec A6 / PM §2.3: no hostnames, nid kept locally
@@ -328,7 +346,7 @@
       io && io.unobserve(w);
       const m = (c.messages || []).find(x => x.id === id); if (!m || m.readAt) return;
       m.readAt = Date.now(); delete w.dataset.unread; w.setAttribute('aria-label', w.getAttribute('aria-label').replace(/^읽지 않음, /, ''));
-      if (c.unread) c.unread--; const s = notif.get(c.id); if (s) { s.delete(id); if (!s.size) notif.delete(c.id); }
+      if (c.unread) c.unread--; if (notif.has(c.id)) { const k = notif.get(c.id) - 1; if (k > 0) notif.set(c.id, k); else notif.delete(c.id); }
       batch.push(id); clearTimeout(batchT); batchT = setTimeout(() => flushReads(c), 50); badge();
     }
     let batch = [], batchT = 0;
@@ -361,7 +379,8 @@
       }
       badge();
     }
-    function streamCard(j, after) { stashToken(j); const a = sanitize(j); mountCard(a, after); return a; }
+    // SSE never carries a token (eve-serving PR #16): any confirm_token there is dropped; the token comes only from the session POST reissue
+    function streamCard(j, after) { const a = sanitize(j); mountCard(a, after); return a; }
 
     /* ================= Settings › 선톡 (spec A5 + architect keys) ================= */
     const $ = s => document.getElementById(s);
@@ -417,12 +436,16 @@
     function allowedEndpoint(u) { try { const x = new URL(u); return x.protocol === 'https:' && (x.port === '' || x.port === '443') && !x.username && !x.password && PUSH_HOSTS.includes(x.hostname); } catch { return false; } }
     async function setPush(on) {
       const reg = await navigator.serviceWorker.ready; const cur = await reg.pushManager.getSubscription();
-      if (!on) { if (cur) { try { await api.unsubscribe(cur.endpoint); } catch {} try { await cur.unsubscribe(); } catch {} } localStorage.removeItem(LS_PUSH); psw.checked = false; return; }
+      if (!on) { if (cur) { try { await api.unsubscribe(cur.endpoint); } catch {} try { await cur.unsubscribe(); } catch {} } localStorage.removeItem(LS_PUSH); localStorage.removeItem(LS_KID); psw.checked = false; return; }
       const k = await api.vapidKey();
-      const sub = cur || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(k.key) });
+      let cur2 = cur;
+      if (cur2 && localStorage.getItem(LS_KID) && localStorage.getItem(LS_KID) !== k.key_id) {   // key rotated → resubscribe
+        try { await api.unsubscribe(cur2.endpoint); } catch {} try { await cur2.unsubscribe(); } catch {} cur2 = null;
+      }
+      const sub = cur2 || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(k.key) });
       if (!allowedEndpoint(sub.endpoint)) { try { await sub.unsubscribe(); } catch {} throw Object.assign(new Error('host'), { pushHost: true }); }
       await api.subscribe(sub.toJSON(), k.key_id);
-      localStorage.setItem(LS_PUSH, '1');
+      localStorage.setItem(LS_PUSH, '1'); localStorage.setItem(LS_KID, k.key_id);
     }
     psw.addEventListener('change', async () => {
       const want = psw.checked;
@@ -437,6 +460,11 @@
       psw.disabled = false;
     });
 
+    async function checkKeyRotation() {               // push on + server key_id changed → resubscribe silently (permission already granted)
+      if (localStorage.getItem(LS_PUSH) !== '1' || !h.isServer() || !h.online() || !('serviceWorker' in navigator)) return;
+      try { const k = await api.vapidKey(); if (k && k.key_id && k.key_id !== localStorage.getItem(LS_KID)) await setPush(true); } catch {}
+    }
+    setTimeout(checkKeyRotation, 3000);
     if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', e => { const d = e.data || {}; if (d.type === 'eve-open' && ULID.test(d.nid || '')) { pendingNid = d.nid; refresh(); } });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
     pollT = setInterval(() => { if (document.visibilityState === 'visible' && h.online()) refresh(); }, POLL_MS);

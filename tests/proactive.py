@@ -1,7 +1,7 @@
 # 선톡 P1 (v1.1.0) e2e against mock.py: unread, read-on-view, confirm card, settings, push
 import json, urllib.request
 from playwright.sync_api import sync_playwright
-M = 'http://127.0.0.1:8765'; B = M
+M = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''; B = M
 def req(method, path, body=None):
     r = urllib.request.Request(M + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(r) as f: t = f.read(); return json.loads(t) if t else None
@@ -13,8 +13,8 @@ SETTINGS = "localStorage.setItem('llmchat.settings',JSON.stringify({base:'',mode
 PUSH_STUB = """
 window.__unsubs=0;window.__pushEndpoint='https://web.push.apple.com/QabcDEF';
 Object.defineProperty(window,'Notification',{value:{permission:'default',requestPermission:async()=>'granted'},configurable:true});
-const mkSub=()=>({endpoint:window.__pushEndpoint,toJSON(){return{endpoint:this.endpoint,keys:{p256dh:'P256',auth:'AUTH'}}},unsubscribe:async()=>{window.__unsubs++;window.__cur=null;return true}});
-const pm={getSubscription:async()=>window.__cur||null,subscribe:async(o)=>{window.__subOpts={uvo:o.userVisibleOnly,keyLen:new Uint8Array(o.applicationServerKey).length};return window.__cur=mkSub()}};
+const mkSub=()=>({endpoint:window.__pushEndpoint,toJSON(){return{endpoint:this.endpoint,keys:{p256dh:'P256',auth:'AUTH'}}},unsubscribe:async()=>{window.__unsubs++;window.__cur=null;sessionStorage.removeItem('__sub');return true}});
+const pm={getSubscription:async()=>window.__cur||(sessionStorage.getItem('__sub')?(window.__cur=mkSub()):null),subscribe:async(o)=>{window.__subOpts={uvo:o.userVisibleOnly,keyLen:new Uint8Array(o.applicationServerKey).length};sessionStorage.setItem('__sub','1');return window.__cur=mkSub()}};
 window.PushManager=function(){};
 if(navigator.serviceWorker){const r=navigator.serviceWorker;Object.defineProperty(r,'ready',{get:()=>Promise.resolve({pushManager:pm,active:{}}),configurable:true});}
 """
@@ -35,7 +35,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.1.0', pg.evaluate('window.__app.version') == '1.1.0')
+    check('version 1.1.0', pg.evaluate('window.__app && window.__app.version') == '1.1.0', [errs, pg.url, pg.content()[:300]])
     pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
@@ -72,10 +72,18 @@ with sync_playwright() as p:
     check('unknown template_kind → sparkle', pg.locator('.msg.proactive .origin-ic path').first.get_attribute('d').startswith('M12 3l1.9'))
     pg.evaluate('history.back()'); pg.wait_for_timeout(400)
 
+    # --- push tap: nid = message_id → open its thread, scrolled to it
+    sN = put('/pro/seed', {'title': '알림 탭', 'proactive': ['x ' * 400, '이 메시지로 이동']})
+    pg.goto(B + '/ui/?nid=' + sN['msgs'][1] + '#/'); pg.wait_for_timeout(2500)
+    check('?nid opens its thread', pg.evaluate('__app.state().currentId') == sN['thread'], [sN, pg.url, pg.evaluate('__app.state()')])
+    check('scrolled to that message', pg.evaluate(f"(e=>{{const r=e.getBoundingClientRect();return r.top<innerHeight&&r.bottom>0}})(document.querySelector('.msg[data-mid=\"{sN['msgs'][1]}\"]'))"))
+    check('nid stripped from URL', 'nid=' not in pg.url)
+    pg.evaluate('history.back()'); pg.wait_for_timeout(400)
+
     # --- several at once → POST /v1/threads/{id}/read
     s2 = put('/pro/seed', {'title': '짧은 둘', 'proactive': ['하나', '둘']})
     home(); open_thread(s2['thread']); pg.wait_for_timeout(1700)
-    check('batch read → thread read once', pro().get('threadReads') == [s2['thread']] and not set(s2['msgs']) & set(pro()['reads']), [pro().get('threadReads'), pro()['reads']])
+    check('batch read → thread read once', pro().get('threadReads', []).count(s2['thread']) == 1 and not set(s2['msgs']) & set(pro()['reads']), [pro().get('threadReads'), pro()['reads']])
     pg.evaluate('history.back()'); pg.wait_for_timeout(300)
 
     # --- settings
@@ -119,6 +127,14 @@ with sync_playwright() as p:
     check('userVisibleOnly + 65B key', sp.evaluate('window.__subOpts') == {'uvo': True, 'keyLen': 65}, sp.evaluate('window.__subOpts'))
     sp.click('label:has(#sPush)'); sp.wait_for_timeout(1000)
     check('push off → DELETE + unsubscribe', pro()['subs'] == [] and sp.evaluate('window.__unsubs') == 1)
+    sp.click('label:has(#sPush)'); sp.wait_for_timeout(1500)
+    put('/pro/set', {'kid': 'k2'}); sp.reload(); sp.wait_for_timeout(4500)
+    subs = pro()['subs']; dels = [x for x in pro()['bodies'] if x['p'] == '/v1/push/subscriptions' and x['m'] == 'DELETE']
+    check('key_id change → resubscribe with k2', len(subs) == 1 and subs[0]['vapid_key_id'] == 'k2' and len(dels) >= 1, [subs, len(dels)])
+    sp.goto(B + '/ui/#/'); sp.wait_for_timeout(1200)
+    if sp.evaluate("document.getElementById('app').dataset.route") == 'chat': sp.evaluate('history.back()'); sp.wait_for_timeout(400)
+    sp.click('#openSettings'); sp.wait_for_timeout(700); sp.click('label:has(#sPush)'); sp.wait_for_timeout(1000)
+    put('/pro/set', {'kid': 'k1'})
     for ep in ['https://fcm.googleapis.com/x', 'https://web.push.apple.com.evil.example/x', 'https://web.push.apple.com:8443/x']:
         sp.evaluate(f"window.__pushEndpoint='{ep}'"); sp.click('label:has(#sPush)'); sp.wait_for_timeout(1300)
         check('endpoint refused: ' + ep, pro()['subs'] == [] and not sp.is_checked('#sPush'))
@@ -128,7 +144,7 @@ with sync_playwright() as p:
     A = {'action_id': '01JACT00000000000000000001', 'tool': 'calendar_create_event', 'summary': '내일 07:30 일정 추가', 'payload_view': {'제목': '<img src=x onerror=alert(1)>', '시각': '07:30'}, 'scopes': ['calendar.write'],
          'payload_hash': 'sha256:h1', 'expires_at': '2099-01-01T00:00:00Z', 'tainted': True, 'provenance': {'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': '메일 지켜보기'}}
     A2 = dict(A, action_id='01JACT00000000000000000002', tool='mail_send', scopes=['mail.send'], payload_hash='sha256:h2', tainted=False, provenance={'actor': 'user', 'job_id': None, 'job_name': None})
-    A3 = {'action_id': '01JACT00000000000000000003', 'tool': 'proactive.propose_followup', 'summary': '치과 예약 다시 알려 드릴게요', 'scopes': ['jobs.write'], 'payload_hash': 'sha256:h3', 'expires_at': '2099-01-01T00:00:00Z',
+    A3 = {'action_id': '01JACT00000000000000000003', 'tool': 'proactive.propose_followup', 'summary': '치과 예약 다시 알려 드릴게요', 'scopes': ['proactive.write'], 'payload_hash': 'sha256:h3', 'expires_at': '2099-01-01T00:00:00Z',
           'payload_view': {'when': {'at': '2026-10-28T00:00:00Z'}, 'thread_id': 'x', 'display': '10월 28일 (수) 오전 9:00', 'template_id': 'followup.v1'}, 'provenance': {'actor': 'user'}}
     A4 = dict(A2, action_id='01JACT00000000000000000004', expires_at='2000-01-01T00:00:00Z', tool='memory.propose', scopes=['memory.write'], payload_view={'op': 'add', 'items': [{'text': '커피는 디카페인', 'kind': 'preference'}], 'ambiguous': False})
     FG = {'action_id': '01JACT00000000000000000005', 'tool': 'memory.propose', 'summary': '잊기', 'scopes': ['memory.delete'], 'payload_hash': 'sha256:h5', 'expires_at': '2099-01-01T00:00:00Z', 'provenance': {'actor': 'user'},
@@ -141,7 +157,8 @@ with sync_playwright() as p:
     c1.scroll_into_view_if_needed(); pg.wait_for_timeout(500)
     check('tool card, taint + scheduler provenance', c1.get_attribute('data-variant') == 'tool' and c1.locator('.cc-taint').count() == 1 and '메일 지켜보기에서' in c1.locator('.cc-prov').inner_text())
     check('payload_view as text', pg.locator('.confirm-card img').count() == 0 and '<img' in c1.locator('dd').first.inner_text())
-    check('tokenless → reissue → pending', pro()['issued'] >= 1 and c1.get_attribute('data-state') == 'pending', c1.get_attribute('data-state'))
+    check('no token fetched on render/viewport (§3.5.4)', pro()['issued'] == 0 and c1.get_attribute('data-state') == 'pending', [pro()['issued'], c1.get_attribute('data-state')])
+    check('no token countdown', '초 뒤 만료' not in c1.inner_text())
     check('write scope = accent (no danger)', 'cc-danger' not in c1.locator('.cc-primary').get_attribute('class') and c1.locator('.cc-primary').inner_text() == '추가')
     c2 = card(A2['action_id'])
     check('send scope = danger 보내기', 'cc-danger' in c2.locator('.cc-primary').get_attribute('class') and c2.locator('.cc-primary').inner_text() == '보내기')
@@ -149,6 +166,8 @@ with sync_playwright() as p:
     check('propose_followup → proactive variant, display as-is, accent', c3.get_attribute('data-variant') == 'proactive' and c3.locator('time.cc-when').inner_text() == '10월 28일 (수) 오전 9:00' and 'cc-danger' not in c3.locator('.cc-primary').get_attribute('class') and c3.locator('.cc-secondary').inner_text() == '괜찮아요')
     c1.locator('.cc-primary').click(); pg.wait_for_timeout(800)
     ap = [x for x in pro()['bodies'] if x['p'].endswith('01JACT00000000000000000001/approve')]
+    seq = [x['p'].rsplit('/', 1)[-1] for x in pro()['bodies'] if '01JACT00000000000000000001/' in x['p']]
+    check('press → reissue then approve', seq == ['reissue', 'approve'], seq)
     check('approve {confirm_token,payload_hash}', len(ap) == 1 and set(ap[0]['b']) == {'confirm_token', 'payload_hash'} and ap[0]['b']['payload_hash'] == 'sha256:h1')
     check('confirmed 실행했어요', c1.get_attribute('data-state') == 'confirmed' and '실행했어요' in c1.inner_text())
     check('tokens not persisted', 'tok1' not in pg.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)'))
@@ -184,6 +203,31 @@ with sync_playwright() as p:
     check('410 → expired, 다시 요청 hidden', c6.get_attribute('data-state') == 'expired' and c6.locator('.cc-again').is_hidden())
     put('/pro/set', {'revise410': False})
 
+    # error_code branching, ambiguous approve, tokenless revise
+    E1 = dict(A2, action_id='01JACT00000000000000000007', payload_hash='sha256:e1', scopes=['calendar.write'], tool='calendar_create_event')
+    E2 = dict(E1, action_id='01JACT00000000000000000008', payload_hash='sha256:e2')
+    E3 = dict(E1, action_id='01JACT00000000000000000009', payload_hash='sha256:e3')
+    FG2 = dict(FG, action_id='01JACT0000000000000000000A', payload_hash='sha256:f2')
+    s6 = put('/pro/seed', {'title': '오류', 'actions': [E1, E2, E3, FG2]})
+    home(); open_thread(s6['thread'])
+    for k in [E1, E2, E3, FG2]: card(k['action_id']).scroll_into_view_if_needed(); pg.wait_for_timeout(400)
+    put('/pro/set', {'approveCode': [409, 'conflict']}); card(E1['action_id']).locator('.cc-primary').click(); pg.wait_for_timeout(700)
+    check('409 conflict → denied text by error_code', card(E1['action_id']).get_attribute('data-state') == 'denied' and '이미 처리된 요청이라 진행하지 않았어요' in card(E1['action_id']).inner_text() and card(E1['action_id']).locator('button:visible').count() == 0)
+    put('/pro/set', {'approveCode': [422, 'weird_new_code']}); card(E2['action_id']).locator('.cc-primary').click(); pg.wait_for_timeout(700)
+    check('unknown code → invalid text', '요청 내용이 올바르지 않아 진행하지 않았어요' in card(E2['action_id']).inner_text())
+    put('/pro/set', {'approveDrop': True, 'getDelay': 1.5}); c9 = card(E3['action_id']); c9.locator('.cc-primary').click(); pg.wait_for_timeout(300)
+    check('lost approve response → checking, no blind retry', c9.get_attribute('data-state') == 'checking' and '결과를 확인하는 중이에요' in c9.inner_text(), c9.get_attribute('data-state'))
+    pg.wait_for_timeout(4000); put('/pro/set', {'getDelay': 0})
+    ap = [x for x in pro()['bodies'] if x['p'].endswith(E3['action_id'] + '/approve')]
+    check('re-check via GET /v1/actions/{id} → confirmed, approve sent once', c9.get_attribute('data-state') == 'confirmed' and len(ap) == 1, [c9.get_attribute('data-state'), len(ap)])
+    put('/pro/set', {'reviseNoToken': True}); f2 = card(FG2['action_id']); f2.locator('input').nth(1).uncheck(); f2.locator('.cc-primary').click(); pg.wait_for_timeout(1500)
+    rv = [x for x in pro()['bodies'] if x['p'].startswith('/v1/proposals/' + FG2['action_id'])]
+    nf2 = pg.locator('.confirm-card[data-variant=forget]').last
+    check('revise body = {item_ids} only', rv and rv[-1]['b'] == {'item_ids': ['m1']})
+    check('tokenless revise response → pending card', nf2.get_attribute('data-state') == 'pending' and nf2.get_attribute('data-aid') != FG2['action_id'], nf2.get_attribute('data-state'))
+    put('/pro/set', {'reviseNoToken': False})
+    pg.evaluate('history.back()'); pg.wait_for_timeout(300)
+
     # restore via GET /v1/actions
     RR = dict(A2, action_id='01JACT0000000000000000000R', payload_hash='sha256:r')
     s4 = put('/pro/seed', {'title': '복원', 'user': ['일정 잡아줘'], 'restore': [RR]})
@@ -192,17 +236,27 @@ with sync_playwright() as p:
     pg.evaluate('history.back()'); pg.wait_for_timeout(300)
 
     # SSE confirmation + denied
-    pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']
+    put('/pro/set', {'sseToken': True}); pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']
     pg.fill('#input', 'confirm 치과'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     cs = card('01JACT0000000000000000000S')
     check('stream card pending', cs.count() == 1 and cs.get_attribute('data-state') == 'pending')
     cs.locator('.cc-primary').click(); pg.wait_for_timeout(700)
-    check('stream token used once, no reissue', pro()['issued'] == issued and cs.get_attribute('data-state') == 'confirmed')
+    aps = [x['b'] for x in pro()['bodies'] if x['p'].endswith('0000000000000000000S/approve')]
+    check('SSE confirm_token ignored → reissue on press', pro()['issued'] == issued + 1 and aps and aps[0]['confirm_token'] != 'ssetok-must-be-ignored' and cs.get_attribute('data-state') == 'confirmed', [pro()['issued'] - issued, aps])
+    put('/pro/set', {'sseToken': False})
     check('live region announces', '실행했어요' in (pg.text_content('#proLive') or ''))
     pg.fill('#input', 'confirmdeny 비번 기억해'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     cd = card('01JACT0000000000000000000D')
     check('denied: one line, fixed text, no buttons', cd.get_attribute('data-state') == 'denied' and cd.inner_text().strip() == '비밀번호나 키처럼 보여서 진행하지 않았어요' and cd.locator('button').count() == 0, cd.inner_text() if cd.count() else '')
 
+    # sign-out (401) clears stored confirm-card contents (security review Low 2)
+    check('cards stored before sign-out', 'pendingActions' in (pg.evaluate("localStorage.getItem('llmchat.srvcache')") or ''))
+    check('no tokens ever stored', not any(t in (pg.evaluate("JSON.stringify(localStorage)") or '') for t in ['confirm_token', 'ssetok', 'revtok', '"tok']))
+    put('/auth/off'); pg.reload(); pg.wait_for_timeout(2000)
+    check('after 401: no pendingActions in localStorage', 'pendingActions' not in (pg.evaluate("JSON.stringify(localStorage)") or ''))
+    put('/auth/on')
+    mut = req('PUT', '/__mut')
+    check('every mutating API request had X-Eve-Request + Origin + JSON', mut and all(x['ok'] for x in mut), [x for x in mut if not x['ok']][:3])
     check('no CSP violations', not csp, csp)
     check('no page errors', not errs, errs)
     b.close()

@@ -1,7 +1,7 @@
 """1.1.0 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json
-B = 'http://127.0.0.1:8765'
+B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
 def put(path):
     urllib.request.urlopen(urllib.request.Request(B + path, method='PUT')).read()
 def db(): return json.load(urllib.request.urlopen(B + '/__db'))
