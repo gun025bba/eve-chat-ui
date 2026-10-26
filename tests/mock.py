@@ -23,13 +23,18 @@ def gen_run(mid, kind):
     def body():
         m = DB['messages'][mid]; acc = []
         push(None, {"object": "chat.completion.chunk", "choices": [{"delta": {"role": "assistant"}}]})
-        if kind == 'err':
+        if kind in ('err', 'errra'):
             acc.append('partial '); m['content'] = ''.join(acc); push(None, {"choices": [{"delta": {"content": 'partial '}}]}); time.sleep(0.3)
-            push(None, {"error": {"message": "upstream timed out", "type": "server_error", "code": "upstream_timeout"}})
+            push(None, {"error": dict({"message": "upstream timed out", "type": "server_error", "code": "upstream_timeout"}, **({"retry_after": 2} if kind == 'errra' else {}))})
             m.update(status='failed', error_code='upstream_timeout')
             push(None, {"object": "chat.completion.persisted", "status": "failed", "thread_id": m['thread_id'], "message_id": mid})
         else:
-            for k in range(10):
+            for k in range(10 if kind != 'slow' else 40):
+                if g.get('cancel'):
+                    m.update(status='failed', error_code='cancelled')
+                    push(None, {"error": {"code": "cancelled", "message": "cancelled"}})
+                    push(None, {"object": "chat.completion.persisted", "status": "failed", "thread_id": m['thread_id'], "message_id": mid})
+                    push(None, '[DONE]'); g['done'] = True; return
                 t = f'A{k} '; acc.append(t)
                 with LOCK: m['content'] = ''.join(acc)
                 push(None, {"choices": [{"delta": {"content": t}}]}); time.sleep(0.3)
@@ -241,9 +246,17 @@ class H(SimpleHTTPRequestHandler):
             STATE.setdefault('resumes', []).append({'mid': mid, 'lei': s.headers.get('Last-Event-ID'), 'xer': s.headers.get('X-Eve-Request')})
             if PRO.get('resume404') or not m or m['thread_id'] != tid or m['role'] != 'assistant': return s.j(404, err('not_found'))
             after = int(s.headers.get('Last-Event-ID') or (q.get('after') or ['0'])[0])
-            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            if PRO.get('subs429', 0) > 0:
+                PRO['subs429'] -= 1; return s.j(429, err('too_many_subscribers', 'rate_limit_error', 'too many subscribers'), {'Retry-After': '1'})
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.send_header('Cache-Control', 'no-store'); s.end_headers()
             try:
-                if STATE.get('snapOnly') or mid not in GEN:
+                if PRO.get('snapLive') and mid in GEN:   # log overflow: snapshot (current content + last_event_id) then live
+                    with LOCK: last = GEN[mid]['ev'][-1][0]; snap = dict(m, last_event_id=last)
+                    s.wfile.write(('event: eve.snapshot\ndata: ' + json.dumps(snap) + '\n\n').encode()); s.wfile.flush()
+                    return s.gen_stream(mid, last)
+                if PRO.get('resumeCut', 0) > 0:   # 30s write deadline: server drops a slow reader
+                    PRO['resumeCut'] -= 1; return s.gen_stream(mid, after, cut=3)
+                if PRO.get('snapOnly') or mid not in GEN:
                     while m['status'] == 'generating': time.sleep(0.1)   # (test simplification: snapshot of the final row)
                     s.wfile.write(('event: eve.snapshot\ndata: ' + json.dumps(m) + '\n\ndata: [DONE]\n\n').encode()); return
                 s.gen_stream(mid, after)
@@ -271,6 +284,13 @@ class H(SimpleHTTPRequestHandler):
     def ev(s, o): s.wfile.write(f'data: {json.dumps(o)}\n\n'.encode()); s.wfile.flush(); time.sleep(0.08)
     def do_POST(s):
         if not s.gate('POST'): return
+        mc = re.fullmatch(r'/v1/threads/([^/]+)/messages/([^/]+)/cancel', urlparse(s.path).path)
+        if mc:
+            tid, mid = mc.groups(); m = DB['messages'].get(mid)
+            STATE.setdefault('cancels', []).append({'mid': mid, 'len': int(s.headers.get('Content-Length') or 0)})
+            if not m or m['thread_id'] != tid: return s.j(404, err('not_found'))
+            if mid in GEN: GEN[mid]['cancel'] = True
+            s.send_response(204); s.end_headers(); return
         if s.threads_api('POST'): return
         body = s.body()
         if not s.auth(): return
@@ -327,11 +347,15 @@ class H(SimpleHTTPRequestHandler):
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return
+        if last.startswith('busy429'):
+            return s.j(429, err('too_many_generations', 'rate_limit_error', 'too many generations'), {'Retry-After': '2'})
+        if last.startswith('regen409') and rep:
+            return s.j(409, err('generation_in_progress', 'invalid_request_error', 'generation in progress'))
         if last.startswith('detach') and th:   # new server (gateway 3.1.0): row first, eve.meta, id: seq, survives disconnect
             am = s.save_asst(th, rep, '', '', 'generating'); am.pop('error_code', None); mid = am['id']
             GEN[mid] = {'ev': [(1, 'eve.meta', {"thread_id": th['id'], "message_id": mid})], 'done': False}
             STATE['genStarts'] = STATE.get('genStarts', 0) + 1
-            gen_run(mid, 'err' if last.startswith('detacherr') else 'ok')
+            gen_run(mid, 'errra' if last.startswith('detacherrra') else 'err' if last.startswith('detacherr') else 'slow' if last.startswith('detachslow') else 'ok')
             s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.send_header('X-Thread-Id', th['id']); s.send_header('X-Message-Id', mid)
             if um: s.send_header('X-User-Message-Id', um['id'])
             s.end_headers()
@@ -436,7 +460,10 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/whoamifalse/'): STATE['whoamiFalse'] = p.endswith('/on')
         if p == '/pro/reset': pro_reset()
         if p.startswith('/pro/set'):
-            b = s.body(); so = b.pop('statusOf', {}); PRO.update(b)
+            b = s.body(); so = b.pop('statusOf', {}); mp = b.pop('msgPatch', {}); PRO.update(b)
+            for k, v in mp.items(): DB['messages'][k].update(v)
+            dr = b.pop('dropMsgs', []) if False else PRO.pop('dropMsgs', [])
+            for k in dr: DB['messages'].pop(k, None)
             for k, v in so.items(): PRO['actions'][k]['status'] = v
             return s.j(200, {})
         if p.startswith('/pro/supported/'): PRO['supported'] = p.endswith('/on')

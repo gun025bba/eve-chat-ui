@@ -278,7 +278,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function fromServerMsg(m) {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
-    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || null, created: toMs(m.created_at) };
+    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
@@ -673,8 +673,14 @@ if (typeof document !== 'undefined') (function () {
     const msg = bubble.parentElement;
     msg.querySelector('.actions')?.remove(); msg.querySelector('.stopped')?.remove();
     msg.querySelector('.msg-note')?.remove();
-    if (!live && (opts.stopped || opts.msg?.status === 'incomplete')) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
-    else if (!live && opts.msg?.status === 'failed') { const st = document.createElement('div'); st.className = 'stopped msg-note failed'; st.setAttribute('role', 'note'); st.textContent = failText(opts.msg.errorCode); msg.appendChild(st); }
+    // 1.1.3: old incomplete rows with a non-stop reason, and empty finished replies, count as failed (no silent empty bubbles)
+    const om = opts.msg, oldFail = om?.status === 'incomplete' && om.errorCode && !STOP_CODES.has(om.errorCode);
+    const emptyDone = !live && !opts.stopped && om && om.role !== 'user' && !answer.trim() && think === null && (!om.status || om.status === 'complete');
+    const isFail = !live && (om?.status === 'failed' && !STOP_CODES.has(om.errorCode) || oldFail || emptyDone);
+    if (!live && !isFail && (opts.stopped || om?.status === 'incomplete' || (om?.status === 'failed' && STOP_CODES.has(om.errorCode)))) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
+    else if (isFail) { const st = document.createElement('div'); st.className = 'stopped msg-note failed'; st.setAttribute('role', 'note'); st.textContent = emptyDone && !om.errorCode ? '답변을 받지 못했어요' : failText(om.errorCode);
+      if (opts.regen) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn retry'; rb.textContent = '다시 시도'; rb.onclick = regenerate; st.append(' ', rb); }   // regenerates the same message_id
+      msg.appendChild(st); }
     else if (opts.msg?.status === 'generating' || opts.resuming) { const st = document.createElement('div'); st.className = 'stopped msg-note resuming'; st.setAttribute('role', 'status'); st.textContent = RESUMING; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
@@ -840,6 +846,8 @@ if (typeof document !== 'undefined') (function () {
       PRO?.decorateMsg([...box.querySelectorAll(':scope > .msg')].pop() || null, m, i, c.messages);
     });
     PRO?.afterRender(c);
+    // 1.1.3: thread ends with a user turn and no reply (and nothing running) → visible retry
+    if (!c.archived && c.messages.at(-1)?.role === 'user' && !c.loading && !(controller && genId === c.id)) addError('답변을 받지 못했어요', () => generate(c));
     requestAnimationFrame(() => { box.classList.remove('no-anim'); if (!keep) { stick = true; scrollBottom(); } });
   }
   function renderAll() { renderList(); renderMessages(); }
@@ -866,18 +874,27 @@ if (typeof document !== 'undefined') (function () {
     if (status === 404) return '엔드포인트를 찾을 수 없습니다 (404). Base URL을 확인하세요.';
     return `서버 오류 ${status}${code ? ' ' + code : ''}: ${m}`;
   }
-  // 1.1.2 (contract §3.8): failed message error_code → friendly text; unknown → generic
+  // 1.1.3 (contract §3.8): failed message error_code → friendly text; unknown → generic
   const FAIL_TEXT = { upstream_error: '모델 서버에 문제가 생겨 답변을 끝내지 못했어요', upstream_timeout: '모델 서버 응답이 늦어 답변을 끝내지 못했어요', timeout: '답변이 너무 오래 걸려 중단됐어요',
     queue_full: '지금 요청이 많아 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요', queue_timeout: '기다리는 시간이 길어 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요',
-    gateway_restart: '서버가 다시 시작돼 답변이 중단됐어요', internal_error: '서버 오류로 답변을 끝내지 못했어요' };
+    gateway_restart: '서버가 다시 시작돼 답변이 중단됐어요', internal_error: '서버 오류로 답변을 끝내지 못했어요',
+    no_subscriber: '연결이 오래 끊겨 있어 답변이 중단됐어요', too_large: '답변이 너무 길어져 중단됐어요',
+    too_many_generations: '이미 답변 2개를 만드는 중이에요. 하나가 끝나면 다시 시도해 주세요', server_busy: '서버가 바빠 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요',
+    too_many_subscribers: '이 답변을 연 곳이 너무 많아요. 다른 창을 닫고 다시 시도해 주세요', generation_in_progress: '이 답변은 이미 다시 만드는 중이에요. 끝나면 다시 시도해 주세요' };
+  // 1.1.3: user stops — new 'cancelled' and the legacy incomplete reason for a client abort → 중지됨
+  const STOP_CODES = new Set(['cancelled', 'client_disconnected']);
+  const HTTP_CODES = new Set(['queue_full', 'queue_timeout', 'too_many_generations', 'server_busy', 'too_many_subscribers', 'generation_in_progress']);
+  const raText = ra => ra > 0 ? ` (${Math.ceil(ra)}초 뒤에 다시 시도할 수 있어요)` : '';
+  const retryAfterOf = res => { const v = res.headers.get('Retry-After'); if (!v) return 0; const n = +v; if (Number.isFinite(n)) return Math.max(0, n); const d = Date.parse(v); return isNaN(d) ? 0 : Math.max(0, (d - Date.now()) / 1000); };
   const failText = code => FAIL_TEXT[code] || '답변을 끝내지 못했어요';
   const RESUMING = '답변 불러오는 중';
   function clearErrors() { box.querySelectorAll('.msg.error').forEach(e => e.remove()); }
-  function addError(text, retry) {
+  function addError(text, retry, retryAfter) {
     const b = addMsgEl('error');
     b.innerHTML = `${ICON.warn}<span class="err-text"></span>`;
     b.querySelector('.err-text').textContent = text;
-    if (retry) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn retry'; btn.textContent = '재시도'; btn.onclick = () => { b.parentElement.remove(); retry(); }; b.appendChild(btn); }
+    if (retry) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn retry'; btn.textContent = '다시 시도'; btn.onclick = () => { b.parentElement.remove(); retry(); }; b.appendChild(btn);
+      if (retryAfter > 0) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, retryAfter * 1000); } }   // respect Retry-After
     scrollBottom(true);
   }
 
@@ -921,7 +938,8 @@ if (typeof document !== 'undefined') (function () {
       } catch {}
     }
   }
-  function stopGeneration() { if (controller) { buzz(10); sendBtn.classList.add('pressed'); setTimeout(() => sendBtn.classList.remove('pressed'), 160); controller.abort(); } }
+  let cancelRun = null;
+  function stopGeneration() { if (controller) { try { cancelRun?.(); } catch {} buzz(10); sendBtn.classList.add('pressed'); setTimeout(() => sendBtn.classList.remove('pressed'), 160); controller.abort(); } }
 
   async function generate(c, replaceId) {
     const bubble = addMsgEl('assistant');
@@ -950,6 +968,7 @@ if (typeof document !== 'undefined') (function () {
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
     document.addEventListener('visibilitychange', onVis);
+    cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
       acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage;
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
@@ -960,8 +979,8 @@ if (typeof document !== 'undefined') (function () {
       if (data.trim() === '[DONE]') { done = true; return; }
       let j; try { j = JSON.parse(data); } catch { return; }
       if (ev === 'eve.meta') { if (j.message_id) mid = j.message_id; ids(j); return; }
-      if (ev === 'eve.snapshot') { applyMsg(j); if (j.status !== 'generating') done = true; paint(); return; }
-      if (j.error) { streamErr = j.error; return; }
+      if (ev === 'eve.snapshot') { applyMsg(j); if (+j.last_event_id > 0) seq = +j.last_event_id; if ((j.status || 'complete') !== 'generating') done = true; paint(); return; }   // replaces content, never appended
+      if (j.error) { streamErr = j.error; return; }   // after admission: error event (+ retry_after)
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
         const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
@@ -1000,13 +1019,17 @@ if (typeof document !== 'undefined') (function () {
       const showResuming = () => { fillAssistant(bubble, view(), { live: true, resuming: true }); };
       showResuming(); await untilVisible(); showResuming();
       const tid = c.id, deadline = Date.now() + 5 * 60e3;
-      for (let k = 0; k < 3 && !ctl.signal.aborted; k++) {   // 1) GET .../stream with Last-Event-ID (replay + live, or eve.snapshot)
-        if (k) await sleep(800 * k);
+      for (let fails = 0; fails < 3 && Date.now() < deadline && !ctl.signal.aborted;) {   // 1) GET .../stream with Last-Event-ID (replay + live, or eve.snapshot); reconnect on write-timeout cuts
+        if (fails) await sleep(800 * fails);
+        if (document.hidden) await untilVisible();
+        const before = seq;
         try {
           const r = await fetch(apiBase() + `/v1/threads/${encodeURIComponent(tid)}/messages/${encodeURIComponent(mid)}/stream`, { cache: 'no-store', signal: ctl.signal, headers: { ...headers(), 'Last-Event-ID': String(seq) } });
+          if (r.status === 429) { fails++; await sleep(Math.min(30, retryAfterOf(r) || 2) * 1000); continue; }   // too_many_subscribers: wait Retry-After, retry
           if (!r.ok || !r.body) break;
           await consume(r); if (done) return true;
         } catch (e) { if (ctl.signal.aborted) throw e; }
+        fails = seq > before ? 0 : fails + 1;   // progress → keep following (server cuts slow readers after 30s)
       }
       for (let k = 0; Date.now() < deadline && !ctl.signal.aborted; k++) {   // 2) poll the messages list (partial content while generating)
         if (k) await sleep(Math.min(8000, 1000 * 2 ** Math.min(k, 3)));
@@ -1033,8 +1056,11 @@ if (typeof document !== 'undefined') (function () {
       if (res.status === 400 && wsReq) { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = false; setWebOn(false); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        if (res.status === 401) { let code; try { code = JSON.parse(body).error?.code; } catch {} showAuthNotice(() => generate(c), code); }
-        throw Object.assign(new Error(errMsg(res.status, body)), { http: res.status });
+        let code; try { code = JSON.parse(body).error?.code; } catch {}
+        if (res.status === 401) showAuthNotice(() => generate(c), code);
+        const ra = retryAfterOf(res);
+        if (HTTP_CODES.has(code) && (res.status === 429 || res.status === 409)) throw Object.assign(new Error(failText(code) + raText(ra)), { http: res.status, retryAfter: ra });   // before admission: no assistant row
+        throw Object.assign(new Error(errMsg(res.status, body)), { http: res.status, retryAfter: ra });
       }
       const ctype = res.headers.get('content-type') || '';
       if (!res.body || ctype.includes('application/json')) {
@@ -1071,27 +1097,31 @@ if (typeof document !== 'undefined') (function () {
         if (acc || reasoning) { fillAssistant(bubble, full(), { actions: false }); c.messages.push({ role: 'assistant', content: full() }); persist(); }
         else bubble.parentElement.remove();
         const m = e.http ? e.message : `네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`;
-        addError(m, (!e.http || RETRYABLE.has(e.http)) && !(acc || reasoning) ? retry : null);
+        addError(m, (!e.http || RETRYABLE.has(e.http) || e.http === 409) && !(acc || reasoning) ? retry : null, e.retryAfter || 0);
         return;
       }
     }
-    finish(); endThink(); document.removeEventListener('visibilitychange', onVis);
+    finish(); endThink(); document.removeEventListener('visibilitychange', onVis); cancelRun = null;
     if (mid && !persisted) persisted = { message_id: mid };
     const final = full();
     if (stopped) {
       if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
-      const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs;
+      const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs; if (mid) { msg.id = mid; bubble.parentElement.dataset.mid = mid; }
       if (sources?.length) msg.sources = sources;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
       c.messages.push(msg); c.updated = Date.now(); if (final) c.preview = clean(splitThink(final).answer); persist(); renderList();
-      if (mode === 'server' && c.srv) resolveStoppedId(c, msg, bubble);
+      if (mode === 'server' && c.srv && !msg.id) resolveStoppedId(c, msg, bubble);
       if (stick) scrollBottom();
       return;
+    }
+    if (streamErr && STOP_CODES.has(streamErr.code)) {   // cancelled (e.g. from another device) → 중지됨
+      const msg = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code, created: Date.now() }; if (persisted?.message_id) { msg.id = persisted.message_id; bubble.parentElement.dataset.mid = msg.id; }
+      fillAssistant(bubble, final, { regen: true, thinkSecs, msg }); c.messages.push(msg); persist(); renderList(); return;
     }
     if (streamErr) {   // §3.8: error event inside a 200 stream / failed status → failed message
       const fm = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code || null, created: Date.now() }; if (persisted?.message_id) fm.id = persisted.message_id;
       if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs, msg: fm }); c.messages.push(fm); persist(); } else bubble.parentElement.remove();
-      addError(failText(streamErr.code), final ? null : retry);
+      const ra = +streamErr.retry_after || 0; addError(failText(streamErr.code) + raText(ra), final ? null : retry, ra);
       return;
     }
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
@@ -1666,7 +1696,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.1.3'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
