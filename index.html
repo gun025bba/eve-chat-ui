@@ -40,7 +40,7 @@
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:dark)" href="splash/dark-1080x2340.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:light)" href="splash/light-1080x2340.png">
 
-<link rel="stylesheet" href="/ui/styles.css?v=1.1.0">
+<link rel="stylesheet" href="/ui/styles.css?v=1.1.1">
 <title>Eve</title>
 </head>
 <body>
@@ -95,7 +95,7 @@
       <label>Base URL<input id="sBase" type="url" placeholder="같은 서버 (권장)" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
       <label class="model-row">모델<select id="sModel"></select><button type="button" id="loadModels" class="mini-btn">불러오기</button></label>
     </div>
-    <p id="sBaseWarn" class="err-text base-warn" role="note" hidden>이 앱과 다른 곳의 서버예요. 대화, 읽음 표시, 설정, 알림 요청이 모두 그 서버로 가고, 확인 카드는 승인할 수 없어요. 비워 두면 같은 서버를 써요.</p>
+    <p id="sBaseWarn" class="err-text base-warn" role="note" hidden>이 앱과 다른 서버를 쓰고 있어요. 대화·읽음·설정·알림이 모두 그 서버로 가고, 확인 카드는 승인할 수 없어요. 비워 두면 이 앱의 서버를 써요.</p>
     <p id="sStatus" class="status"></p>
     <p id="sWho" class="status who" hidden></p>
     <p class="sec">대화 <span class="sec-note">· 선택 사항</span></p>
@@ -107,6 +107,10 @@
     </div>
     <p class="sec">선톡</p>
     <div class="group"><label class="sw"><span>Eve가 먼저 말하기</span><input id="sProactive" type="checkbox" switch role="switch"></label></div>
+    <div id="pushRow" hidden>
+      <div class="group"><label class="sw"><span>알림 받기</span><input id="sPush" type="checkbox" switch role="switch"></label></div>
+      <p id="sPushNote" class="status hint">알림에는 내용 없이 “Eve에게서 새 메시지가 있어요”만 표시돼요.</p>
+    </div>
     <p id="sProNote" class="status hint">Eve가 브리핑이나 알림을 먼저 보낼 수 있어요. 하루 최대 3번.</p>
     <div id="proMore" hidden>
       <p class="sec">조용한 시간</p>
@@ -123,15 +127,11 @@
         <div class="group"><label class="sw"><span>선톡에서 메모리 사용</span><input id="sProMem" type="checkbox" switch role="switch"></label></div>
         <p class="status hint">켜면 이름·선호·진행 중인 일만 참고해요.</p>
       </div>
-      <div id="pushRow" hidden>
-        <div class="group"><label class="sw"><span>알림 받기</span><input id="sPush" type="checkbox" switch role="switch"></label></div>
-        <p id="sPushNote" class="status hint">알림에는 내용 없이 “Eve에게서 새 메시지가 있어요”만 표시돼요.</p>
-      </div>
     </div>
     <p class="sec">동기화 <span class="sec-note" id="sSync"></span></p>
     <div class="group"><button type="button" id="sSyncNow" class="row-link">지금 동기화</button><div id="sMigrateRow" hidden><button type="button" id="sMigrate" class="row-link">이 기기 대화 서버로 옮기기</button></div></div>
     <div class="group a2hs-row" id="a2hsRow"><button type="button" id="showA2hs" class="row-link">홈 화면에 추가 방법<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></div>
-    <small id="appVersion" class="app-version">v1.1.0</small>
+    <small id="appVersion" class="app-version">v1.1.1</small>
   </form>
 </dialog>
 <div id="authNotice" class="auth-notice" hidden role="alertdialog" aria-labelledby="authTitle" aria-describedby="authBody">
@@ -177,8 +177,8 @@
 </div>
 <div id="fbLive" class="sr-only" aria-live="polite" role="status"></div>
 <div id="toast" hidden role="status"><span id="toastText"></span><button type="button" id="toastAct" class="text-btn"></button></div>
-<script src="/ui/proactive-api.js?v=1.1.0"></script>
-<script src="/ui/proactive.js?v=1.1.0"></script>
-<script src="/ui/app.js?v=1.1.0"></script>
+<script src="/ui/proactive-api.js?v=1.1.1"></script>
+<script src="/ui/proactive.js?v=1.1.1"></script>
+<script src="/ui/app.js?v=1.1.1"></script>
 </body>
 </html>

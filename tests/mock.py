@@ -367,7 +367,10 @@ class H(SimpleHTTPRequestHandler):
         if p == '/importfix': STATE['importfix'] = True
         if p.startswith('/whoamifalse/'): STATE['whoamiFalse'] = p.endswith('/on')
         if p == '/pro/reset': pro_reset()
-        if p.startswith('/pro/set'): PRO.update(s.body()); return s.j(200, {})
+        if p.startswith('/pro/set'):
+            b = s.body(); so = b.pop('statusOf', {}); PRO.update(b)
+            for k, v in so.items(): PRO['actions'][k]['status'] = v
+            return s.j(200, {})
         if p.startswith('/pro/supported/'): PRO['supported'] = p.endswith('/on')
         if p == '/__mut': return s.j(200, STATE.get('mut', []))
         if p == '/mut/reset': STATE['mut'] = []
