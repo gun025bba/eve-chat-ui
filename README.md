@@ -45,7 +45,7 @@ rsync -a --delete --exclude .git --exclude tests --exclude '.gitignore' ./ ~/llm
 2. Safari에서 `https://<host>.<your-tailnet>.ts.net/ui/` 열기 → 두 번째 방문(또는 첫 답변 후)에 설치 안내 시트가 뜸. 공유 → 홈 화면에 추가.
 3. 키 입력은 필요 없습니다. 홈 화면 앱에서 설정을 열어 연결된 계정이 보이는지 확인.
 4. 확인할 것: 스플래시 → 앱, 상태바 아래 블러 바, 가장자리 스와이프 뒤로, 행 스와이프/길게 누르기, 키보드가 열려도 컴포저가 위에 붙는지, 비행기 모드에서 실행 → 오프라인 배너, 앱 종료 후 재실행 시 같은 대화/초안 복원.
-5. 로컬 테스트: `cd tests && ./run_e2e.sh` (기존 e2e), `./run_e2e.sh native.py` (52개 네이티브 검사), `./run_e2e.sh threads.py` (서버 대화 저장), `./run_e2e.sh shots_native.py` (스크린샷).
+5. 로컬 테스트: `cd tests && ./run_e2e.sh` (기존 e2e), `./run_e2e.sh native.py` (52개 네이티브 검사), `./run_e2e.sh threads.py` (서버 대화 저장), `./run_e2e.sh header_crisp.py` (헤더 글자 선명도), `./run_e2e.sh shots_native.py` (스크린샷).
 
 ## v10 · 서버에 대화 저장 (threads API)
 게이트웨이에 DB가 연결되어 있으면 대화가 서버에 저장되어 여러 기기에서 이어서 볼 수 있습니다. 계약은 llm-serving `docs/threads-api.md`를 따릅니다.

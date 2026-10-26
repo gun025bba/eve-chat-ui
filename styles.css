@@ -191,7 +191,7 @@ button{-webkit-touch-callout:none}
 .status{min-height:18px;font-size:13px;color:var(--label-2);margin:0 4px}
 .status.err{color:var(--danger)}
 .group input::placeholder,.group textarea::placeholder{color:var(--label-3)}
-@media (display-mode:standalone){#topbar{padding-top:env(safe-area-inset-top)}}
+
 @media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.6}}
 #title{line-height:22px}#modelName{line-height:13px;margin-top:1px}
 /* ===== REVIEW fixes ===== */
@@ -222,7 +222,8 @@ img,svg{-webkit-user-drag:none;pointer-events:none}
 #app{opacity:0;transition:opacity 200ms var(--ease-out);display:block}
 #app.ready{opacity:1}
 /* §1 screens */
-.screen{position:absolute;inset:0;overflow:hidden;background:var(--bg);transition:transform var(--nav-d,420ms) var(--ease-sheet);will-change:transform}
+.screen{position:absolute;inset:0;overflow:hidden;background:var(--bg);transition:transform var(--nav-d,420ms) var(--ease-sheet)}
+#app.transitioning .screen,#app.dragging .screen,#app.vt .screen{will-change:transform}   /* only while moving: a resting will-change layer is rasterized once and not re-snapped */
 #chatView{z-index:2;box-shadow:-8px 0 24px rgba(0,0,0,.25)}
 #listView{z-index:1}
 #app[data-route=list] #chatView{transform:translateX(100%);box-shadow:none}
@@ -510,3 +511,11 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 @media (prefers-reduced-motion:reduce){.actions .fb.pop svg,#syncStatus .dot,li.skel i{animation:none}}
 
 @media (prefers-color-scheme:light){.empty .mark{background-image:url(icons/mark-light.svg)}}
+
+/* v10 header text crispness (iOS standalone): the glass lives on a pseudo-element BEHIND the content.
+   With backdrop-filter on #topbar itself, WebKit could promote the absolutely positioned #titleWrap to its own
+   compositing layer and paint it under the backdrop pass, so the title/subtitle were blurred with the backdrop
+   while the in-flow buttons stayed sharp. Only visible with a status-bar safe area (standalone). */
+#topbar{isolation:isolate;background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+#topbar::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--material);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+#topbar #titleWrap{z-index:1;transform:none;will-change:auto;filter:none}
