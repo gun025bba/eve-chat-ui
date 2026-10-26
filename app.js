@@ -213,7 +213,9 @@ if (typeof document !== 'undefined') (function () {
     vvRaf = requestAnimationFrame(() => {
       vvRaf = 0; const h = vv ? vv.height : window.innerHeight;
       root.setProperty('--vvh', h + 'px');
-      document.body.classList.toggle('kb-open', window.innerHeight - h > 120);
+      const wasKb = document.body.classList.contains('kb-open'), kb = window.innerHeight - h > 120;
+      document.body.classList.toggle('kb-open', kb);
+      if (kb && !wasKb && document.activeElement?.classList.contains('fbp-input')) document.activeElement.scrollIntoView({ block: 'nearest' });   // N2: keep note above keyboard
       if (window.scrollY) window.scrollTo(0, 0);
       if (stick) scrollBottom();
     });
@@ -417,7 +419,7 @@ if (typeof document !== 'undefined') (function () {
     inp.scrollIntoView?.({ block: 'center' });
     const done = ok => { inp.onblur = null; const v = inp.value.trim(); row.classList.remove('editing');
       if (ok && v && v !== c.title) updateThread(c, { title: v }); else renderList(); };
-    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); done(true); } if (e.key === 'Escape') done(false); };
+    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); done(true); } if (e.key === 'Escape') done(false); };
     inp.onblur = () => done(true);
     inp.onclick = e => e.stopPropagation();
   }
@@ -727,7 +729,7 @@ if (typeof document !== 'undefined') (function () {
     const nid = 'fbn' + Math.random().toString(36).slice(2, 8);
     p.innerHTML = `<div class="fbp-in"><p class="fbp-hint">${hint}</p>
       <div class="fbp-chips" role="group" aria-label="${kind === 'down' ? '아쉬운 점' : '좋았던 점'}">${FB_CHIPS[kind].map(([k, t]) => `<button type="button" class="fbchip" data-k="${k}" aria-pressed="${picks.has(k)}">${ICON.check}<span>${t}</span></button>`).join('')}</div>
-      <div class="fbp-note" hidden><label for="${nid}" class="sr-only">메모</label><input id="${nid}" class="fbp-input" type="text" maxlength="${FB_MAX}" enterkeyhint="send" autocomplete="off" autocorrect="on" autocapitalize="sentences" data-1p-ignore data-lpignore="true" data-form-type="other" placeholder="한 줄로 남겨 주세요"><span class="fbp-count" aria-live="polite" hidden></span></div>
+      <div class="fbp-note" hidden><label for="${nid}" class="sr-only">메모</label><input id="${nid}" class="fbp-input" type="text" maxlength="${FB_MAX}" enterkeyhint="send" autocomplete="off" autocorrect="on" autocapitalize="sentences" data-1p-ignore data-lpignore="true" data-form-type="other" placeholder="한 줄로 남겨 주세요"><span class="fbp-count" hidden></span></div>
       <div class="fbp-foot"><button type="button" class="fbp-memo text-btn">메모 추가</button><button type="button" class="fbp-done"></button></div></div>`;
     a.insertAdjacentElement('afterend', p);
     const inp = p.querySelector('.fbp-input'), note = p.querySelector('.fbp-note'), cnt = p.querySelector('.fbp-count'), done = p.querySelector('.fbp-done'), memo = p.querySelector('.fbp-memo');
@@ -745,7 +747,8 @@ if (typeof document !== 'undefined') (function () {
     });
     memo.onclick = () => showNote(true);
     inp.oninput = () => { p._dirty = true; upd(); };
-    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); } };
+    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } };
+    if (!a._fbEsc) { a._fbEsc = true; a.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing && a.parentElement?.querySelector('.fbp:not(.closing)')) { e.preventDefault(); e.stopPropagation(); closeFbPanel(a, true); } }); }   // N3: Esc from 👍/👎 too
     p.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); closeFbPanel(a, true); } });
     const submit = () => {
       const comment = inp.value.trim().slice(0, FB_MAX), reasons = FB_CHIPS[kind].map(c => c[0]).filter(k => picks.has(k));
@@ -1566,13 +1569,13 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = 'v17'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.0.1'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('/ui/sw.js', { scope: '/ui/' }).then(reg => {
       swReg = reg;
-      const ask = () => { const sw = navigator.serviceWorker.controller; if (!sw) return; const ch = new MessageChannel(); ch.port1.onmessage = e => { const v = e.data && e.data.version; console.info('[llmchat] sw', v); const el = document.getElementById('appVersion'); if (el && v) el.textContent = APP_VERSION + ' · SW ' + v.replace('llmchat-', ''); }; sw.postMessage('GET_VERSION', [ch.port2]); };
+      const ask = () => { const sw = navigator.serviceWorker.controller; if (!sw) return; const ch = new MessageChannel(); ch.port1.onmessage = e => { const v = e.data && e.data.version; console.info('[llmchat] sw', v); const el = document.getElementById('appVersion'); if (el && v) el.textContent = 'v' + APP_VERSION + ' · SW ' + v.replace('llmchat-', ''); }; sw.postMessage('GET_VERSION', [ch.port2]); };
       ask(); navigator.serviceWorker.addEventListener('controllerchange', ask);
       const offer = w => { wantReload = true; w.postMessage('SKIP_WAITING'); };   // v11: no tap needed, reload once
       reg.update?.().catch(() => {});

@@ -599,10 +599,11 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 @media (prefers-color-scheme:light){.fbchip{--chip-bg:#F2F2F7;--chip-bd:#E5E5EA;--chip-fg:rgba(60,60,67,.85);--chip-on-bg:rgba(0,122,255,.12);--chip-on-bd:rgba(0,122,255,.5);--chip-on-fg:#007AFF}}
 .fbp-note{position:relative;margin-top:8px}
 .fbp-input{width:100%;height:40px;padding:0 44px 0 12px;border-radius:10px;border:1px solid var(--separator);background:var(--bg-elev);color:var(--label);font:inherit;font-size:16px}
+.fbp-input:focus,.fbp-input:focus-visible{outline:0;border-color:var(--accent)}
 .fbp-count{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--label-2)}
 .fbp-foot{display:flex;justify-content:space-between;align-items:center;min-height:44px}
 .fbp-memo{font-size:15px;padding:0;min-height:44px}
-.fbp-done{min-height:44px;min-width:44px;padding:0 4px;font-size:15px;font-weight:600;color:var(--label-2)}
+.fbp-done{margin-left:auto;min-height:44px;min-width:44px;padding:0 4px;font-size:15px;font-weight:600;color:var(--label-2)}
 .fbp-done.primary-text{color:var(--accent)}
 .fb-thanks{font-size:13px;line-height:18px;color:var(--label-2);padding:6px 2px;transition:opacity 300ms}
 .fb-thanks.out{opacity:0}

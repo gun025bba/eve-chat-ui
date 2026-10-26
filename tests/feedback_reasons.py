@@ -1,4 +1,4 @@
-"""v17: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
+"""1.0.1 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json
 B = 'http://127.0.0.1:8765'
@@ -59,6 +59,16 @@ with sync_playwright() as p:
           and pg.evaluate("(()=>{const i=document.querySelector('.msg.assistant:last-of-type .fbp-input');return !!document.querySelector('label[for=\"'+i.id+'\"]')})()"))
     check('count hidden <=120', not A().locator('.fbp-count').is_visible())
     inp.fill('x' * 125); check('count shown >120', A().locator('.fbp-count').is_visible() and A().locator('.fbp-count').inner_text() == '15')
+    # 1.0.1 review fixes
+    check('N1 counter has no aria-live', A().locator('.fbp-count').get_attribute('aria-live') is None)
+    geo = pg.evaluate("(()=>{const d=document.querySelectorAll('.fbp-done'),p=document.querySelectorAll('.fbp-foot');const a=d[d.length-1].getBoundingClientRect(),f=p[p.length-1].getBoundingClientRect();return {memoHidden:document.querySelectorAll('.fbp-memo')[d.length-1].hidden,gap:f.right-a.right}})()")
+    check('M1 done stays right when memo hidden', geo['memoHidden'] and abs(geo['gap']) < 2, geo)
+    n0 = len(db()['state']['fbBodies']); inp.fill('조합중')
+    pg.evaluate("(()=>{const i=[...document.querySelectorAll('.fbp-input')].pop();const e=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});Object.defineProperty(e,'keyCode',{get:()=>229});i.dispatchEvent(e)})()"); pg.wait_for_timeout(300)
+    check('N6 IME Enter (keyCode 229) does not submit', A().locator('.fbp').count() == 1 and len(db()['state']['fbBodies']) == n0, [A().locator('.fbp').count(), n0, len(db()['state']['fbBodies'])])
+    inp.focus(); ring = pg.evaluate("(()=>{const s=getComputedStyle([...document.querySelectorAll('.fbp-input')].pop());return [s.outlineStyle,s.borderTopColor]})()")
+    check('N5 focus ring = accent 1px border, no outline', ring[0] == 'none' and ring[1] != 'rgb(255, 255, 255)', ring)
+    check('N2 kb-open scrollIntoView wired', 'fbp-input\')) document.activeElement.scrollIntoView' in pg.evaluate("fetch('/ui/app.js').then(r=>r.text())").replace('"', "'"))
     inp.fill('  답이 오래됐어요  '); inp.press('Enter'); pg.wait_for_timeout(500)
     fb = last_fb(); body = db()['state']['fbBodies'][-1]
     check('Return submits full replacement', set(body) == {'rating', 'reasons', 'comment'} and body['rating'] == 'down' and body['reasons'] == ['wrong_info', 'too_long', 'other'], body)
@@ -78,6 +88,9 @@ with sync_playwright() as p:
     # Esc = skip (no change -> no write)
     n = len(db()['state']['fbBodies']); A().locator('.fbchip').first.focus(); pg.keyboard.press('Escape'); pg.wait_for_timeout(400)
     check('Esc skips (closes, no write)', A().locator('.fbp').count() == 0 and len(db()['state']['fbBodies']) == n)
+    why.click(); pg.wait_for_timeout(300); n = len(db()['state']['fbBodies'])
+    A().locator('.fb.down').focus(); pg.keyboard.press('Escape'); pg.wait_for_timeout(400)
+    check('N3 Esc on thumb button skips', A().locator('.fbp').count() == 0 and len(db()['state']['fbBodies']) == n and A().locator('.fb.down').get_attribute('aria-pressed') == 'true')
     # switch to up resets
     A().locator('.fb.up').click(); pg.wait_for_timeout(400)
     check('switch: 4 up chips, none picked', A().locator('.fbchip').all_inner_texts() == ['정확해요', '간결해요', '유용해요', '출처가 좋아요'] and A().locator('.fbchip[aria-pressed=true]').count() == 0)
@@ -121,7 +134,7 @@ with sync_playwright() as p:
     ctx.set_offline(False); pg.evaluate("dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
     check('online: outbox flushed to server', last_fb().get('rating') == 'up' and last_fb().get('reasons') == ['helpful'] and last_fb().get('comment') == '오프라인 메모', last_fb())
     check('no CSP violations', not pg.evaluate("window.__csp||[]"), pg.evaluate("window.__csp||[]"))
-    check('version v17', pg.evaluate("__app.version") == 'v17')
+    check('version 1.0.1', pg.evaluate("__app.version") == '1.0.1')
     check('no page errors', not errs, errs)
     ctx.close()
     # light mode + reduced motion
