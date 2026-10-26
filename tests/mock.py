@@ -204,6 +204,7 @@ class H(SimpleHTTPRequestHandler):
         s.j(404, err('not_found')); return True
     def do_GET(s):
         if s.path == '/whoami':
+            if STATE.get('whoamiFalse'): return s.j(200, {"authenticated": False})
             if s.auth(): s.j(200, {"authenticated": True, "user": "user@example.com", "provider": "tailscale-identity"})
             return
         if s.path == '/__db': return s.j(200, {'threads': list(DB['threads'].values()), 'messages': list(DB['messages'].values()), 'state': {k: v for k, v in STATE.items()}})
@@ -217,12 +218,12 @@ class H(SimpleHTTPRequestHandler):
     ORIGIN = 'http://127.0.0.1:' + PORT
     def gate(s, method):
         """Server rule: every POST/PUT/PATCH/DELETE on the API needs X-Eve-Request: 1 + exact allow-listed Origin,
-        and a JSON Content-Type when it has a body → else 403 {error_code:'invalid'}. Test-control routes are exempt."""
+        + Sec-Fetch-Site: same-origin, and a JSON Content-Type when it has a body → else 403 {error_code:'invalid'}. Test-control routes are exempt."""
         p = urlparse(s.path).path
         if not (p.startswith('/v1/') or p == '/whoami'): return True
         h = s.headers; has_body = int(h.get('Content-Length') or 0) > 0
-        ok = h.get('X-Eve-Request') == '1' and h.get('Origin') == s.ORIGIN and (not has_body or (h.get('Content-Type') or '').split(';')[0].strip() == 'application/json')
-        STATE.setdefault('mut', []).append({'m': method, 'p': p, 'ok': ok, 'xer': h.get('X-Eve-Request'), 'origin': h.get('Origin'), 'ct': h.get('Content-Type'), 'body': has_body})
+        ok = h.get('X-Eve-Request') == '1' and h.get('Origin') == s.ORIGIN and h.get('Sec-Fetch-Site') == 'same-origin' and (not has_body or (h.get('Content-Type') or '').split(';')[0].strip() == 'application/json')
+        STATE.setdefault('mut', []).append({'m': method, 'p': p, 'ok': ok, 'xer': h.get('X-Eve-Request'), 'origin': h.get('Origin'), 'ct': h.get('Content-Type'), 'sfs': h.get('Sec-Fetch-Site'), 'body': has_body})
         if not ok:
             if has_body: s.rfile.read(int(h.get('Content-Length')))
             s.j(403, ec('invalid'))
@@ -364,6 +365,7 @@ class H(SimpleHTTPRequestHandler):
             if code == 'clear': STATE['fail'] = {}
             else: STATE['fail'][__import__('urllib.parse').parse.unquote(pat)] = int(code)
         if p == '/importfix': STATE['importfix'] = True
+        if p.startswith('/whoamifalse/'): STATE['whoamiFalse'] = p.endswith('/on')
         if p == '/pro/reset': pro_reset()
         if p.startswith('/pro/set'): PRO.update(s.body()); return s.j(200, {})
         if p.startswith('/pro/supported/'): PRO['supported'] = p.endswith('/on')

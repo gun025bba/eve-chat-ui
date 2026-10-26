@@ -657,7 +657,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .group .row-static{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 14px;font-size:15px;box-shadow:inset 0 -.5px 0 var(--separator)}
 .row-static .row-value{color:var(--accent)}
 .time-wrap{padding:6px 14px}.time-wrap input{font-size:17px;width:100%}
-.status.hint{color:var(--label-2)}.err-text{color:var(--danger);font-size:13px}
+.status.hint{color:var(--label-2)}.base-warn{margin:8px 16px 0}.err-text{color:var(--danger);font-size:13px}
 .pro-connect{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;background:var(--bg);text-align:center}
 .pro-connect h2{font-size:22px;font-weight:700;margin:0}.pro-connect p{color:var(--label-2);font-size:15px;margin:0}
 .cc-result-row{display:flex;align-items:center;justify-content:space-between;gap:8px}

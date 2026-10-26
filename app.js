@@ -1305,7 +1305,7 @@ if (typeof document !== 'undefined') (function () {
     try {
       const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });
       const j = await r.json().catch(() => null);
-      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); showAuthNotice(null, j?.error?.code); return false; }
+      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, j?.error?.code); return false; }   // signed out: drop stored card contents
       if (r.ok) { whoami = j; renderWho(); }
       hideAuthNotice(); return true;
     } catch { return true; }   // offline / network error: chat path reports it
@@ -1385,9 +1385,12 @@ if (typeof document !== 'undefined') (function () {
       setModelOptions(ids); st.textContent = `연결 성공 · 모델 ${ids.length}개`;
     } catch (e) { st.className = 'status err'; st.textContent = e.http ? e.message : '연결 실패: ' + e.message; }
   }
+  const crossOrigin = b => { if (!b) return false; try { return new URL(b, location.href).origin !== location.origin; } catch { return true; } };
+  const baseWarn = () => { $('#sBaseWarn').hidden = !crossOrigin(normBase($('#sBase').value)); };   // other origin: all calls go there, approve blocked
+  $('#sBase').addEventListener('input', baseWarn);
   function openSettings() {
     renderSync(); { const mg = localStorage.getItem(LS.migrated); $('#sMigrateRow').hidden = !(mode === 'server' && localConvs().length && (!mg || mg === 'skip')); }
-    $('#sBase').value = settings.base; $('#sSystem').value = settings.system;
+    $('#sBase').value = settings.base; $('#sSystem').value = settings.system; baseWarn();
     $('#sShowThink').checked = settings.showThink; $('#sNoThink').checked = !!settings.noThink;
     setModelOptions([]); $('#sStatus').textContent = '';
     $('#a2hsRow').hidden = isStandalone();
@@ -1579,7 +1582,7 @@ if (typeof document !== 'undefined') (function () {
   if (params.has('new')) route = 'chat';
   history.replaceState({ route: 'list' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
   if (self.EveProactive) try {
-    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => { const b = apiBase(); if (!b) return true; try { return new URL(b, location.href).origin === location.origin; } catch { return false; } }, enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
