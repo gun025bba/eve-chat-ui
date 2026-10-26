@@ -1337,11 +1337,14 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
+  const APP_VERSION = 'v12'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('/ui/sw.js', { scope: '/ui/' }).then(reg => {
       swReg = reg;
+      const ask = () => { const sw = navigator.serviceWorker.controller; if (!sw) return; const ch = new MessageChannel(); ch.port1.onmessage = e => { const v = e.data && e.data.version; console.info('[llmchat] sw', v); const el = document.getElementById('appVersion'); if (el && v) el.textContent = APP_VERSION + ' · SW ' + v.replace('llmchat-', ''); }; sw.postMessage('GET_VERSION', [ch.port2]); };
+      ask(); navigator.serviceWorker.addEventListener('controllerchange', ask);
       const offer = w => { wantReload = true; w.postMessage('SKIP_WAITING'); };   // v11: no tap needed, reload once
       reg.update?.().catch(() => {});
       if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
@@ -1349,5 +1352,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();

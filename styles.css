@@ -237,7 +237,7 @@ img,svg{-webkit-user-drag:none;pointer-events:none}
 #app.dragging .screen,#app.dragging #listView::after,#app.vt .screen,#app.vt #listView::after{transition:none}
 #app.transitioning{pointer-events:none}
 /* View Transitions */
-#listView{view-transition-name:list}#chatView{view-transition-name:chat}
+#app.vt #listView{view-transition-name:list}#app.vt #chatView{view-transition-name:chat}
 ::view-transition-old(root),::view-transition-new(root){animation:none}
 ::view-transition-group(*){animation-duration:420ms;animation-timing-function:cubic-bezier(.32,.72,0,1)}
 [data-dir=push]::view-transition-new(chat){animation:vtSlideIn 420ms cubic-bezier(.32,.72,0,1) both}
@@ -531,3 +531,13 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 #topbar #titleWrap,#topbar #title,#topbar #modelName{opacity:1!important;filter:none!important;text-shadow:none!important;transform:none!important;will-change:auto!important;mix-blend-mode:normal!important;-webkit-text-stroke:0!important;animation:none!important;transition:none!important;-webkit-font-smoothing:antialiased}
 #topbar #title{color:var(--title-solid)!important}
 #topbar #modelName{color:var(--subtitle-solid)!important}
+
+/* v12 header title crispness, take 3 (iOS standalone): only #title (Korean glyphs, weight 600) smeared while the
+   400-weight subtitle stayed sharp. Likely causes: WebKit synthesising a 600 weight for the CJK fallback face
+   (double-struck/soft raster) under text-rendering:optimizeLegibility, plus the permanent view-transition-name on
+   #chatView keeping the screen as a captured snapshot layer. Fix: real bold weight, no synthesis, no
+   optimizeLegibility on the title, view-transition names only while a transition runs, title never captured. */
+#topbar #title{font-weight:700!important;font-synthesis:none!important;-webkit-font-synthesis:none;font-variation-settings:normal;
+  text-rendering:auto!important;letter-spacing:0!important;view-transition-name:none!important;contain:none;content-visibility:visible}
+#topbar #titleWrap{view-transition-name:none!important}
+.app-version{display:block;text-align:center;font-size:12px;color:var(--label-3);margin:16px 0 8px}

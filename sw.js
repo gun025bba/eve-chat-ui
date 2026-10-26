@@ -1,5 +1,5 @@
 /* LLM Chat service worker — app shell precache, SWR static, network-only API */
-const CACHE = 'llmchat-v11';
+const CACHE = 'llmchat-v12';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'offline.html',
   'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/shortcut-new.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'];
@@ -8,7 +8,7 @@ self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
   self.skipWaiting();   // v11: activate updates immediately; the page reloads once on controllerchange
 });
-self.addEventListener('message', e => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
+self.addEventListener('message', e => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); else if (e.data === 'GET_VERSION' && e.ports && e.ports[0]) e.ports[0].postMessage({ version: CACHE }); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('llmchat-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
