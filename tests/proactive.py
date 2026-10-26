@@ -35,7 +35,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.1.0', pg.evaluate('window.__app && window.__app.version') == '1.1.0', [errs, pg.url, pg.content()[:300]])
+    check('version 1.1.1', pg.evaluate('window.__app && window.__app.version') == '1.1.1', [errs, pg.url, pg.content()[:300]])
     pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
@@ -65,6 +65,7 @@ with sync_playwright() as p:
     pg.locator('.msg.proactive').nth(1).scroll_into_view_if_needed(); pg.wait_for_timeout(1700)
     check('second read after scroll', sorted(pro()['reads']) == sorted(s1['msgs']), pro()['reads'])
     check('back badge = 1 (other thread)', pg.is_visible('#backBadge') and pg.inner_text('#backBadge') == '1', pg.evaluate("(e=>[e.hidden,e.textContent,getComputedStyle(e).display,JSON.stringify(e.getBoundingClientRect())])(document.getElementById('backBadge'))"))
+    check('backBtn aria-label has unread count', '1개' in (pg.get_attribute('#backBtn','aria-label') or ''), pg.get_attribute('#backBtn','aria-label'))
     pg.evaluate('history.back()'); pg.wait_for_timeout(500)
     check('title (1) Eve', pg.title() == '(1) Eve', pg.title())
     open_thread(s0['thread'])
@@ -121,6 +122,7 @@ with sync_playwright() as p:
     sp.goto(B + '/ui/#/'); sp.wait_for_timeout(1500)
     if sp.evaluate("document.getElementById('app').dataset.route") == 'chat': sp.evaluate('history.back()'); sp.wait_for_timeout(400)
     sp.click('#openSettings'); sp.wait_for_timeout(700)
+    check('pushRow right under 선톡 switch', sp.evaluate("document.getElementById('pushRow').previousElementSibling.contains(document.getElementById('sProactive'))"))
     check('standalone: push row visible, off', sp.is_visible('#pushRow') and not sp.is_checked('#sPush'))
     sp.click('label:has(#sPush)'); sp.wait_for_timeout(1500)
     check('subscribe POST', pro()['subs'] == [{'endpoint': 'https://web.push.apple.com/QabcDEF', 'keys': {'p256dh': 'P256', 'auth': 'AUTH'}, 'vapid_key_id': 'k1'}], pro()['subs'])
@@ -141,15 +143,18 @@ with sync_playwright() as p:
     sctx.close()
 
     # --- confirm cards
-    A = {'action_id': '01JACT00000000000000000001', 'tool': 'calendar_create_event', 'summary': '내일 07:30 일정 추가', 'payload_view': {'제목': '<img src=x onerror=alert(1)>', '시각': '07:30'}, 'scopes': ['calendar.write'],
+    A = {'action_id': '01JACT00000000000000000001', 'tool': 'calendar_create_event', 'summary': '내일 07:30 일정 추가', 'payload_view': {'verb': 'add', '제목': '<img src=x onerror=alert(1)>', '시각': '07:30'}, 'scopes': ['calendar.write'],
          'payload_hash': 'sha256:h1', 'expires_at': '2099-01-01T00:00:00Z', 'tainted': True, 'provenance': {'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': '메일 지켜보기'}}
-    A2 = dict(A, action_id='01JACT00000000000000000002', tool='mail_send', scopes=['mail.send'], payload_hash='sha256:h2', tainted=False, provenance={'actor': 'user', 'job_id': None, 'job_name': None})
+    A2 = dict(A, action_id='01JACT00000000000000000002', tool='mail_send', scopes=['mail.send'], payload_view={'verb': 'send', '받는 사람': 'a'}, payload_hash='sha256:h2', tainted=False, provenance={'actor': 'user', 'job_id': None, 'job_name': None})
     A3 = {'action_id': '01JACT00000000000000000003', 'tool': 'proactive.propose_followup', 'summary': '치과 예약 다시 알려 드릴게요', 'scopes': ['proactive.write'], 'payload_hash': 'sha256:h3', 'expires_at': '2099-01-01T00:00:00Z',
           'payload_view': {'when': {'at': '2026-10-28T00:00:00Z'}, 'thread_id': 'x', 'display': '10월 28일 (수) 오전 9:00', 'template_id': 'followup.v1'}, 'provenance': {'actor': 'user'}}
     A4 = dict(A2, action_id='01JACT00000000000000000004', expires_at='2000-01-01T00:00:00Z', tool='memory.propose', scopes=['memory.write'], payload_view={'op': 'add', 'items': [{'text': '커피는 디카페인', 'kind': 'preference'}], 'ambiguous': False})
     FG = {'action_id': '01JACT00000000000000000005', 'tool': 'memory.propose', 'summary': '잊기', 'scopes': ['memory.delete'], 'payload_hash': 'sha256:h5', 'expires_at': '2099-01-01T00:00:00Z', 'provenance': {'actor': 'user'},
           'payload_view': {'op': 'delete', 'ambiguous': False, 'items': [{'id': 'm1', 'text': '아침 브리핑은 짧게', 'kind': 'preference', 'updated_at': '2020-03-02T00:00:00Z'}, {'id': 'm2', 'text': '주말 브리핑 안 받기', 'kind': 'preference'}]}}
-    s3 = put('/pro/seed', {'title': '확인 카드', 'actions': [A, A2, A3, A4, FG]})
+    VU = dict(A, action_id='01JACT0000000000000000000U', payload_hash='sha256:vu', tainted=False, payload_view={'verb': 'update'})
+    VD = dict(A, action_id='01JACT0000000000000000000D', payload_hash='sha256:vd', tainted=False, payload_view={'verb': 'delete'}, scopes=['calendar.write'])
+    VX = dict(A, action_id='01JACT0000000000000000000X', payload_hash='sha256:vx', tainted=False, payload_view={'verb': 'frobnicate'}, tool='calendar_create_event')
+    s3 = put('/pro/seed', {'title': '확인 카드', 'actions': [A, A2, A3, A4, FG, VU, VD, VX]})
     home(); open_thread(s3['thread']); pg.wait_for_timeout(500)
     card = lambda i: pg.locator(f'.confirm-card[data-aid="{i}"]')
     c1 = card(A['action_id'])
@@ -162,6 +167,11 @@ with sync_playwright() as p:
     check('write scope = accent (no danger)', 'cc-danger' not in c1.locator('.cc-primary').get_attribute('class') and c1.locator('.cc-primary').inner_text() == '추가')
     c2 = card(A2['action_id'])
     check('send scope = danger 보내기', 'cc-danger' in c2.locator('.cc-primary').get_attribute('class') and c2.locator('.cc-primary').inner_text() == '보내기')
+    for k, want in [(VU, '변경'), (VD, '삭제'), (VX, '실행')]:
+        ck = card(k['action_id']); ck.scroll_into_view_if_needed(); pg.wait_for_timeout(200)
+        check('verb from payload_view.verb: ' + want, ck.locator('.cc-primary').inner_text() == want, ck.locator('.cc-primary').inner_text())
+    check('delete verb with write scope stays accent (danger by scopes)', 'cc-danger' not in card(VD['action_id']).locator('.cc-primary').get_attribute('class'))
+    check('forget keeps specific verb', 'N' not in card(FG['action_id']).locator('.cc-primary').inner_text() and '개 지우기' in card(FG['action_id']).locator('.cc-primary').inner_text())
     c3 = card(A3['action_id'])
     check('propose_followup → proactive variant, display as-is, accent', c3.get_attribute('data-variant') == 'proactive' and c3.locator('time.cc-when').inner_text() == '10월 28일 (수) 오전 9:00' and 'cc-danger' not in c3.locator('.cc-primary').get_attribute('class') and c3.locator('.cc-secondary').inner_text() == '괜찮아요')
     c1.locator('.cc-primary').click(); pg.wait_for_timeout(800)
@@ -211,8 +221,15 @@ with sync_playwright() as p:
     s6 = put('/pro/seed', {'title': '오류', 'actions': [E1, E2, E3, FG2]})
     home(); open_thread(s6['thread'])
     for k in [E1, E2, E3, FG2]: card(k['action_id']).scroll_into_view_if_needed(); pg.wait_for_timeout(400)
-    put('/pro/set', {'approveCode': [409, 'conflict']}); card(E1['action_id']).locator('.cc-primary').click(); pg.wait_for_timeout(700)
-    check('409 conflict → denied text by error_code', card(E1['action_id']).get_attribute('data-state') == 'denied' and '이미 처리된 요청이라 진행하지 않았어요' in card(E1['action_id']).inner_text() and card(E1['action_id']).locator('button:visible').count() == 0)
+    put('/pro/set', {'approveCode': [409, 'conflict'], 'statusOf': {E1['action_id']: 'superseded'}}); card(E1['action_id']).locator('.cc-primary').click(); pg.wait_for_timeout(900)
+    check('409 conflict, recheck inconclusive → 이미 처리된 요청이에요', card(E1['action_id']).get_attribute('data-state') == 'denied' and '이미 처리된 요청이에요' in card(E1['action_id']).inner_text() and card(E1['action_id']).locator('button:visible').count() == 0, card(E1['action_id']).inner_text())
+    E1b = dict(E1, action_id='01JACT0000000000000000000B', payload_hash='sha256:e1b')
+    s6b = put('/pro/seed', {'title': '충돌', 'actions': [E1b]}); home(); open_thread(s6b['thread']); cb = card(E1b['action_id']); cb.scroll_into_view_if_needed(); pg.wait_for_timeout(300)
+    put('/pro/set', {'approveCode': [409, 'conflict'], 'statusOf': {E1b['action_id']: 'executing'}}); cb.locator('.cc-primary').click(); pg.wait_for_timeout(1500)
+    check('conflict → recheck; executing keeps polling', cb.get_attribute('data-state') == 'checking', cb.get_attribute('data-state'))
+    put('/pro/set', {'statusOf': {E1b['action_id']: 'executed'}}); pg.wait_for_timeout(5000)
+    check('conflict → recheck loads real result (confirmed)', cb.get_attribute('data-state') == 'confirmed', cb.get_attribute('data-state'))
+    pg.evaluate('history.back()'); pg.wait_for_timeout(300); open_thread(s6['thread']); pg.wait_for_timeout(300)
     put('/pro/set', {'approveCode': [422, 'weird_new_code']}); card(E2['action_id']).locator('.cc-primary').click(); pg.wait_for_timeout(700)
     check('unknown code → invalid text', '요청 내용이 올바르지 않아 진행하지 않았어요' in card(E2['action_id']).inner_text())
     put('/pro/set', {'approveDrop': True, 'getDelay': 1.5}); c9 = card(E3['action_id']); c9.locator('.cc-primary').click(); pg.wait_for_timeout(300)

@@ -1002,7 +1002,7 @@ if (typeof document !== 'undefined') (function () {
       else {
         if (acc || reasoning) { fillAssistant(bubble, full(), { actions: false }); c.messages.push({ role: 'assistant', content: full() }); persist(); }
         else bubble.parentElement.remove();
-        const m = e.http ? e.message : `네트워크 오류: ${e.message}. Tailscale 연결과 서버 주소(${apiBase() || location.origin})를 확인하세요.`;
+        const m = e.http ? e.message : `네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`;
         addError(m, (!e.http || RETRYABLE.has(e.http)) && !(acc || reasoning) ? retry : null);
         return;
       }
@@ -1596,7 +1596,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.1.1'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

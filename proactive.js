@@ -49,9 +49,9 @@
   // danger (spec §F-1): only send verbs and delete ops are red; write stays accent
   const dangerOf = (x, variant) => variant === 'forget' || x.op === 'delete' || x.verbs.includes('send') || x.verbs.includes('delete');
   const DENIED = { secret_detected: '비밀번호나 키처럼 보여서 진행하지 않았어요', cap_exceeded: '허용된 한도를 넘어서 진행하지 않았어요', tainted: '외부 내용이 섞인 요청이라 진행하지 않았어요',
-    scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '이미 바뀌거나 지워진 항목이 있어서 진행하지 않았어요',
-    conflict: '이미 처리된 요청이라 진행하지 않았어요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
-  const CROSS = '서버 주소가 이 앱과 다른 곳으로 설정되어 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 승인할 수 있어요';
+    scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '그사이 지워진 항목이 있어서 진행하지 않았어요',
+    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+  const CROSS = '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 돼요';
   const RTF = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }), YTF = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   function shortDate(iso) {                            // spec B2: 오늘 / N일 전 / 10월 21일 / 2025년 3월 2일
     const d = new Date(iso); if (isNaN(d)) return '';
@@ -59,11 +59,12 @@
     if (diff <= 0) return '오늘'; if (diff < 7) return diff + '일 전';
     return (d.getFullYear() === now.getFullYear() ? RTF : YTF).format(d);
   }
+  const VERB = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };   // architect: payload_view.verb; unknown → run
   const VAR = {
     remember: { ic: 'brain', title: () => '메모리에 저장할까요?', primary: () => '저장', secondary: '취소', done: () => '저장했어요' },
     forget: { ic: 'trash', title: x => x.ambiguous ? '어떤 걸 지울까요?' : '메모리에서 지울까요?', primary: (x, n) => `${n}개 지우기`, secondary: '취소', done: (x, n) => `${n}개 지웠어요` },
     proactive: { ic: 'bell', title: () => '다시 알려 드릴까요?', primary: () => '예약', secondary: '괜찮아요', done: x => x.display ? `${x.display}에 알려 드릴게요` : '알림을 예약했어요' },
-    tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => x.verbs.includes('delete') ? '삭제' : x.verbs.includes('send') ? '보내기' : /create|add/.test(x.tool) ? '추가' : '실행', secondary: '취소', done: () => '실행했어요' }
+    tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => VERB[x.verb] || VERB.run, secondary: '취소', done: () => '실행했어요' }
   };
   const EXPIRED = '시간이 지나 취소됐어요';
   const deniedText = c => DENIED[c] || (c ? DENIED.invalid : '진행하지 않았어요');   // SSE denied without code → generic; unknown API code → invalid
@@ -109,7 +110,7 @@
       body.appendChild(el('p', 'cc-where', '이 대화에서'));
     }
     else {
-      const v = x.view, dl = el('dl', 'cc-view'), ks = Object.keys(v);
+      const v = x.view, dl = el('dl', 'cc-view'), ks = Object.keys(v).filter(k => k !== 'verb');   // verb is metadata (button label), not a row
       ks.forEach((k, i) => { const val = v[k]; const dt = el('dt', null, k), dd = el('dd', null, typeof val === 'string' ? val : JSON.stringify(val)); if (i >= 6) dt.hidden = dd.hidden = true; dl.append(dt, dd); });
       if (ks.length) body.appendChild(dl);
       if (ks.length > 6) { const more = el('button', 'cc-more', '모두 보기'); more.type = 'button'; more.onclick = () => { dl.querySelectorAll('[hidden]').forEach(e => { e.hidden = false; }); more.remove(); }; body.appendChild(more); }
@@ -164,6 +165,7 @@
     function settleErr(e, retry) {
       if (!e.http) return setState('error', '연결이 끊겼어요', { retry });   // network only: retryable
       if (e.code === 'expired') return setState('expired', EXPIRED);          // branch on body.error_code, never on HTTP status
+      if (e.code === 'conflict') return recheck(() => setState('denied', DENIED.conflict));   // 1.1.1: load the real outcome first
       return setState('denied', deniedText(e.code || 'invalid'));
     }
     async function revise(itemIds, nextRetries) {     // partial forget / 다시 요청 → new proposal replaces this card in place
@@ -207,7 +209,7 @@
         retryFn = () => { setState('pending'); }; settleErr(e, retryFn);
       }
     };
-    async function recheck() {                         // GET /v1/actions/{id} (fallback: pending list) to learn the real outcome
+    async function recheck(onFail) {                         // GET /v1/actions/{id} (fallback: pending list) to learn the real outcome
       setState('checking'); meta.textContent = '결과를 확인하는 중이에요'; say('결과를 확인하는 중이에요');
       for (let i = 0; i < 6; i++) {
         if (i) await new Promise(r => setTimeout(r, Math.min(8000, 1000 * 2 ** i)));
@@ -219,14 +221,16 @@
           try { const l = await P.api.pendingActions(); st = (l && l.data || []).some(z => z.action_id === id) ? 'pending' : 'unknown'; } catch (e2) { if (!e2.http) continue; st = 'unknown'; }
         }
         meta.textContent = '';
-        if (st === 'executed' || st === 'executing') return setState('confirmed', V.done(x, checked().length || x.items.length));
+        if (st === 'executing') continue;                 // 1.1.1: still running, keep polling
+        if (st === 'executed') return setState('confirmed', V.done(x, checked().length || x.items.length));
         if (st === 'pending') return setState('pending');   // not executed: user may press again (fresh reissue → approve)
         if (st === 'rejected') return setState('declined', '취소했어요');
         if (st === 'expired') return setState('expired', EXPIRED);
         if (st === 'failed') return setState('error', '실행하지 못했어요');
+        if (onFail) return onFail();
         return setState('error', '결과를 확인하지 못했어요. 대화를 새로고침해 확인해 주세요');
       }
-      meta.textContent = ''; setState('error', '결과를 확인하지 못했어요. 연결되면 다시 확인할게요', { retry: recheck });
+      meta.textContent = ''; if (onFail) return onFail(); setState('error', '결과를 확인하지 못했어요. 연결되면 다시 확인할게요', { retry: recheck });
     }
     no.onclick = async () => {
       if (state !== 'pending') return;
@@ -268,7 +272,8 @@
       total = n; document.title = n ? `(${n}) Eve` : 'Eve';
       try { if (navigator.setAppBadge) { (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } } catch {}
       const cur = h.cur(), b = document.getElementById('backBadge');
-      if (b) { const k = n - (cur ? unreadOf(cur) : 0); b.hidden = k <= 0; b.textContent = k > 99 ? '99+' : String(k); }
+      if (b) { const k = n - (cur ? unreadOf(cur) : 0); b.hidden = k <= 0; b.textContent = k > 99 ? '99+' : String(k);
+        const bb = document.getElementById('backBtn'); if (bb) bb.setAttribute('aria-label', k > 0 ? `대화 목록, 안 읽은 메시지 ${k}개` : '대화 목록'); }
     }
     async function refresh() {
       if (!supported || !h.isServer() || !h.online()) return badge();
@@ -386,14 +391,14 @@
     const $ = s => document.getElementById(s);
     const sw = $('sProactive'), more = $('proMore'), qS = $('qStart'), qE = $('qEnd'), qSV = $('qStartVal'), qEV = $('qEndVal'), qErr = $('qErr'),
       memRow = $('proMemRow'), msw = $('sProMem'), note = $('sProNote'), pushRow = $('pushRow'), psw = $('sPush'), pnote = $('sPushNote');
-    let srv = null;                                    // last server copy of settings
+    let srv = null, vapidOK = false;               // pushRow only after a successful vapid-key fetch                                    // last server copy of settings
     const showQ = () => { qSV.textContent = hm(qS.value); qEV.textContent = hm(qE.value); const bad = qS.value && qS.value === qE.value; qErr.hidden = !bad; };
     function paint() {
       const p = srv?.proactive || {};
       sw.checked = !!p.enabled; more.hidden = !p.enabled;
       const q = p.quiet_hours || {}; qS.value = q.start || '22:00'; qE.value = q.end || '08:00'; showQ();
       memRow.hidden = !(srv?.memory?.enabled); msw.checked = !!p.memory_read;
-      pushRow.hidden = !(p.enabled && h.isStandalone()); psw.checked = localStorage.getItem(LS_PUSH) === '1';
+      pushRow.hidden = !(p.enabled && h.isStandalone() && vapidOK); psw.checked = localStorage.getItem(LS_PUSH) === '1';
     }
     async function openSettings() {
       $('qStartWrap').hidden = $('qEndWrap').hidden = true;
@@ -404,6 +409,7 @@
         sw.disabled = !SYS.proactive; paint();
         if (!SYS.proactive) { more.hidden = true; note.textContent = '지금은 이 기능을 쓸 수 없어요'; }
         msw.disabled = SYS.memoryRO;
+        if (!vapidOK && h.isStandalone()) api.vapidKey().then(k => { if (k && k.key) { vapidOK = true; paint(); } }).catch(() => {});
       }
       catch (e) { srv = null; sw.checked = false; more.hidden = true; note.textContent = api.unsupported(e) ? '지금은 이 기능을 쓸 수 없어요' : '설정을 불러오지 못했어요.'; }
     }

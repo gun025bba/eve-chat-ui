@@ -47,7 +47,7 @@
         tainted: !!a.tainted, status: S(a.status), errorCode: S(a.error_code), verbs,
         actor: pv.actor === 'scheduler' ? 'scheduler' : 'user', jobName: S(pv.job_name), threadId: S(a.thread_id), messageId: S(a.message_id),
         op: S(v.op), items: Array.isArray(v.items) ? v.items.map(i => ({ id: i && i.id != null ? String(i.id) : null, text: S(i && i.text) || '', kind: S(i && i.kind), updatedAt: S(i && i.updated_at) })) : [],
-        ambiguous: v.ambiguous === true, display: S(v.display), whenAt: S(v.when && v.when.at)
+        verb: S(v.verb), ambiguous: v.ambiguous === true, display: S(v.display), whenAt: S(v.when && v.when.at)
       };
     },
     system: s => { const y = (s && s.system) || {}; return { proactive: y.proactive_available !== false, tools: y.tools_available !== false, memoryRO: y.memory_read_only === true }; }   // CT Q8/Q17, read-only
