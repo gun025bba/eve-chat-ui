@@ -10,7 +10,11 @@ UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
-def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0)
+def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0, memDeletes=[], memItems=[
+    {'id': '01JMEM00000000000000000001', 'kind': 'profile', 'text': '이름은 건영', 'pinned': True, 'confidence': 'user', 'updated_at': '2026-10-01T00:00:00Z', 'expires_at': None},
+    {'id': '01JMEM00000000000000000002', 'kind': 'preference', 'text': '아침 브리핑은 한국어로 짧게 받는 걸 선호', 'pinned': False, 'confidence': 'confirmed', 'updated_at': '2026-10-20T00:00:00Z', 'expires_at': None},
+    {'id': '01JMEM00000000000000000003', 'kind': 'task', 'text': '다음 주 발표 준비 중', 'pinned': False, 'confidence': 'user', 'updated_at': '2026-10-10T00:00:00Z', 'expires_at': '2099-11-25T00:00:00Z'},
+    {'id': '01JMEM00000000000000000004', 'kind': 'fact', 'text': '<img src=x onerror=alert(1)> 고양이 이름은 나비', 'pinned': False, 'confidence': 'user', 'updated_at': '2026-10-25T00:00:00Z', 'expires_at': None}])
 pro_reset()
 LOCK = threading.RLock()
 def now(off=0): return (datetime.now(timezone.utc) + timedelta(seconds=off)).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
@@ -82,7 +86,7 @@ class H(SimpleHTTPRequestHandler):
         """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
         import re as _re
         m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
-        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev): return False
+        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev or path == '/v1/memory' or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
         if not s.auth(): return True
         if not PRO['supported']: s.j(404, ec('not_found')); return True
         if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
@@ -121,9 +125,26 @@ class H(SimpleHTTPRequestHandler):
                 if PRO.get('reviseNoToken'): na['token'] = None
                 else: out.update(confirm_token=na['token'], token_expires_at=now(PRO.get('tokenTtl', 120)))
                 s.j(200, out); return True
+            # Part B memory mock (memory-api.js ENDPOINTS). memMode: None | 'off' (kill switch → 404 / 403 kill_switch) | 'ro' (503 memory_read_only) | 'drop' (network failure)
+            m_mi = _re.fullmatch(r'/v1/memory/items/([^/]+)', path)
+            if path == '/v1/memory' or m_mi:
+                mode = PRO.get('memMode')
+                if mode == 'drop': s.close_connection = True; s.connection.shutdown(2); return True
+                if mode == 'off': s.j(404 if method == 'GET' else 403, ec('not_found' if method == 'GET' else 'kill_switch')); return True
+                if method == 'GET' and path == '/v1/memory': s.send_response(200); s.send_header('Content-Type', 'application/json'); s.send_header('Cache-Control', 'no-store'); b2 = json.dumps({'schema_version': 1, 'items': PRO['memItems']}).encode(); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2); return True
+                if m_mi and method == 'DELETE':
+                    PRO['memDeletes'].append({'id': m_mi.group(1), 'xer': s.headers.get('X-Eve-Request'), 'ct': s.headers.get('Content-Type'), 'origin': s.headers.get('Origin')})
+                    if mode == 'ro' or PRO.get('memDelRO'): s.j(503, ec('memory_read_only')); return True
+                    if PRO.get('memDelDrop'): PRO['memDelDrop'] = False; s.close_connection = True; s.connection.shutdown(2); return True
+                    if s.headers.get('X-Eve-Request') != '1': s.j(403, ec('invalid')); return True
+                    n = len(PRO['memItems']); PRO['memItems'] = [i for i in PRO['memItems'] if i['id'] != m_mi.group(1)]
+                    if len(PRO['memItems']) == n: s.j(404, ec('not_found')); return True
+                    s.j(204, None); return True
+                s.j(405, ec('invalid')); return True
             if path == '/v1/settings':
                 if method == 'PATCH':
                     if PRO.get('failSettings'): s.j(500, ec('invalid')); return True
+                    if 'memory' in b and PRO.get('memMode') == 'ro': s.j(503, ec('memory_read_only')); return True
                     ok = set(b) <= {'proactive', 'memory'}   # system.* is read-only → 400 and set(b.get('proactive') or {}) <= {'enabled', 'quiet_hours', 'memory_read'} and set(b.get('memory') or {}) <= {'enabled'}
                     q = (b.get('proactive') or {}).get('quiet_hours')
                     if q is not None and (set(q) != {'start', 'end'} or not all(_re.fullmatch(r'\d{2}:\d{2}', q[k]) for k in q)): ok = False
@@ -337,6 +358,9 @@ class H(SimpleHTTPRequestHandler):
                    "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
             if last.startswith('confirmdeny'):
                 act = {"action_id": "01JACT0000000000000000000D", "tool": "memory.propose", "status": "denied", "error_code": "secret_detected", "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+            if last.startswith('confirmremember'):
+                act = {"action_id": "01JACT0000000000000000000M", "tool": "memory.propose", "tool_version": "1.0.0", "summary": "메모리 저장", "payload_view": {"op": "add", "items": [{"text": "커피는 디카페인", "kind": "preference"}], "ambiguous": False},
+                       "payload_hash": "sha256:mem", "expires_at": now(3600), "tainted": False, "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
             PRO['actions'][act['action_id']] = dict(act, status='pending', token=None)
             if PRO.get('sseToken'): act = dict(act, confirm_token='ssetok-must-be-ignored')   # contract forbids this; client must ignore it
             s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()

@@ -151,6 +151,7 @@ if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThin
 if (typeof document !== 'undefined') (function () {
   const $ = s => document.querySelector(s);
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
+  let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
   const ICON = {
     copy: COPY_SVG,
@@ -1501,7 +1502,7 @@ if (typeof document !== 'undefined') (function () {
     $('#a2hsRow').hidden = isStandalone();
     snap = formState();
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
-    renderWho(); loadModels(); PRO?.openSettings();
+    renderWho(); loadModels(); PRO?.openSettings(); MEM?.openSettings();
   }
   $('#openSettings').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
@@ -1689,6 +1690,8 @@ if (typeof document !== 'undefined') (function () {
   if (self.EveProactive) try {
     PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
+  // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
+  try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
   else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
@@ -1701,7 +1704,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.4'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.2.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
