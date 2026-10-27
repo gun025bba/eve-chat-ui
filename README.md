@@ -41,3 +41,11 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 - 오류는 HTTP 상태가 아니라 본문 `error_code`로 판단해요.
 
 테스트: `tests/run_e2e.sh proactive.py`, `tests/run_e2e.sh csrf_all.py`, `node tests/sw_push.js`. 포트는 `EVE_PORT`로 바꿀 수 있어요(기본 8765).
+
+## 메모리 (Part B, 플래그 뒤)
+
+- 기본값은 꺼짐이에요. `localStorage['eve.flag.memory'] = '1'`일 때만 설정에 메모리 영역이 보여요.
+- API 경로와 필드 이름은 `memory-api.js`에만 있어요. 스키마는 eve-serving ui-api-contract §3.9를 따라요.
+- `/v1/settings` 안의 `memory.enabled` 위치는 아직 확정되지 않았어요. 그래서 `memory-api.js`의 `SETTINGS`에서만 읽고 써요.
+- 서버 메모리가 꺼져 있으면(`settings`에 `memory` 블록이 없거나 `GET /v1/memory`가 404) 메모리 영역을 숨겨요. 오류로 보여 주지 않아요.
+- 500·503 응답은 예전 `{error:{code}}` 형식이고, 4xx 응답은 `{error_code}` 형식이에요. 둘 다 읽어요.

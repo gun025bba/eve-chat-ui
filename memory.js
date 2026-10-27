@@ -1,23 +1,23 @@
-/* Eve memory UI (PROACTIVE-MEMORY-SPEC Part B, eve-serving memory.md §4/§13 + ui-api-contract §2/§3.3).
+/* Eve memory UI (PROACTIVE-MEMORY-SPEC Part B @ eve-chat-ui-design 68a6981; API: eve-serving ui-api-contract §3.9).
  * Behind a feature flag, OFF by default: localStorage 'eve.flag.memory' === '1' turns it on.
  * Flag off → init() returns null and touches nothing (the settings section stays `hidden`).
- * Scope: Settings › 메모리 toggle (memory.enabled via PATCH /v1/settings) + saved-memory list with
- * confirm-before-delete. No add/edit screen yet, never prefilled from URL/model text (MEM §4 S5-H3/S5-R3).
- * The in-chat remember/forget cards live in proactive.js (§C confirm-card, reissue → approve, no SSE token).
- * Server calls and field names: memory-api.js only. */
+ * Server memory off (GW_MEMORY_ENABLED=false: no settings.memory block / bare 404 on /v1/memory) → section stays hidden.
+ * In-chat 기억해/잊어줘 cards live in proactive.js. Server calls and field names: memory-api.js only. */
 (function () {
-  const FLAG = 'eve.flag.memory';
+  const FLAG = 'eve.flag.memory', BACKUP_SEEN = 'eve.mem.backupNoteSeen', UNDO_MS = 2800;
   const enabled = () => { try { return localStorage.getItem(FLAG) === '1'; } catch { return false; } };
   const KIND = { profile: '프로필', preference: '선호', fact: '사실', task: '할 일' };
   const MSG = {
-    unavailable: '지금은 메모리 기능을 쓸 수 없어요.',
-    read_only: '지금은 메모리를 바꿀 수 없어요. 저장된 메모리는 그대로 남아 있어요.',
-    network: '메모리를 불러오지 못했어요. 연결을 확인해 주세요.',
-    error: '메모리를 불러오지 못했어요.',
     on: 'Eve가 대화에 참고할 정보를 기억해요. 저장할 때는 항상 먼저 물어봐요.',
-    off: '꺼져 있어요. 저장된 메모리는 남아 있지만 대화에 쓰지 않아요.',
-    offline: '서버에 연결되면 설정할 수 있어요.'
+    off: '꺼져 있어요. 저장된 메모리는 남아 있지만 대화에 쓰지 않아요',
+    kill: '지금은 메모리 기능을 쓸 수 없어요',
+    offline: '서버에 연결되면 설정할 수 있어요.',
+    empty: '아직 기억한 게 없어요', emptySub: "대화 중에 '기억해'라고 하거나 + 로 직접 추가할 수 있어요",
+    loadErr: '메모리를 불러오지 못했어요',
+    ro: '지금은 메모리를 바꿀 수 없어요'
   };
+  const SAVE_ERR = { secret_detected: '비밀번호·키·카드번호처럼 보이는 내용은 저장할 수 없어요', invalid: '300자까지 쓸 수 있어요',
+    cap_exceeded: '메모리가 가득 찼어요', internal: '저장하지 못했어요. 잠시 후 다시 시도해 주세요' };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const D = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' });
   function order(items) {                                   // spec B3 = injection order (MEM §3): pinned → live tasks → rest by updated_at desc
@@ -29,26 +29,52 @@
     if (!enabled() || !self.EveMemoryAPI) return null;
     const M = self.EveMemoryAPI, api = M.make(h.api), $ = id => document.getElementById(id);
     const sec = $('memSection'), sw = $('sMemory'), note = $('sMemNote'), open = $('memOpen'), count = $('memCount'), view = $('memoryView'),
-      list = $('memList'), state = $('memState'), retry = $('memRetry'), banner = $('memBanner');
+      list = $('memList'), state = $('memState'), retry = $('memRetry'), banner = $('memBanner'), addB = $('memAdd'), wipeB = $('memWipe'),
+      form = $('memForm'), kindI = $('memKind'), textI = $('memText'), formErr = $('memFormErr'), sheet = $('memWipeSheet');
     if (!sec) return null;
-    sec.hidden = false;
-    let st = { enabled: true, readOnly: false, available: true }, items = [], loaded = false;
-    function paint() {
-      const blocked = !st.available || st.readOnly;
-      sw.checked = st.available && st.enabled; sw.disabled = blocked || !h.isServer();
-      note.textContent = !h.isServer() ? MSG.offline : !st.available ? MSG.unavailable : st.readOnly ? MSG.read_only : st.enabled ? MSG.on : MSG.off;
-      note.classList.toggle('warn', blocked);
-      open.disabled = !st.available || !h.isServer();
-      count.textContent = loaded ? `${items.length}개` : '';
-      banner.hidden = !st.readOnly; view.classList.toggle('mem-off', !st.enabled);
+    let st = { serverOn: false, enabled: true, readOnly: false, kill: false }, items = [], loaded = false, editing = null;
+    const pending = new Map();                                 // id → {it, timer}: deletes waiting for the undo toast to close
+    const ro = () => st.readOnly || st.kill;
+    // toasts render inside the settings sheet (the app toast sits under the modal dialog and can't be tapped there)
+    const tEl = $('memToast'), tText = $('memToastText'), tAct = $('memToastAct'); let tT = 0;
+    function toast(text, act, fn, ms) {
+      if (view.hidden) return h.showToast(text, act, fn, ms);
+      tText.textContent = text; tAct.textContent = act || ''; tAct.hidden = !act; tAct.onclick = () => { hide(); fn && fn(); };
+      tEl.hidden = false; clearTimeout(tT); tT = setTimeout(hide, ms || 3000);
+      function hide() { clearTimeout(tT); tEl.hidden = true; }
     }
-    function showState(text, canRetry) { state.textContent = text || ''; state.hidden = !text; retry.hidden = !canRetry; }
+    function paint() {
+      sec.hidden = !st.serverOn;
+      sw.checked = st.enabled; sw.disabled = st.kill || !h.isServer();
+      note.textContent = !h.isServer() ? MSG.offline : st.kill ? MSG.kill : st.enabled ? MSG.on : MSG.off;
+      note.classList.toggle('warn', st.kill);
+      open.disabled = !h.isServer();
+      count.textContent = loaded ? `${items.length}개` : '';
+      banner.hidden = !ro(); view.classList.toggle('mem-off', !st.enabled);
+      addB.disabled = wipeB.disabled = ro(); if (ro()) { form.hidden = true; sheet.hidden = true; }
+      wipeB.hidden = loaded && !items.length;
+      list.querySelectorAll('button').forEach(b => { b.disabled = ro(); });
+    }
+    function showState(text, sub, canRetry) {
+      state.textContent = ''; state.hidden = !text; retry.hidden = !canRetry;
+      if (text) { state.appendChild(el('span', 'mem-state-t', text)); if (sub) state.appendChild(el('span', 'mem-state-s', sub)); }
+    }
+    // a write just said read-only / kill switch: keep that until the sheet reopens
+    async function reread() { try { const s = await api.getSettings(); st = Object.assign(st, s, { kill: st.kill, readOnly: st.readOnly || s.readOnly }); } catch {} paint(); }
+    // shared write-error handling (§3.9.8 / spec C): returns true if handled as a state change
+    function writeBlocked(k) {
+      if (k === 'read_only') { st.readOnly = true; paint(); renderList(); reread(); return true; }
+      if (k === 'kill_switch') { st.kill = true; paint(); renderList(); reread(); return true; }
+      if (k === 'off') { st.serverOn = false; paint(); return true; }
+      return false;
+    }
     function renderList() {
       list.textContent = '';
-      if (!items.length) { showState('아직 기억한 게 없어요. 대화 중에 “기억해”라고 하면 저장하기 전에 물어봐요.', false); return; }
-      showState('', false);
+      const shown = items.filter(i => !pending.has(i.id));
+      if (!shown.length) { showState(MSG.empty, MSG.emptySub, false); paint(); return; }
+      showState('', '', false);
       const now = Date.now();
-      order(items).forEach(it => {
+      order(shown).forEach(it => {
         const li = el('li', 'mem-row'); li.dataset.id = it.id;
         const expired = it.kind === 'task' && it.expiresAt && it.expiresAt <= now;
         li.setAttribute('aria-label', [KIND[it.kind], it.text, it.pinned ? '고정됨' : ''].filter(Boolean).join(', '));
@@ -58,64 +84,100 @@
         if (it.kind === 'task' && it.expiresAt) meta.push(expired ? '만료됨' : D.format(new Date(it.expiresAt)) + ' 만료');
         main.appendChild(el('p', 'mem-meta', meta.join(' · ')));
         if (expired) li.classList.add('expired');
-        const del = el('button', 'mem-del', '삭제'); del.type = 'button'; del.disabled = st.readOnly; del.setAttribute('aria-label', '삭제: ' + it.text);
-        del.onclick = () => askDelete(li, it);
-        li.append(main, del); list.appendChild(li);
+        const ed = el('button', 'mem-edit', '편집'); ed.type = 'button'; ed.setAttribute('aria-label', '편집: ' + it.text); ed.onclick = () => openForm(it);
+        const del = el('button', 'mem-del', '삭제'); del.type = 'button'; del.setAttribute('aria-label', '삭제: ' + it.text); del.onclick = () => softDelete(it);
+        li.append(main, ed, del); list.appendChild(li); swipe(li, it);
       });
+      paint();
     }
-    function askDelete(li, it) {                              // confirm step before the write
-      if (li.querySelector('.mem-confirm')) return;
-      list.querySelectorAll('.mem-confirm').forEach(c => c.remove());
-      const box = el('div', 'mem-confirm'); box.setAttribute('role', 'group'); box.setAttribute('aria-label', '삭제 확인');
-      box.appendChild(el('p', 'mem-confirm-q', '이 메모리를 지울까요? 지우면 되돌릴 수 없어요.'));
-      const no = el('button', 'btn', '취소'), yes = el('button', 'btn danger', '삭제'); no.type = yes.type = 'button';
-      no.onclick = () => box.remove();
-      yes.onclick = async () => {
-        yes.disabled = no.disabled = true; yes.textContent = '지우는 중…';
-        try { await api.deleteItem(it.id); gone(); h.showToast('삭제했어요', '', null, 1600); }
-        catch (e) {
-          const k = M.errState(e);
-          if (k === 'not_found' || (e.http === 404 && e.code !== 'kill_switch')) { gone(); h.showToast('이미 지워진 항목이에요', '', null, 1600); return; }
-          if (k === 'read_only') { st.readOnly = true; paint(); renderList(); h.showToast('지금은 메모리를 바꿀 수 없어요', '', null, 3000); return; }
-          if (k === 'unavailable') { st.available = false; paint(); h.showToast(MSG.unavailable, '', null, 3000); return; }
-          yes.disabled = no.disabled = false; yes.textContent = '삭제';
-          h.showToast(k === 'network' ? '연결이 끊겨 지우지 못했어요' : '지우지 못했어요', '다시 시도', () => yes.click(), 4000);
-        }
-      };
-      box.append(no, yes); li.appendChild(box); no.focus();
-      function gone() { items = items.filter(x => x.id !== it.id); paint(); renderList(); }
+    function swipe(li, it) {                                  // swipe left past 80px → delete (same as the button)
+      let x0 = null;
+      li.addEventListener('pointerdown', e => { if (!ro() && e.pointerType !== 'mouse') x0 = e.clientX; });
+      li.addEventListener('pointermove', e => { if (x0 != null) li.style.transform = `translateX(${Math.min(0, e.clientX - x0)}px)`; });
+      const end = e => { if (x0 == null) return; const dx = e.clientX - x0; x0 = null; li.style.transform = ''; if (dx < -80) softDelete(it); };
+      li.addEventListener('pointerup', end); li.addEventListener('pointercancel', () => { x0 = null; li.style.transform = ''; });
     }
+    // single delete: no confirm. Hide → toast '삭제됨 · 되돌리기' 2.8s → DELETE after it closes (pagehide commits at once).
+    function softDelete(it) {
+      if (ro() || pending.has(it.id)) return;
+      const p = { it, timer: setTimeout(() => commit(it.id), UNDO_MS) }; pending.set(it.id, p); renderList();
+      let first = false; try { first = !localStorage.getItem(BACKUP_SEEN); if (first) localStorage.setItem(BACKUP_SEEN, '1'); } catch {}
+      toast('삭제됨' + (first ? ' · 백업에는 최대 7일 남아요' : ''), '되돌리기', () => { clearTimeout(p.timer); pending.delete(it.id); renderList(); }, UNDO_MS);
+    }
+    async function commit(id, keepalive) {
+      const p = pending.get(id); if (!p) return; clearTimeout(p.timer);
+      try { await api.deleteItem(id, keepalive); pending.delete(id); items = items.filter(x => x.id !== id); renderList(); }
+      catch (e) {
+        if (keepalive) return;
+        const k = M.errState(e); pending.delete(id);
+        if (k === 'not_found') { items = items.filter(x => x.id !== id); renderList(); return; }   // already gone
+        renderList();
+        if (writeBlocked(k)) return;
+        toast(k === 'network' ? '연결이 끊겨 지우지 못했어요' : '지우지 못했어요', '다시 시도', () => softDelete(p.it), 4000);
+      }
+    }
+    const flushDeletes = () => { for (const id of [...pending.keys()]) commit(id, true); };
+    window.addEventListener('pagehide', flushDeletes);
+    function openForm(it) {
+      if (ro()) return;
+      editing = it || null; form.hidden = false; formErr.hidden = true; kindI.disabled = !!it;
+      kindI.value = it ? it.kind : 'preference'; textI.value = it ? it.text : ''; textI.focus();
+    }
+    const submit = async () => {
+      const text = textI.value.trim(); if (!text) return;
+      const save = $('memFormSave'); save.disabled = true; formErr.hidden = true;
+      try {
+        const r = editing ? await api.edit(editing, text) : await api.add(kindI.value, text);
+        items = items.filter(x => x.id !== r.id).concat(r); form.hidden = true; editing = null; renderList();
+      } catch (e) {
+        const k = M.errState(e);
+        if (writeBlocked(k)) { form.hidden = true; return; }
+        if (k === 'conflict' || k === 'not_found') { form.hidden = true; editing = null; loadList(); return; }   // changed elsewhere: show the current list
+        formErr.textContent = k === 'network' ? '연결이 끊겨 저장하지 못했어요' : SAVE_ERR[k] || SAVE_ERR.invalid; formErr.hidden = false;
+        if (k === 'internal' || k === 'network') { const rb = el('button', 'btn', '다시 시도'); rb.type = 'button'; rb.onclick = submit; formErr.append(' ', rb); }
+      } finally { save.disabled = false; }
+    };
+    $('memFormSave').onclick = submit;
+    textI.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); submit(); } });
+    $('memFormCancel').onclick = () => { form.hidden = true; editing = null; };
+    addB.onclick = () => openForm(null);
+    wipeB.onclick = () => { if (!ro()) { sheet.hidden = false; $('memWipeNo').focus(); } };
+    $('memWipeNo').onclick = () => { sheet.hidden = true; };
+    $('memWipeYes').onclick = async () => {
+      const b = $('memWipeYes'); b.disabled = true;
+      try { await api.deleteAll(); pending.forEach(p => clearTimeout(p.timer)); pending.clear(); items = []; sheet.hidden = true; renderList(); }
+      catch (e) { const k = M.errState(e); sheet.hidden = true; if (!writeBlocked(k)) toast(k === 'network' ? '연결이 끊겨 지우지 못했어요' : '지우지 못했어요', '', null, 3000); }
+      finally { b.disabled = false; }
+    };
     async function loadList() {
-      list.textContent = ''; showState('불러오는 중…', false);
-      try { items = await api.list(); loaded = true; paint(); renderList(); }
+      list.textContent = ''; showState('불러오는 중…', '', false);
+      try { items = await api.list(); loaded = true; renderList(); }
       catch (e) {
         const k = M.errState(e);
-        if (k === 'unavailable') { st.available = false; view.hidden = true; paint(); return; }
-        if (k === 'read_only') { st.readOnly = true; paint(); }
-        showState(k === 'read_only' ? MSG.read_only : MSG[k] || MSG.error, k === 'network' || k === 'error');
+        if (k === 'off' || e.http === 404) { st.serverOn = false; paint(); return; }    // GET /v1/memory 404 = server memory off (no item to miss): unavailable, not an error
+        if (k === 'kill_switch') { st.kill = true; paint(); }
+        showState(MSG.loadErr, '', true);
       }
     }
     async function openSettings() {
-      view.hidden = true; open.setAttribute('aria-expanded', 'false'); loaded = false; items = [];
-      if (!h.isServer()) { paint(); return; }
-      sw.disabled = true;
-      try { st = M.FIELDS.settings(await api.getSettings() || {}); }
-      catch (e) { const k = M.errState(e); st = { enabled: false, readOnly: k === 'read_only', available: k !== 'unavailable' && k !== 'network' && k !== 'error' }; if (k === 'network' || k === 'error') { paint(); note.textContent = '설정을 불러오지 못했어요.'; return; } }
+      view.hidden = true; open.setAttribute('aria-expanded', 'false'); loaded = false; items = []; form.hidden = true; sheet.hidden = true;
+      if (!h.isServer()) { st.serverOn = false; paint(); return; }
+      try { st = Object.assign({ kill: false }, await api.getSettings()); }
+      catch { st.serverOn = false; paint(); return; }             // settings unreadable → keep memory UI hidden
       paint();
-      if (st.available) api.list().then(x => { items = x; loaded = true; paint(); }).catch(e => { if (M.errState(e) === 'unavailable') { st.available = false; paint(); } });
+      if (st.serverOn) api.list().then(x => { items = x; loaded = true; paint(); }).catch(e => { if (e.http === 404) { st.serverOn = false; paint(); } });
     }
     sw.addEventListener('change', async () => {               // optimistic, rollback on failure (same as 선톡 toggle)
       const on = sw.checked, prev = st.enabled; st.enabled = on; paint();
       try { await api.setEnabled(on); }
       catch (e) {
-        st.enabled = prev; const k = M.errState(e);
-        if (k === 'read_only') st.readOnly = true; if (k === 'unavailable') st.available = false;
-        paint(); h.showToast(k === 'network' ? '연결이 끊겨 설정을 저장하지 못했어요' : '설정을 저장하지 못했어요', '', null, 3000);
+        st.enabled = prev; const k = M.errState(e); paint();
+        if (!writeBlocked(k)) toast(k === 'network' ? '연결이 끊겨 설정을 저장하지 못했어요' : '설정을 저장하지 못했어요', '', null, 3000);
       }
     });
     open.addEventListener('click', () => { view.hidden = !view.hidden; open.setAttribute('aria-expanded', String(!view.hidden)); if (!view.hidden) loadList(); });
     retry.addEventListener('click', loadList);
-    return { openSettings, flag: true };
+    return { openSettings, flag: true, flushDeletes };
   }
   self.EveMemory = { init, FLAG, order };
 })();

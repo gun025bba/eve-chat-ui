@@ -1,46 +1,70 @@
 /* Eve memory (Part B) — API layer + field mapping. The ONLY file that knows memory endpoint paths and
- * server field names (eve-serving docs/architecture/memory.md §4, ui-api-contract.md §1 Q7/Q8/Q17, §2, §3.3).
- * The schemas are not final: if the backend renames anything, edit ENDPOINTS / FIELDS here only.
- * status: 'defined' = in the contract docs; 'assumed' = UI guess, listed in README "메모리 API 가정". */
+ * server field names. Schema frozen in eve-serving ui-api-contract §3.9 (PR #32).
+ * Exception still open: where memory.enabled lives in /v1/settings (awaiting architect) — isolated in SETTINGS below. */
 (function () {
   const E = encodeURIComponent;
-  const ENDPOINTS = {
-    getSettings:  { status: 'defined', method: 'GET',    path: () => '/v1/settings' },               // CT §2: {memory:{enabled}, system:{memory_read_only,…}}
-    patchSettings:{ status: 'defined', method: 'PATCH',  path: () => '/v1/settings' },               // body {memory:{enabled:bool}} only (strict decode)
-    list:         { status: 'defined', method: 'GET',    path: () => '/v1/memory' },                  // MEM §4; response shape assumed (see FIELDS.list)
-    deleteItem:   { status: 'defined', method: 'DELETE', path: id => `/v1/memory/items/${E(id)}` }    // MEM §4; 204 assumed, 404 = already gone
+  const ENDPOINTS = {                                                    // §3.9.2 / §3.9.3
+    list:       { method: 'GET',    path: () => '/v1/memory' },
+    exportAll:  { method: 'GET',    path: () => '/v1/memory/export' },
+    addItem:    { method: 'POST',   path: () => '/v1/memory/items' },
+    editItem:   { method: 'PATCH',  path: id => `/v1/memory/items/${E(id)}` },
+    deleteItem: { method: 'DELETE', path: id => `/v1/memory/items/${E(id)}` },   // 204, no body
+    deleteAll:  { method: 'DELETE', path: () => '/v1/memory' },                  // 204, no body
+    getSettings:  { method: 'GET',   path: () => '/v1/settings' },
+    patchSettings:{ method: 'PATCH', path: () => '/v1/settings' }
   };
   const S = v => (typeof v === 'string' ? v : null);
   const KINDS = ['profile', 'preference', 'fact', 'task'];
+  const ms = t => Date.parse(t || '') || 0;
   const FIELDS = {
-    // assumed: GET /v1/memory returns the file document {items:[…]} (MEM §1); {data:[…]} also accepted
-    list(j) { const arr = Array.isArray(j?.items) ? j.items : Array.isArray(j?.data) ? j.data : []; return arr.map(FIELDS.item).filter(x => x.id); },
-    item: i => ({ id: i && i.id != null ? String(i.id) : null, kind: KINDS.includes(i?.kind) ? i.kind : 'fact', text: S(i?.text) || '', pinned: i?.pinned === true,
-      confidence: i?.confidence === 'confirmed' ? 'confirmed' : 'user', updatedAt: Date.parse(i?.updated_at || '') || 0, expiresAt: Date.parse(i?.expires_at || '') || 0 }),
-    settings(s) {
-      const y = (s && s.system) || {};
-      return { enabled: s?.memory?.enabled !== false,                // CT §2 default true
-        readOnly: y.memory_read_only === true,                         // CT Q17
-        available: y.memory_available !== false };                     // assumed key (kill switch GW_MEMORY_ENABLED); absent → available
+    list: j => (Array.isArray(j?.items) ? j.items : []).map(FIELDS.item).filter(x => x.id),        // {object:'memory', updated_at, items}
+    item: i => ({ id: i && i.id != null ? String(i.id) : null, kind: KINDS.includes(i?.kind) ? i.kind : 'fact', text: S(i?.text) || '',
+      pinned: i?.pinned === true, confidence: i?.confidence === 'confirmed' ? 'confirmed' : 'user',
+      updatedAtRaw: S(i?.updated_at), updatedAt: ms(i?.updated_at), expiresAt: ms(i?.expires_at) }),
+    add: (kind, text) => ({ kind, text }),                                 // strict body: unknown fields → 400
+    edit: (it, text) => ({ text, if_updated_at: it.updatedAtRaw || undefined })   // 409 conflict if changed meanwhile
+  };
+  // §3.9.7 — PLACEMENT NOT CONFIRMED (architect). Only this object reads/writes the settings shape.
+  const SETTINGS = {
+    read(s) {
+      const m = s && s.memory;
+      return { serverOn: !!m && typeof m === 'object',                   // GW_MEMORY_ENABLED=false → no memory block at all
+        enabled: m?.enabled !== false, readOnly: s?.system?.memory_read_only === true };
     },
     patch: on => ({ memory: { enabled: !!on } })
   };
-  // error → UI state (CT §3.3). Branch on the body error_code, then HTTP.
+  // Error code from either body format: {error_code} (4xx) or legacy gateway {error:{code}} (500/503, §3.9.8).
+  // api() already merges both into e.code; the raw-body fallback keeps this file correct on its own.
+  function codeOf(e) {
+    if (!e) return '';
+    if (e.code) return String(e.code);
+    try { const j = JSON.parse(e.body || ''); return String(j.error_code || j.error?.code || ''); } catch { return ''; }
+  }
+  // → 'network' | 'off' (server kill switch: bare 404, feature unavailable, not an error) | 'kill_switch' | 'read_only'
+  //   | 'internal' | 'not_found' | 'conflict' | 'item_gone' | 'secret_detected' | 'cap_exceeded' | 'invalid'
   function errState(e) {
     if (!e || !e.http) return 'network';
-    if (e.code === 'memory_read_only' || e.http === 503) return 'read_only';
-    if (e.code === 'kill_switch' || e.http === 404 || e.http === 405 || e.http === 501) return 'unavailable';
-    if (e.code === 'not_found') return 'not_found';
-    return 'error';
+    const c = codeOf(e);
+    if (c === 'memory_read_only') return 'read_only';
+    if (c === 'kill_switch') return 'kill_switch';
+    if (c === 'internal_error') return 'internal';
+    if (['not_found', 'conflict', 'item_gone', 'secret_detected', 'cap_exceeded'].includes(c)) return c;
+    if (e.http === 404) return 'off';                                    // route absent (byte-identical legacy 404)
+    if (e.http >= 500) return 'internal';
+    return 'invalid';                                                     // unknown code → invalid text
   }
   function make(api) {
-    const call = (name, arg, body) => { const e = ENDPOINTS[name]; return api(e.path(arg), body === undefined ? { method: e.method } : { method: e.method, body: JSON.stringify(body) }); };
+    const call = (name, arg, body, extra) => { const e = ENDPOINTS[name]; return api(e.path(arg), Object.assign({ method: e.method }, body === undefined ? {} : { body: JSON.stringify(body) }, extra || {})); };
     return {
-      getSettings: () => call('getSettings'),
-      setEnabled: on => call('patchSettings', null, FIELDS.patch(on)),
+      getSettings: () => call('getSettings').then(SETTINGS.read),
+      setEnabled: on => call('patchSettings', null, SETTINGS.patch(on)),
       list: () => call('list').then(FIELDS.list),
-      deleteItem: id => call('deleteItem', id)            // api() adds X-Eve-Request (CSRF) + JSON Content-Type
+      exportAll: () => call('exportAll'),
+      add: (kind, text) => call('addItem', null, FIELDS.add(kind, text)).then(FIELDS.item),
+      edit: (it, text) => call('editItem', it.id, FIELDS.edit(it, text)).then(FIELDS.item),
+      deleteItem: (id, keepalive) => call('deleteItem', id, undefined, keepalive ? { keepalive: true } : null),
+      deleteAll: () => call('deleteAll')
     };
   }
-  self.EveMemoryAPI = { make, ENDPOINTS, FIELDS, errState };
+  self.EveMemoryAPI = { make, ENDPOINTS, FIELDS, SETTINGS, codeOf, errState };
 })();

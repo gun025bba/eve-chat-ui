@@ -10,7 +10,7 @@ UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
-def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0, memDeletes=[], memItems=[
+def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0, memDeletes=[], memWrites=[], memItems=[
     {'id': '01JMEM00000000000000000001', 'kind': 'profile', 'text': '이름은 건영', 'pinned': True, 'confidence': 'user', 'updated_at': '2026-10-01T00:00:00Z', 'expires_at': None},
     {'id': '01JMEM00000000000000000002', 'kind': 'preference', 'text': '아침 브리핑은 한국어로 짧게 받는 걸 선호', 'pinned': False, 'confidence': 'confirmed', 'updated_at': '2026-10-20T00:00:00Z', 'expires_at': None},
     {'id': '01JMEM00000000000000000003', 'kind': 'task', 'text': '다음 주 발표 준비 중', 'pinned': False, 'confidence': 'user', 'updated_at': '2026-10-10T00:00:00Z', 'expires_at': '2099-11-25T00:00:00Z'},
@@ -86,7 +86,7 @@ class H(SimpleHTTPRequestHandler):
         """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
         import re as _re
         m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
-        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev or path == '/v1/memory' or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
+        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev or path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
         if not s.auth(): return True
         if not PRO['supported']: s.j(404, ec('not_found')); return True
         if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
@@ -125,32 +125,61 @@ class H(SimpleHTTPRequestHandler):
                 if PRO.get('reviseNoToken'): na['token'] = None
                 else: out.update(confirm_token=na['token'], token_expires_at=now(PRO.get('tokenTtl', 120)))
                 s.j(200, out); return True
-            # Part B memory mock (memory-api.js ENDPOINTS). memMode: None | 'off' (kill switch → 404 / 403 kill_switch) | 'ro' (503 memory_read_only) | 'drop' (network failure)
+            # Part B memory mock — ui-api-contract §3.9 (eve-serving PR #32).
+            # memMode: None (on) | 'off' (GW_MEMORY_ENABLED=false: bare legacy 404, no settings.memory block) | 'kill' (403 kill_switch on writes)
+            #          | 'ro' (503 legacy {error:{code:memory_read_only}} on writes) | 'e500' (500 legacy internal_error on writes) | 'drop' (network failure)
             m_mi = _re.fullmatch(r'/v1/memory/items/([^/]+)', path)
-            if path == '/v1/memory' or m_mi:
+            if path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or m_mi:
                 mode = PRO.get('memMode')
                 if mode == 'drop': s.close_connection = True; s.connection.shutdown(2); return True
-                if mode == 'off': s.j(404 if method == 'GET' else 403, ec('not_found' if method == 'GET' else 'kill_switch')); return True
-                if method == 'GET' and path == '/v1/memory': s.send_response(200); s.send_header('Content-Type', 'application/json'); s.send_header('Cache-Control', 'no-store'); b2 = json.dumps({'schema_version': 1, 'items': PRO['memItems']}).encode(); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2); return True
+                if mode == 'off': s.j(404, err('not_found', 'not_found_error', 'not found')); return True
+                def raw(st, obj, extra=()):
+                    s.send_response(st); s.send_header('Content-Type', 'application/json'); s.send_header('Cache-Control', 'no-store')
+                    for k, v in extra: s.send_header(k, v)
+                    b2 = json.dumps(obj).encode(); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2)
+                ups = max([i['updated_at'] for i in PRO['memItems']] or [None])
+                if method == 'GET' and path in ('/v1/memory', '/v1/memory/export'):
+                    raw(200, {'object': 'memory', 'updated_at': ups, 'items': PRO['memItems']}, [('Content-Disposition', 'attachment; filename="memory.json"')] if 'export' in path else []); return True
+                if method == 'GET': s.j(405, ec('invalid')); return True
+                PRO['memWrites'].append({'method': method, 'path': path, 'body': b, 'xer': s.headers.get('X-Eve-Request'), 'ct': s.headers.get('Content-Type')})
+                if m_mi and method == 'DELETE': PRO['memDeletes'].append({'id': m_mi.group(1), 'xer': s.headers.get('X-Eve-Request'), 'ct': s.headers.get('Content-Type'), 'origin': s.headers.get('Origin')})
+                if s.headers.get('X-Eve-Request') != '1': s.j(403, ec('invalid')); return True
+                if mode == 'kill': s.j(403, ec('kill_switch')); return True
+                if mode == 'ro' or PRO.get('memDelRO'): s.j(503, err('memory_read_only', 'server_error', 'memory is read-only')); return True
+                if mode == 'e500': s.j(500, err('internal_error', 'server_error', 'audit write failed')); return True
+                if PRO.get('memDelDrop') and method == 'DELETE': PRO['memDelDrop'] = False; s.close_connection = True; s.connection.shutdown(2); return True
+                ts = '2026-10-27T05:00:%02dZ' % (len(PRO['memWrites']) % 60)
+                if path == '/v1/memory' and method == 'DELETE': PRO['memItems'] = []; s.j(204, None); return True
+                if path == '/v1/memory/items' and method == 'POST':
+                    if not isinstance(b, dict) or set(b) - {'kind', 'text', 'pinned', 'expires_at'} or b.get('kind') not in ('profile', 'preference', 'fact', 'task') or not isinstance(b.get('text'), str) or not b['text'] or len(b['text']) > 300: s.j(400, ec('invalid')); return True
+                    if _re.search(r'(?i)password|sk-[a-z0-9]{8}|\d{4}-\d{4}-\d{4}-\d{4}', b['text']): s.j(422, ec('secret_detected')); return True
+                    if len(PRO['memItems']) >= PRO.get('memCap', 200): s.j(422, ec('cap_exceeded')); return True
+                    it = {'id': '01JMEMNEW%017d' % len(PRO['memWrites']), 'kind': b['kind'], 'text': b['text'], 'pinned': b.get('pinned', b['kind'] == 'profile'), 'confidence': 'user', 'created_at': ts, 'updated_at': ts, 'expires_at': b.get('expires_at')}
+                    PRO['memItems'].append(it); s.j(201, it); return True
+                cur = next((i for i in PRO['memItems'] if m_mi and i['id'] == m_mi.group(1)), None)
                 if m_mi and method == 'DELETE':
-                    PRO['memDeletes'].append({'id': m_mi.group(1), 'xer': s.headers.get('X-Eve-Request'), 'ct': s.headers.get('Content-Type'), 'origin': s.headers.get('Origin')})
-                    if mode == 'ro' or PRO.get('memDelRO'): s.j(503, ec('memory_read_only')); return True
-                    if PRO.get('memDelDrop'): PRO['memDelDrop'] = False; s.close_connection = True; s.connection.shutdown(2); return True
-                    if s.headers.get('X-Eve-Request') != '1': s.j(403, ec('invalid')); return True
-                    n = len(PRO['memItems']); PRO['memItems'] = [i for i in PRO['memItems'] if i['id'] != m_mi.group(1)]
-                    if len(PRO['memItems']) == n: s.j(404, ec('not_found')); return True
-                    s.j(204, None); return True
+                    if not cur: s.j(404, ec('not_found')); return True
+                    PRO['memItems'].remove(cur); s.j(204, None); return True
+                if m_mi and method == 'PATCH':
+                    if not isinstance(b, dict) or set(b) - {'text', 'pinned', 'expires_at', 'if_updated_at'}: s.j(400, ec('invalid')); return True
+                    if not cur: s.j(404, ec('not_found')); return True
+                    if b.get('if_updated_at') and b['if_updated_at'] != cur['updated_at']: s.j(409, ec('conflict')); return True
+                    if 'text' in b and (not isinstance(b['text'], str) or not b['text'] or len(b['text']) > 300): s.j(400, ec('invalid')); return True
+                    cur.update({k: v for k, v in b.items() if k != 'if_updated_at'}, updated_at=ts); s.j(200, cur); return True
                 s.j(405, ec('invalid')); return True
             if path == '/v1/settings':
                 if method == 'PATCH':
                     if PRO.get('failSettings'): s.j(500, ec('invalid')); return True
-                    if 'memory' in b and PRO.get('memMode') == 'ro': s.j(503, ec('memory_read_only')); return True
+                    if 'memory' in b and PRO.get('memMode') == 'off': s.j(400, ec('invalid')); return True
+                    if 'memory' in b and PRO.get('memMode') == 'ro': s.j(503, err('memory_read_only', 'server_error', 'memory is read-only')); return True
                     ok = set(b) <= {'proactive', 'memory'}   # system.* is read-only → 400 and set(b.get('proactive') or {}) <= {'enabled', 'quiet_hours', 'memory_read'} and set(b.get('memory') or {}) <= {'enabled'}
                     q = (b.get('proactive') or {}).get('quiet_hours')
                     if q is not None and (set(q) != {'start', 'end'} or not all(_re.fullmatch(r'\d{2}:\d{2}', q[k]) for k in q)): ok = False
                     if not ok: s.j(400, ec('invalid')); return True
                     for k, v in b.items(): PRO['settings'][k].update(v)
-                s.j(200, dict(PRO['settings'], system=PRO['system'])); return True
+                out = dict(PRO['settings'], system=PRO['system'])
+                if PRO.get('memMode') == 'off': out.pop('memory', None)   # §3.9.7: server memory off → no memory block
+                s.j(200, out); return True
             if path == '/v1/actions':
                 s.j(200, {'data': [{k: v for k, v in a.items() if k not in ('token',)} for a in PRO['actions'].values() if a['status'] == 'pending' and a.get('thread_id')]}); return True
             if path == '/v1/push/vapid-public-key':
@@ -169,6 +198,7 @@ class H(SimpleHTTPRequestHandler):
             if op == 'reject':
                 a['status'] = 'rejected'; s.j(200, {'status': 'rejected'}); return True
             if PRO.get('approveCode'): st, code = PRO.pop('approveCode'); s.j(st, ec(code)); return True
+            if PRO.get('approveLegacy'): st, code = PRO.pop('approveLegacy'); s.j(st, err(code, 'server_error', code)); return True   # 500/503: legacy {error:{code}} body (§3.9.8)
             if not b.get('confirm_token'): s.j(400, ec('invalid')); return True
             if a['status'] != 'pending': s.j(409, ec('conflict')); return True
             if b.get('payload_hash') != a['payload_hash']: s.j(422, ec('payload_mismatch')); return True

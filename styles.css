@@ -690,3 +690,12 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-confirm .btn.danger { background: var(--danger, #ff3b30); color: #fff; }
 .mem-banner { margin: 8px 0; padding: 8px 12px; border-radius: 8px; background: var(--banner-bg, rgba(255,159,10,.15)); font-size: 13px; }
 #sMemNote.warn { color: var(--label-2, inherit); }
+.mem-banner-t{margin:0;font-weight:600}.mem-banner-s{margin:2px 0 0;font-size:13px;opacity:.8}
+.mem-tools{display:flex;justify-content:space-between;margin:8px 0}.danger-text{color:var(--red,#ff453a)}
+.mem-form{margin:8px 0}.mem-form-btns{display:flex;gap:8px;justify-content:flex-end}
+.mem-state-t{display:block;font-weight:600}.mem-state-s{display:block}
+.mem-edit{background:none;border:0;color:var(--accent);font:inherit;padding:8px}
+.mem-row{touch-action:pan-y;transition:transform .2s}
+.mem-sheet{position:sticky;bottom:0;background:var(--bg-elev-2);border-radius:12px;padding:16px;display:grid;gap:8px}
+.mem-toast{position:sticky;bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg-elev-2);border-radius:12px;padding:10px 14px;margin:8px 0}
+.mem-sheet[hidden],.mem-toast[hidden],.mem-form[hidden]{display:none}
