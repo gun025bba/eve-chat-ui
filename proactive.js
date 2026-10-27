@@ -8,19 +8,12 @@
   const PUSH_HOSTS = ['web.push.apple.com'];          // exact host, mirrors the server allowlist (PM §2.2.1)
   const POLL_MS = 60000, LS_PUSH = 'eve.push', LS_KID = 'eve.push.kid';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;   // Eve sprite (design a197571)
+  const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;          // glyphs not in the sprite
   const IC = {
-    sparkle: svg('<path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6-5.6-1.9 5.6-1.9Z"/>'),
-    eye: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
-    uturn: svg('<path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
-    sun: svg('<path d="M3 18h18M6 18a6 6 0 0 1 12 0M12 6v2M5.6 9.6l1.4 1.4M18.4 9.6 17 11"/>'),
-    bell: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/>'),
+    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), sun: icon('sun-horizon'), bell: icon('bell'),
     wrench: svg('<path d="M14.7 6.3a4 4 0 0 0 5 5L13 18l-3 3-4-4 3-3 6.7-6.7a4 4 0 0 0-1-1z"/>'),
-    brain: svg('<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V5a2 2 0 0 0-3-1zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>'),
-    trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-    warn: svg('<path d="M12 3 2 20h20zM12 10v4M12 17v.01"/>'),
-    check: svg('<path d="M5 12l5 5 9-10"/>'),
-    err: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.01"/>')
+    brain: icon('memory'), trash: icon('trash'), warn: icon('warning'), check: icon('check'), err: icon('info')
   };
   const T = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' });
   const DAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
@@ -332,7 +325,7 @@
           const sep = el('div', 'day-sep', (new Date(m.created).toDateString() === new Date().toDateString() ? '오늘 ' : '') + when(m.created)); wrap.before(sep);
         }
         const line = el('div', 'origin-line');
-        if (!cont) { line.insertAdjacentHTML('beforeend', IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle'].replace('<svg', '<svg class="origin-ic"')); line.appendChild(el('span', 'origin-label', label)); }
+        if (!cont) { line.insertAdjacentHTML('beforeend', IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle'].replace('class="i"', 'class="i origin-ic"')); line.appendChild(el('span', 'origin-label', label)); }
         const tm = el('time', null, t); tm.dateTime = new Date(m.created || Date.now()).toISOString(); line.appendChild(tm);
         wrap.insertBefore(line, wrap.firstChild);
       }

@@ -134,7 +134,7 @@ with sync_playwright() as p:
     ctx.set_offline(False); pg.evaluate("dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
     check('online: outbox flushed to server', last_fb().get('rating') == 'up' and last_fb().get('reasons') == ['helpful'] and last_fb().get('comment') == '오프라인 메모', last_fb())
     check('no CSP violations', not pg.evaluate("window.__csp||[]"), pg.evaluate("window.__csp||[]"))
-    check('version 1.2.1', pg.evaluate("__app.version") == '1.2.1')
+    check('version 1.2.2', pg.evaluate("__app.version") == '1.2.2')
     check('no page errors', not errs, errs)
     ctx.close()
     # light mode + reduced motion
