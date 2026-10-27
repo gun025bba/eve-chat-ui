@@ -1,4 +1,4 @@
-# 1.4.0: gateway #57 — 403 identity_not_allowed is treated exactly like 401 (auth notice); other 403s keep their behavior
+# 1.3.1: gateway #57 — 403 identity_not_allowed is treated exactly like 401 (auth notice); other 403s keep their behavior
 import os, json, re
 from playwright.sync_api import sync_playwright
 B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
