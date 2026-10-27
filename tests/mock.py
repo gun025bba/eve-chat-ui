@@ -377,6 +377,20 @@ class H(SimpleHTTPRequestHandler):
         if tid and tid != 'new' and tid not in DB['threads']: return s.j(404, err('not_found'))
         if rep and (tid in (None, 'new') or DB['messages'].get(rep, {}).get('thread_id') != tid): return s.j(404, err('not_found'))
         if rep and DB['messages'][rep]['role'] != 'assistant': return s.j(400, err('bad_request'))
+        if last.startswith('dup409') and tid in DB['threads'] and not rep:   # eve-serving #62: same-turn resend while generating
+            g = STATE.setdefault('dupGen', {}).get(tid)
+            if g and g in GEN and not GEN[g]['done']:
+                STATE['dup409n'] = STATE.get('dup409n', 0) + 1; shape = STATE.get('dupShape', 'nested')
+                e = err('generation_in_progress', 'invalid_request_error', 'generation in progress')
+                if shape == 'nested': e['error']['message_id'] = g
+                elif shape == 'top': e['message_id'] = g
+                elif shape == 'details': e['error']['details'] = {'message_id': g}
+                return s.j(409, e)
+            th = DB['threads'][tid]; add_msg(tid, 'user', last)
+            am = s.save_asst(th, None, '', '', 'generating'); am.pop('error_code', None); mid = am['id']
+            GEN[mid] = {'ev': [(1, 'eve.meta', {"thread_id": tid, "message_id": mid})], 'done': False}
+            gen_run(mid, 'slow'); STATE['dupGen'][tid] = mid
+            return s.j(503, err('server_busy', 'server_error', 'busy'))   # the client never saw this turn start
         with LOCK:
             if tid:
                 th = new_thread(last[:40]) if tid == 'new' else DB['threads'].get(tid)
@@ -523,6 +537,7 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/auth/'): STATE['authed'] = p.endswith('/on')
         if p.startswith('/deny/'): STATE['denied'] = p.endswith('/on')
         if p.startswith('/auth4/'): STATE['auth4'] = p.endswith('/on')
+        if p.startswith('/dupshape/'): STATE.update(dupShape=p[10:], dupGen={}, dup409n=0)
         if p.startswith('/invalidsession/'): STATE['invalidSession'] = p.endswith('/on')
         if p.startswith('/scope403/'): STATE['scope403'] = p.endswith('/on')
         if p.startswith('/paircode/'): STATE.update(pairCode=p[10:] or None, pairFails=0, pairBodies=[])

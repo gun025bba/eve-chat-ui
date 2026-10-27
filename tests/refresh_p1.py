@@ -15,7 +15,7 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1');localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit'}))")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.click('#newChat'); pg.wait_for_timeout(800)
         if scheme == 'dark':
-            check('version 1.7.0', pg.evaluate('__app.version') == '1.7.0')
+            check('version 1.8.0', pg.evaluate('__app.version') == '1.8.0')
             t = pg.evaluate("""(()=>{const r=getComputedStyle(document.documentElement),g=n=>r.getPropertyValue(n).trim();
               return [g('--r-xs'),g('--r-sm'),g('--r-md'),g('--r-lg'),g('--r-xl'),g('--layer-1'),g('--layer-2'),g('--hair'),g('--hair-strong'),g('--s1'),g('--s2')]})()""")
             check('radii 6/10/16/20/26 + two layers + hairlines + 4/8 spacing', t[:5] == ['6px','10px','16px','20px','26px'] and t[5].upper() == '#1C1C1E' and t[6].upper() == '#2C2C2E' and t[7] and t[8] and t[9:] == ['4px','8px'], t)

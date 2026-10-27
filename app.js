@@ -982,6 +982,20 @@ if (typeof document !== 'undefined') (function () {
   let cancelRun = null;
   function stopGeneration() { if (controller) { try { cancelRun?.(); } catch {} buzz(10); sendBtn.classList.add('pressed'); setTimeout(() => sendBtn.classList.remove('pressed'), 160); controller.abort(); } }
 
+  // 409 generation_in_progress bodies: {error:{code,message_id}} | {error_code, message_id} | {error:{code, details:{message_id}}}
+  function inProgressId(body) {
+    let j = null; try { j = typeof body === 'string' ? JSON.parse(body) : body; } catch { return ''; }
+    const id = j && (j.error?.message_id ?? j.message_id ?? j.error?.details?.message_id ?? j.details?.message_id);
+    return typeof id === 'string' && /^[\w.-]{1,128}$/.test(id) ? id : '';
+  }
+  // attaching to a turn that is already on the server: no second user bubble, no stale copy of that assistant row
+  function dropDupTurn(c, id) {
+    const msgs = c.messages, last = msgs.at(-1), prev = msgs.at(-2);
+    const users = () => box.querySelectorAll('.msg.user');
+    if (last?.role === 'user' && prev?.role === 'user' && prev.content === last.content) { msgs.pop(); if (c === cur()) { const u = users(); u[u.length - 1]?.remove(); } }
+    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant' && msgs[i].id === id) { msgs.splice(i, 1); if (c === cur()) box.querySelector(`.msg.assistant[data-mid="${CSS.escape(id)}"]`)?.remove(); }
+    persist();
+  }
   async function generate(c, replaceId) {
     const bubble = addMsgEl('assistant');
     const hist = c.messages.map(({ role, content }) => ({ role, content: role === 'assistant' ? stripStopMark(splitThink(stripStopMark(content)).answer) : content }))
@@ -1102,6 +1116,12 @@ if (typeof document !== 'undefined') (function () {
         const code = authCode(body);
         if (isAuthFail(res.status, code)) showAuthNotice(() => generate(c), code);
         const ra = retryAfterOf(res);
+        // 1.8.0 (eve-serving #62): duplicate send/retry while the same turn is generating → 409 generation_in_progress.
+        // If the body names the in-progress message (either shape), attach to it via the resume stream instead of an error.
+        if (res.status === 409 && code === 'generation_in_progress' && mode === 'server' && c.srv) {
+          const ip = inProgressId(body);
+          if (ip) { dropDupTurn(c, ip); mid = ip; throw new Error('attach in-progress generation'); }   // non-http error → recover() below
+        }
         if (HTTP_CODES.has(code) && (res.status === 429 || res.status === 409)) throw Object.assign(new Error(failText(code) + raText(ra)), { http: res.status, retryAfter: ra });   // before admission: no assistant row
         throw Object.assign(new Error(errMsg(res.status, body)), { http: res.status, retryAfter: ra });
       }
@@ -1841,7 +1861,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.7.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.8.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

@@ -35,7 +35,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.7.0', pg.evaluate('window.__app && window.__app.version') == '1.7.0', [errs, pg.url, pg.content()[:300]])
+    check('version 1.8.0', pg.evaluate('window.__app && window.__app.version') == '1.8.0', [errs, pg.url, pg.content()[:300]])
     pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
@@ -154,7 +154,8 @@ with sync_playwright() as p:
     VU = dict(A, action_id='01JACT0000000000000000000U', payload_hash='sha256:vu', tainted=False, payload_view={'verb': 'update'})
     VD = dict(A, action_id='01JACT0000000000000000000D', payload_hash='sha256:vd', tainted=False, payload_view={'verb': 'delete'}, scopes=['calendar.write'])
     VX = dict(A, action_id='01JACT0000000000000000000X', payload_hash='sha256:vx', tainted=False, payload_view={'verb': 'frobnicate'}, tool='calendar_create_event')
-    s3 = put('/pro/seed', {'title': '확인 카드', 'actions': [A, A2, A3, A4, FG, VU, VD, VX]})
+    VP = [dict(A, action_id=f'01JACT000000000000000000P{n}', payload_hash=f'sha256:vp{n}', tainted=False, payload_view=({'verb': v} if v else {})) for n, v in enumerate(['constructor', '__proto__', 'toString', 'hasOwnProperty', None])]
+    s3 = put('/pro/seed', {'title': '확인 카드', 'actions': [A, A2, A3, A4, FG, VU, VD, VX] + VP})
     home(); open_thread(s3['thread']); pg.wait_for_timeout(500)
     card = lambda i: pg.locator(f'.confirm-card[data-aid="{i}"]')
     c1 = card(A['action_id'])
@@ -167,7 +168,7 @@ with sync_playwright() as p:
     check('write scope = accent (no danger)', 'cc-danger' not in c1.locator('.cc-primary').get_attribute('class') and c1.locator('.cc-primary').inner_text() == '추가')
     c2 = card(A2['action_id'])
     check('send scope = danger 보내기', 'cc-danger' in c2.locator('.cc-primary').get_attribute('class') and c2.locator('.cc-primary').inner_text() == '보내기')
-    for k, want in [(VU, '변경'), (VD, '삭제'), (VX, '실행')]:
+    for k, want in [(VU, '변경'), (VD, '삭제'), (VX, '실행')] + [(v, '실행') for v in VP]:
         ck = card(k['action_id']); ck.scroll_into_view_if_needed(); pg.wait_for_timeout(200)
         check('verb from payload_view.verb: ' + want, ck.locator('.cc-primary').inner_text() == want, ck.locator('.cc-primary').inner_text())
     check('delete verb with write scope stays accent (danger by scopes)', 'cc-danger' not in card(VD['action_id']).locator('.cc-primary').get_attribute('class'))

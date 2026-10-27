@@ -98,7 +98,7 @@ with sync_playwright() as p:
     check('late non-stream reply not rendered', 'late non-stream' not in pg.inner_text('#messages'))
     # settings / sheets under CSP
     pg.evaluate("document.querySelector('#openSettings')?.click() || document.querySelector('#settings').showModal()"); pg.wait_for_timeout(500)
-    check('version label 1.7.0', '1.7.0' in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
+    check('version label 1.8.0', '1.8.0' in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
     pg.keyboard.press('Escape'); pg.wait_for_timeout(400)
     # offline page under CSP
     op = ctx.new_page(); op.goto(B + '/ui/offline.html'); op.wait_for_timeout(400)
