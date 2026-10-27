@@ -29,7 +29,7 @@ with sync_playwright() as p:
 
     # 1) flag OFF (default): nothing visible, no memory request
     settings()
-    check('version 1.4.0', pg.evaluate('__app.version') == '1.4.0')
+    check('version 1.5.0', pg.evaluate('__app.version') == '1.5.0')
     check('flag off: memory section hidden', pg.is_hidden('#memSection') and pg.evaluate("localStorage.getItem('eve.flag.memory')") is None)
     check('flag off: no GET /v1/memory', not memGets())
 
