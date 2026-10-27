@@ -43,7 +43,7 @@ with sync_playwright() as p:
     btn.click(); pg.wait_for_timeout(700)
     a = pg.locator('.msg.assistant').last
     check('partial reply kept on screen', '조각0' in a.inner_text(), a.inner_text()[:80])
-    check("'중지됨' marker under message", a.locator('.stopped').count() == 1 and a.locator('.stopped').inner_text().strip() == '중지됨')
+    check("'중지됨' marker under message", a.locator('.stopped').count() == 1 and a.locator('.stopped').inner_text().strip().startswith('답변을 멈췄어요') and 'error' not in a.locator('.stopped').get_attribute('class'))
     check('marker not in content text', '*(중지됨)*' not in a.locator('.bubble').inner_text())
     check('reasoning kept', a.locator('details.think').count() == 1)
     check('no error bubble on user abort', pg.locator('.msg.error').count() == 0)
@@ -98,7 +98,7 @@ with sync_playwright() as p:
     check('late non-stream reply not rendered', 'late non-stream' not in pg.inner_text('#messages'))
     # settings / sheets under CSP
     pg.evaluate("document.querySelector('#openSettings')?.click() || document.querySelector('#settings').showModal()"); pg.wait_for_timeout(500)
-    check('version label 1.1.3', '1.1.3' in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
+    check('version label 1.1.4', '1.1.4' in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
     pg.keyboard.press('Escape'); pg.wait_for_timeout(400)
     # offline page under CSP
     op = ctx.new_page(); op.goto(B + '/ui/offline.html'); op.wait_for_timeout(400)
