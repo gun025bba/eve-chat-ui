@@ -45,7 +45,7 @@
   }
   // 404 by body: {"detail":"Not Found"} (no code) on any /v1/memory* = server memory off → 'off' (hide, not an error);
   //              {"error_code":"not_found"} (PATCH/DELETE items/{id} only) = item already gone → 'not_found'.
-  // 1.3.1: 403 identity_not_allowed is handled like 401 by app.js api() (auth notice); here it stays 'invalid' like 401.
+  // 1.4.0: 403 identity_not_allowed is handled like 401 by app.js api() (auth notice); here it stays 'invalid' like 401.
   // 500/503/429/401 use {error:{code}}; everything else {error_code}. kill_switch only comes from approve (cards).
   // → 'network' | 'off' | 'kill_switch' | 'read_only' | 'internal' | 'busy' | 'not_found' | 'conflict' | 'item_gone'
   //   | 'secret_detected' | 'cap_exceeded' | 'invalid'
