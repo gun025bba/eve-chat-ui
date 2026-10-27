@@ -108,8 +108,8 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 .send{position:relative;width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--accent);color:#fff}
 .send svg{width:18px;height:18px;stroke-width:2.4}
 .send:disabled{background:var(--fill);color:var(--label-3)}
-.send .i-stop{position:absolute;width:11px;height:11px;border-radius:2.5px;background:var(--bg);opacity:0;transform:scale(.5);transition:all var(--d-fast) var(--ease-spring)}
-.send svg{transition:all var(--d-fast) var(--ease-spring)}
+.send .i-stop{position:absolute;width:11px;height:11px;border-radius:2.5px;background:var(--bg);opacity:0;transform:scale(.5);transition:transform var(--d-fast) var(--ease-spring),opacity var(--d-fast) var(--ease-spring)}
+.send svg{transition:transform var(--d-fast) var(--ease-spring),opacity var(--d-fast) var(--ease-spring)}
 .send.stop{background:var(--label)}
 .send.stop svg{opacity:0;transform:scale(.5)}.send.stop .i-stop{opacity:1;transform:none}
 /* drawer */
@@ -278,7 +278,7 @@ img,svg{-webkit-user-drag:none;pointer-events:none}
 .search input::-webkit-search-decoration{display:none}
 #convList{padding:0;overflow:visible;flex:none}
 #convList li.group-label{padding:16px max(20px,env(safe-area-inset-left)) 6px;font-size:13px;font-weight:600;color:var(--label-2);text-transform:none}
-#convList li.row{display:block;position:relative;min-height:0;padding:0;border-radius:0;overflow:hidden;background:var(--danger);transition:height 280ms var(--ease-sheet)}
+#convList li.row{display:block;position:relative;min-height:0;padding:0;border-radius:0;overflow:hidden;background:var(--danger)}
 #convList li.row:active{background:var(--danger)}
 .row-actions{position:absolute;inset:0 0 0 auto;display:flex;z-index:0}
 .row-actions button{display:block!important;width:74px;height:100%!important;color:#fff;font-size:15px;font-weight:500;border-radius:0}
@@ -432,7 +432,7 @@ body.kb-open #composer{padding-bottom:8px}
 #archList li.row:not(.swiped) .row-actions{visibility:hidden}
 #archList .row{position:relative;overflow:hidden}
 .row.archived .row-title{color:var(--label-2)}
-.row.collapsing{overflow:hidden;transition:height 260ms var(--ease-sheet),opacity 200ms linear;opacity:0}
+.row.collapsing{overflow:hidden;transition:opacity 260ms linear;opacity:0}
 .row.expanding{animation:rowIn 260ms var(--ease-sheet)}
 @keyframes rowIn{from{opacity:0;transform:translateY(-8px)}}
 .row-edit{font:600 17px/22px var(--font);color:var(--label);background:var(--fill);border:0;outline:0;border-radius:8px;padding:4px 8px;flex:1;min-width:0;-webkit-user-select:text;user-select:text}
@@ -444,8 +444,8 @@ body.kb-open #composer{padding-bottom:8px}
 #syncStatus .sync-retry{color:var(--accent);font-size:13px;font-weight:600;padding:0}
 .search-progress{position:absolute;left:0;right:0;bottom:-2px;height:2px;overflow:hidden;opacity:0;transition:opacity 150ms}
 .search-progress.on{opacity:1}
-.search-progress::after{content:"";position:absolute;top:0;bottom:0;width:40%;background:var(--accent);animation:indet 1s linear infinite}
-@keyframes indet{from{left:-40%}to{left:100%}}
+.search-progress::after{content:"";position:absolute;top:0;bottom:0;left:0;width:40%;background:var(--accent);animation:indet 1s linear infinite}
+@keyframes indet{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
 .hit .row-main{min-height:0}
 .snippet{white-space:normal!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .snippet mark{background:rgba(255,214,10,.28);color:var(--label);border-radius:3px;padding:0 1px}
@@ -709,3 +709,17 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-toast .btn{white-space:nowrap;border-radius:999px;color:var(--accent)}
 .mem-toast[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.mem-row{transition:opacity .2s}}
+
+/* 1.2.1 — standalone status bar: opaque strip under the status bar (no blurred content behind it), header blur starts below it */
+.navbar::before,#topbar::before{content:"";position:absolute;inset:0 0 auto;height:env(safe-area-inset-top);background:var(--bg);pointer-events:none;display:block;z-index:0}
+@media (display-mode:standalone){.navbar,#topbar{background-clip:padding-box}}
+/* 1.2.1 — no horizontal scroll from long sources/links/tables/code (design 2deb88d SOURCES-SPEC.md) */
+html,body,#messages{overflow-x:clip}
+.msg,.msg>*,.bubble,.md,.md *{min-width:0}
+.bubble{overflow-wrap:anywhere;word-break:keep-all}
+.sources ol{grid-template-columns:minmax(0,1fr)}
+.sources a{margin:0;position:relative}
+.sources a::before{content:"";position:absolute;inset:-6px}
+.codeblock pre,.md table{display:block;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.md table{width:max-content}
+.md img,.md video{max-width:100%;height:auto}
