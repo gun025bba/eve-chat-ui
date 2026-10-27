@@ -262,7 +262,7 @@ if (typeof document !== 'undefined') (function () {
   commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
-  // 1.3.2: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
+  // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
   const authCode = j => { try { if (typeof j === 'string') j = JSON.parse(j); } catch { return ''; } return (j && (j.error_code || j.error?.code)) || ''; };
   const isAuthFail = (status, code) => status === 401 || (status === 403 && code === 'identity_not_allowed');
   async function api(path, opts = {}) {
@@ -836,18 +836,21 @@ if (typeof document !== 'undefined') (function () {
     return `입력 ${u.prompt_tokens ?? '?'} · 출력 ${ct ?? '?'} tok${rate}`;
   }
 
-  const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘'], ['요약', '긴 글을 핵심 3줄로 정리해줘'], ['번역', '자연스러운 영어 문장으로 바꿔줘'], ['아이디어', '주말에 할 사이드 프로젝트 추천']];
+  const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘', 'source'], ['요약', '긴 글을 핵심 3줄로 정리해줘', 'sparkle'], ['번역', '자연스러운 영어 문장으로 바꿔줘', 'globe'], ['아이디어', '주말에 할 사이드 프로젝트 추천', 'think']];
+  // 1.4.0 (REFRESH-SPEC §1.1/§1.7): no model name on screen; it lives in 설정 > 정보
+  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only
+  const EMPTY_SUB = 'Eve는 이 기기 가까이에서 실행돼요'; // REFRESH-SPEC §1.7
   function renderEmpty() {
-    box.innerHTML = `<div class="empty"><div class="mark"></div><h1>Eve에게 무엇이든 물어보세요</h1><small>${escapeHtml(shortModel() || '로컬 모델')} · 로컬에서 실행 중</small>
-      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}"><b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
-    box.querySelectorAll('.chip').forEach(b => { b.style.animationDelay = (80 + b.dataset.i * 40) + 'ms'; });
+    box.innerHTML = `<div class="empty"><div class="mark-tile"><div class="mark"></div></div><h1>무엇을 도와드릴까요?</h1><small>${EMPTY_SUB}</small>
+      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}">${icon(c[2], 'i-sm chip-ic')}<b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
+    box.querySelectorAll('.empty .mark-tile,.empty h1,.empty>small,.chip').forEach((b, i) => { b.style.animationDelay = (i * 40) + 'ms'; });
     box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });
   }
   function renderMessages(keep) {
     box.innerHTML = '';
     const c = cur();
     $('#title').textContent = c ? c.title : '새 대화';
-    $('#modelName').textContent = shortModel();
+    $('#modelName').textContent = SUBTITLE; const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
     chatView.classList.toggle('archived', !!c?.archived);
     if (c?.loading && !c.messages.length) { box.innerHTML = '<div class="older loading"><span class="spin"></span></div>'; return; }
     if (!c || !c.messages.length) return renderEmpty();
@@ -1527,7 +1530,7 @@ if (typeof document !== 'undefined') (function () {
     $('#a2hsRow').hidden = isStandalone();
     snap = formState();
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
-    renderWho(); loadModels(); PRO?.openSettings(); MEM?.openSettings();
+    renderWho(); loadModels(); $('#sModelInfo').textContent = shortModel() || '—'; PRO?.openSettings(); MEM?.openSettings();
   }
   $('#openSettings').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
@@ -1730,7 +1733,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.3.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.4.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
