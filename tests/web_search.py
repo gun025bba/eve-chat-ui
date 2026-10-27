@@ -28,7 +28,7 @@ with sync_playwright() as p:
         const words=[e.id,e.name,e.placeholder,e.getAttribute('aria-label'),e.className].join(' ');
         out[sel]={ok:e.getAttribute('autocomplete')==='off'&&e.hasAttribute('data-1p-ignore')&&e.dataset.lpignore==='true'&&e.dataset.formType==='other'&&!bad.test(words),words}; }
       const t=document.querySelector('#input'), f=document.querySelector('#composer');
-      out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='sentences'&&t.getAttribute('autocorrect')==='on'&&f.getAttribute('autocomplete')==='off'};
+      out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='sentences'&&t.getAttribute('autocorrect')==='on'&&!t.form&&!t.closest('form')&&f.tagName!=='FORM'};
       return out;})()""")
     for k, v in af.items(): check('no contact AutoFill hints: ' + k, v['ok'], v)
     check('toggle visible in composer', pg.evaluate("!!document.querySelector('#composer .field #webBtn')") and btn.is_visible())

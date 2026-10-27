@@ -1158,14 +1158,16 @@ if (typeof document !== 'undefined') (function () {
   function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
+    if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); submitComposer(); }
   });
-  $('#composer').addEventListener('submit', e => {
-    e.preventDefault();
+  // 1.3.2: #composer is no longer a <form> (iOS AutoFill classifies form-associated fields and ignores autocomplete=off),
+  // so the send button is type=button and submit is handled here.
+  function submitComposer() {
     if (controller) { stopGeneration(); return; }
     const t = input.value.trim(); if (!t) return;
     send(t);
-  });
+  }
+  sendBtn.addEventListener('click', e => { e.preventDefault(); submitComposer(); });
 
   /* ---------- navigation stack (NATIVE §1, §4) ---------- */
   const app = $('#app'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
