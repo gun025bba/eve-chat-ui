@@ -275,7 +275,7 @@ if (typeof document !== 'undefined') (function () {
   commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
-  // 1.4.0: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
+  // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
   const authCode = j => { try { if (typeof j === 'string') j = JSON.parse(j); } catch { return ''; } return (j && (j.error_code || j.error?.code)) || ''; };
   const isAuthFail = (status, code) => status === 401 || (status === 403 && code === 'identity_not_allowed');
   async function api(path, opts = {}) {
@@ -855,9 +855,10 @@ if (typeof document !== 'undefined') (function () {
 
   const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘', 'source'], ['요약', '긴 글을 핵심 3줄로 정리해줘', 'sparkle'], ['번역', '자연스러운 영어 문장으로 바꿔줘', 'globe'], ['아이디어', '주말에 할 사이드 프로젝트 추천', 'think']];
   // 1.4.0 (REFRESH-SPEC §1.1/§1.7): no model name on screen; it lives in 설정 > 정보
-  const SUBTITLE = '로컬 · 비공개';
+  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only
+  const EMPTY_SUB = 'Eve는 이 기기 가까이에서 실행돼요'; // REFRESH-SPEC §1.7
   function renderEmpty() {
-    box.innerHTML = `<div class="empty"><div class="mark-tile"><div class="mark"></div></div><h1>무엇을 도와드릴까요?</h1><small>${SUBTITLE}</small>
+    box.innerHTML = `<div class="empty"><div class="mark-tile"><div class="mark"></div></div><h1>무엇을 도와드릴까요?</h1><small>${EMPTY_SUB}</small>
       <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}">${icon(c[2], 'i-sm chip-ic')}<b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
     box.querySelectorAll('.empty .mark-tile,.empty h1,.empty>small,.chip').forEach((b, i) => { b.style.animationDelay = (i * 40) + 'ms'; });
     box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });

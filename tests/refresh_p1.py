@@ -23,7 +23,11 @@ with sync_playwright() as p:
           return {h1:q('.empty h1')?.textContent, sub:q('.empty>small')?.textContent, tile:!!q('.empty .mark-tile .mark'), tileShadow:cs('.empty .mark-tile').boxShadow,
             nav:q('#modelName').textContent, glow:cs('#messages','::before').backgroundImage, chipIc:cs('.chip .chip-ic').color, chipShadow:cs('.chip').boxShadow,
             chipBorder:cs('.chip').borderTopWidth}})()""")
-        check(f'[{scheme}] empty: mark tile, 무엇을 도와드릴까요?, 로컬 · 비공개', e['tile'] and e['h1'] == '무엇을 도와드릴까요?' and e['sub'] == '로컬 · 비공개', e)
+        check(f'[{scheme}] empty: mark tile, 무엇을 도와드릴까요?, §1.7 subtitle', e['tile'] and e['h1'] == '무엇을 도와드릴까요?' and e['sub'] == 'Eve는 이 기기 가까이에서 실행돼요', e)
+        tk = pg.evaluate("(()=>{const r=getComputedStyle(document.documentElement),t=getComputedStyle(document.querySelector('.empty .mark-tile'));return {bg:r.getPropertyValue('--tile-bg').trim(),glow:r.getPropertyValue('--tile-glow').trim(),tbg:t.backgroundColor}})()")
+        check(f'[{scheme}] mark tile bg/glow are tokens', tk['bg'] and tk['glow'], tk)
+        css = open(__import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'styles.css')).read()
+        check(f'[{scheme}] mig track/ring use var(--d-3), no 300ms', 'stroke-dashoffset var(--d-3)' in css and '.mig-track i{display:block;height:100%;width:100%;transform:scaleX(0);transform-origin:left;background:var(--accent);transition:transform var(--d-3)' in css)
         check(f'[{scheme}] no model name in nav subtitle or empty state', e['nav'] == '로컬 · 비공개' and 'Qwen' not in pg.inner_text('#chatView'), e['nav'])
         if scheme == 'dark':
             check('emerald glow (dark) + tile glow', 'radial-gradient' in e['glow'] and 'rgba(0, 210, 190' in e['glow'] and 'rgba(0, 210, 190' in e['tileShadow'], e['glow'])
