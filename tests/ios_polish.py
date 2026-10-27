@@ -1,4 +1,4 @@
-# 1.2.1 iOS polish: status-bar strip, composer autofill attrs, no horizontal scroll from sources, transform/opacity-only animations
+# 1.2.2 iOS polish: status-bar strip, composer autofill attrs, no horizontal scroll from sources, transform/opacity-only animations
 import os, re
 from playwright.sync_api import sync_playwright
 B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
@@ -13,7 +13,7 @@ errs = []
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark').new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500)
-    check('version 1.2.1', pg.evaluate('__app.version') == '1.2.1')
+    check('version 1.2.2', pg.evaluate('__app.version') == '1.2.2')
     a = pg.evaluate("(()=>{const i=document.getElementById('input');return [i.tagName,i.name,i.getAttribute('autocomplete'),i.getAttribute('autocorrect'),i.getAttribute('autocapitalize'),i.getAttribute('enterkeyhint')]})()")
     check('composer: textarea, non-name name, autocomplete off, autocorrect/autocapitalize/enterkeyhint', a == ['TEXTAREA', 'eve-composer-text', 'off', 'on', 'sentences', 'send'] and not re.search(r'name|contact|tel|email', a[1].replace('eve-composer', '')), a)
     s = pg.evaluate("(()=>{const r=[];document.querySelectorAll('.navbar,#topbar').forEach(n=>{const c=getComputedStyle(n,'::before');r.push([c.display,c.backgroundColor])});return r})()")
