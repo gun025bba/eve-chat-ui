@@ -54,7 +54,7 @@
   }
   const VERB_LABEL = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };
   const VERB_DONE = { add: '추가했어요', update: '변경했어요', send: '보냈어요', delete: '삭제했어요', run: '실행했어요' };
-  const verbOf = x => VERB_LABEL[x.verb] ? x.verb : 'run';   // architect: payload_view.verb; unknown → run
+  const verbOf = x => typeof x.verb === 'string' && Object.hasOwn(VERB_LABEL, x.verb) ? x.verb : 'run';   // own keys only ('constructor', '__proto__' → run)   // architect: payload_view.verb; unknown → run
   const VAR = {
     remember: { ic: 'brain', title: () => '메모리에 저장할까요?', primary: () => '저장', secondary: '취소', done: () => '저장했어요' },
     forget: { ic: 'trash', title: x => x.ambiguous ? '어떤 걸 지울까요?' : '메모리에서 지울까요?', primary: (x, n) => `${n}개 지우기`, secondary: '취소', done: (x, n) => `${n}개 지웠어요` },

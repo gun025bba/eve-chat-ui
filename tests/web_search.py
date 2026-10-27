@@ -55,7 +55,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2200)
     last = pg.locator('.msg.assistant').last
     cites = last.locator('.md sup.cite a')
-    check('citation capsules rendered (1.7.0: [1,2] merged)', cites.count() >= 3, cites.count())
+    check('citation capsules rendered (1.8.0: [1,2] merged)', cites.count() >= 3, cites.count())
     check('cite [1] -> source url', cites.first.get_attribute('href') == 'https://example.com/notes?a=1&b=2', cites.first.get_attribute('href'))
     check('cite rel/target', all(cites.nth(i).get_attribute('rel') == 'noopener noreferrer' and cites.nth(i).get_attribute('target') == '_blank' for i in range(cites.count())))
     md = last.locator('.md').inner_html()
