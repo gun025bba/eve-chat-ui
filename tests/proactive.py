@@ -35,7 +35,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.2.0', pg.evaluate('window.__app && window.__app.version') == '1.2.0', [errs, pg.url, pg.content()[:300]])
+    check('version 1.3.0', pg.evaluate('window.__app && window.__app.version') == '1.3.0', [errs, pg.url, pg.content()[:300]])
     pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
@@ -55,7 +55,7 @@ with sync_playwright() as p:
     open_thread(s1['thread'])
     ol = pg.locator('.msg.proactive .origin-line')
     check('source line "Eve가 먼저 보냄 · 아침 브리핑" + <time>', ol.count() == 2 and 'Eve가 먼저 보냄 · 아침 브리핑' in ol.first.inner_text() and ol.first.locator('time').count() == 1, ol.first.inner_text() if ol.count() else '')
-    check('briefing icon = sun (template_kind)', ol.first.locator('svg.origin-ic path').first.get_attribute('d').startswith('M3 18h18'))
+    check('briefing icon = sun (template_kind)', ol.first.locator('svg.origin-ic use').first.get_attribute('href') == '#i-sun-horizon')
     check('continuation line: time only', ol.nth(1).locator('.origin-label').count() == 0)
     check('job_name rendered as text', ol.first.locator('.origin-label').inner_html() == 'Eve가 먼저 보냄 · 아침 브리핑')
     check('"새 메시지" divider before first unread', pg.locator('.unread-sep').count() == 1)
@@ -70,7 +70,7 @@ with sync_playwright() as p:
     check('title (1) Eve', pg.title() == '(1) Eve', pg.title())
     open_thread(s0['thread'])
     check('digest label', '조용한 시간 동안 · 요약' in pg.locator('.msg.proactive .origin-line').first.inner_text())
-    check('unknown template_kind → sparkle', pg.locator('.msg.proactive .origin-ic path').first.get_attribute('d').startswith('M12 3l1.9'))
+    check('unknown template_kind → sparkle', pg.locator('.msg.proactive .origin-ic use').first.get_attribute('href') == '#i-sparkle')
     pg.evaluate('history.back()'); pg.wait_for_timeout(400)
 
     # --- push tap: nid = message_id → open its thread, scrolled to it

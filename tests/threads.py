@@ -100,7 +100,7 @@ with sync_playwright() as p:
     check('retry -> done', m.get_attribute('#migrateSheet','data-view')=='done')
     imp=[t for t in db()['threads'] if t.get('client_id','').startswith('local:')]; check('7 imported', len(imp)==7, str(len(imp)))
     check('backup kept', m.evaluate("!!localStorage.getItem('llmchat.convs.bak')"))
-    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-1.2.0'))"); check('sw 1.2.0', sw)
+    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-1.3.0'))"); check('sw 1.3.0', sw)
     check('no page errors', not errs, str(errs[:3]))
     b.close()
 print('RESULT:', 'ALL PASS' if all(R) else f'{R.count(False)} FAIL')

@@ -1,5 +1,7 @@
 'use strict';
-const COPY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>';
+// Eve icon set (design a197571 icons/sprite.svg, inlined at the start of <body>)
+const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const COPY_SVG = icon('copy');
 /* ---------- pure helpers (also tested in node) ---------- */
 function createSSEParser(onData) {
   let buf = '';
@@ -152,19 +154,10 @@ if (typeof document !== 'undefined') (function () {
   const $ = s => document.querySelector(s);
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
-  const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
   const ICON = {
-    copy: COPY_SVG,
-    globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>'),
-    check: svg('<path d="M5 12l5 5 9-10"/>'),
-    regen: svg('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'),
-    warn: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/>'),
-    chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
-    spark: svg('<path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6-5.6-1.9 5.6-1.9Z"/>'),
-    edit: svg('<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
-    up: svg('<path d="M7 10v10H4V10zM7 10l4-7a2 2 0 0 1 2 2v4h5.5a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.3 20H7"/>'),
-    down: svg('<path d="M7 14V4H4v10zM7 14l4 7a2 2 0 0 0 2-2v-4h5.5a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.3 4H7"/>'),
-    trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>')
+    copy: icon('copy'), globe: icon('source'), check: icon('check'), regen: icon('regenerate'), warn: icon('warning'),
+    chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), up: icon('thumb-up'), down: icon('thumb-down'), trash: icon('trash')
   };
   const LS = { settings: 'llmchat.settings', convs: 'llmchat.convs', current: 'llmchat.current', route: 'llmchat.route', scroll: 'llmchat.scroll', draft: 'llmchat.draft:',
     mode: 'llmchat.mode', srv: 'llmchat.srvcache', pins: 'llmchat.pins', outbox: 'llmchat.outbox', migrated: 'llmchat.migrated', snooze: 'llmchat.migrateSnooze', bak: 'llmchat.convs.bak', fbSkip: 'llmchat.fbSkip' };
@@ -212,19 +205,26 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
   const vv = window.visualViewport;
-  let vvRaf = 0;
-  function syncVV() {
-    if (vvRaf) return;
-    vvRaf = requestAnimationFrame(() => {
-      vvRaf = 0; const h = vv ? vv.height : window.innerHeight;
-      root.setProperty('--vvh', h + 'px');
-      const wasKb = document.body.classList.contains('kb-open'), kb = window.innerHeight - h > 120;
-      document.body.classList.toggle('kb-open', kb);
-      if (kb && !wasKb && document.activeElement?.classList.contains('fbp-input')) document.activeElement.scrollIntoView({ block: 'nearest' });   // N2: keep note above keyboard
-      if (window.scrollY) window.scrollTo(0, 0);
-      if (stick) scrollBottom();
-    });
+  // 1.2.2 (REFRESH-SPEC M1 / §3.4): while the keyboard moves only --kb changes (composer + toBottom follow via translate, no layout);
+  // the layout height --vvh is committed once, 150ms after visualViewport resize stops, then scrollBottom once.
+  let vvRaf = 0, vvT = 0, vvH = window.innerHeight;
+  function commitVV() {
+    vvT = 0; const h = vv ? vv.height : window.innerHeight;
+    root.setProperty('--vvh', h + 'px'); root.setProperty('--kb', '0px'); vvH = h;
+    const wasKb = document.body.classList.contains('kb-open'), kb = window.innerHeight - h > 120;
+    document.body.classList.toggle('kb-open', kb);
+    if (kb && !wasKb && document.activeElement?.classList.contains('fbp-input')) document.activeElement.scrollIntoView({ block: 'nearest' });   // N2: keep note above keyboard
+    if (window.scrollY) window.scrollTo(0, 0);
+    if (stick) scrollBottom();
   }
+  function syncVV() {
+    if (!vvRaf) vvRaf = requestAnimationFrame(() => {
+      vvRaf = 0; const h = vv ? vv.height : window.innerHeight;
+      root.setProperty('--kb', Math.max(0, vvH - h) + 'px');
+    });
+    clearTimeout(vvT); vvT = setTimeout(commitVV, 150);
+  }
+  window.__vv = { commit: () => { clearTimeout(vvT); commitVV(); } };   // tests
   if (vv) { vv.addEventListener('resize', syncVV); vv.addEventListener('scroll', () => { if (window.scrollY) window.scrollTo(0, 0); syncVV(); }); }
   window.addEventListener('resize', syncVV);
   input.addEventListener('focus', () => { stick = true; setTimeout(() => { window.scrollTo(0, 0); scrollBottom(); }, 50); setTimeout(() => { if (stick) scrollBottom(); }, 400); });
@@ -243,7 +243,14 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- scroll ---------- */
   let stick = true;
-  function scrollBottom(smooth) { box.scrollTo({ top: box.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); }
+  function scrollBottom(smooth) { const top = box.scrollHeight; box.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' }); }
+  // 1.2.2 (M2): streaming scroll at most every 100ms; the read (scrollHeight) happens in its own rAF before the write
+  let sbLast = 0, sbT = 0;
+  function scrollBottomThrottled() {
+    if (sbT) return;
+    const wait = Math.max(0, 100 - (performance.now() - sbLast));
+    sbT = setTimeout(() => requestAnimationFrame(() => { sbT = 0; sbLast = performance.now(); if (stick) scrollBottom(); }), wait);
+  }
   box.addEventListener('scroll', () => {
     const d = box.scrollHeight - box.scrollTop - box.clientHeight;
     stick = d < 80;
@@ -252,7 +259,7 @@ if (typeof document !== 'undefined') (function () {
     if (box.scrollTop < 200) loadOlder();
   }, { passive: true });
   $('#toBottom').onclick = () => { stick = true; scrollBottom(true); };
-  syncVV();
+  commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
   async function api(path, opts = {}) {
@@ -409,7 +416,7 @@ if (typeof document !== 'undefined') (function () {
   }
 
   /* ---------- conversation list (NATIVE §3, THREADS-SPEC §2) ---------- */
-  const CHEV_R = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  const CHEV_R = icon('chevron-right', 'chev');
   let genId = null;
   const blankConv = () => ({ id: (mode === 'server' ? 'tmp-' : '') + uid(), title: '새 대화', messages: [], updated: Date.now(), fresh: mode === 'server' });
   function newConv() {
@@ -608,6 +615,7 @@ if (typeof document !== 'undefined') (function () {
     const wrap = document.createElement('div'); wrap.className = 'msg ' + role; if (m?.id) wrap.dataset.mid = m.id;
     const b = document.createElement('div'); b.className = 'bubble'; wrap.appendChild(b);
     if (role === 'user') b.textContent = content;
+    if (!box.classList.contains('no-anim')) { box.querySelectorAll(':scope > .msg.enter').forEach(x => x.classList.remove('enter')); wrap.classList.add('enter'); }   // M9: only the newly appended last one
     box.appendChild(wrap); return b;
   }
   // opts: { live, thinkSecs, usage, actions }
@@ -960,7 +968,7 @@ if (typeof document !== 'undefined') (function () {
     fillAssistant(bubble, '', { live: true }); scrollBottom(true);
     const slowTimer = setTimeout(() => { if (!acc && !reasoning) { slow = true; fillAssistant(bubble, '', { live: true, slow }); } }, 3000);
     let raf = 0;
-    const paint = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); }); };
+    const paint = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottomThrottled(); }); };
     // 1.1.4: if the thread now ends with a failed assistant row, retry must replace it (replace_message_id),
     // otherwise gateway 3.1.0 stores the user turn twice
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
@@ -1141,7 +1149,8 @@ if (typeof document !== 'undefined') (function () {
   }
 
   /* ---------- composer ---------- */
-  function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; if (!controller) sendBtn.disabled = !input.value.trim(); }
+  let growH = -1;
+  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
@@ -1259,11 +1268,25 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- list swipe actions (§3) ---------- */
   let openRow = null, rs = null; const ACT_W = 148;
   function closeSwipe() { if (openRow) { const m = openRow.querySelector('.row-main'); m.style.transition = ''; m.style.transform = ''; openRow.classList.remove('swiped'); openRow = null; } }
+  function flipRows(ul, before) {
+    if (!ul || reduce.matches) return;
+    const moved = [];
+    ul.querySelectorAll('li.row[data-id]').forEach(r => { const t0 = before.get(r.dataset.id); if (t0 == null) return; const d = t0 - r.getBoundingClientRect().top; if (d) moved.push([r, d]); });   // reads
+    moved.forEach(([r, d]) => { r.style.transform = `translateY(${d}px)`; r.style.willChange = 'transform'; });                                                                          // writes
+    requestAnimationFrame(() => requestAnimationFrame(() => moved.forEach(([r]) => {
+      r.classList.add('flip'); r.style.transform = '';
+      r.addEventListener('transitionend', () => { r.classList.remove('flip'); r.style.willChange = ''; }, { once: true });
+    })));
+  }
   function swipeArchive(row, c) {
     const m = row.querySelector('.row-main'); m.style.transition = 'transform 260ms var(--ease-sheet)'; m.style.transform = 'translateX(-100%)';
-    row.style.height = row.offsetHeight + 'px'; row.classList.add('removing', 'collapsing');
-    requestAnimationFrame(() => { row.style.height = '0px'; });
-    setTimeout(() => { openRow = null; archiveConv(c); }, 300);
+    row.classList.add('removing', 'collapsing');   // M3: opacity + scale(.98); rows below FLIP up (no height animation)
+    setTimeout(() => {
+      const ul = row.parentElement, before = new Map();
+      ul && ul.querySelectorAll('li.row[data-id]').forEach(r => before.set(r.dataset.id, r.getBoundingClientRect().top));   // read
+      openRow = null; archiveConv(c);
+      flipRows(ul, before);
+    }, 200);
   }
   for (const ul of [$('#convList'), $('#archList')]) {
   ul.addEventListener('touchstart', e => {
@@ -1311,12 +1334,9 @@ if (typeof document !== 'undefined') (function () {
   }
   const ctx = $('#ctx'), ctxMenu = ctx.querySelector('.ctx-menu');
   const MI = {
-    copy: ICON.copy, regen: ICON.regen, edit: ICON.edit, trash: ICON.trash,
-    share: svg('<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>'),
+    copy: ICON.copy, regen: ICON.regen, edit: ICON.edit, trash: ICON.trash, share: icon('share'), send: icon('send'), archive: icon('archive'),
     select: svg('<path d="M5 4h4M5 20h4M7 4v16M13 8h7M13 12h7M13 16h5"/>'),
-    pin: svg('<path d="M9 4h6l-1 6 3 3H7l3-3Z"/><path d="M12 13v7"/>'),
-    send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
-    archive: svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>')
+    pin: svg('<path d="M9 4h6l-1 6 3 3H7l3-3Z"/><path d="M12 13v7"/>')
   };
   function showMenu(el, items, opts = {}) {
     ctxMenu.innerHTML = '';
