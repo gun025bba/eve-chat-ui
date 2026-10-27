@@ -172,7 +172,10 @@ class H(SimpleHTTPRequestHandler):
                     cur.update({k: v for k, v in b.items() if k != 'if_updated_at'}, updated_at=ts); s.j(200, cur); return True
                 s.j(405, ec('invalid')); return True
             if path == '/v1/settings':
+                if PRO.get('settingsDrop'): s.close_connection = True; s.connection.shutdown(2); return True
                 if method == 'PATCH':
+                    if 'ui' in b and PRO.get('uiKey'): PRO.setdefault('settings', {}).setdefault('ui', {}); PRO['settings']['ui'].update(b.pop('ui'))
+                    if not b: s.j(200, dict(PRO['settings'], system=PRO['system'])); return True
                     if PRO.get('failSettings'): s.j(500, ec('invalid')); return True
                     if 'memory' in b and PRO.get('memMode') == 'off': s.j(400, ec('invalid')); return True
                     if 'memory' in b and PRO.get('memMode') == 'ro': s.j(503, err('memory_read_only', 'server_error', 'memory is read-only')); return True

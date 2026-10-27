@@ -30,9 +30,11 @@
   const SETTINGS = {
     read(s) {
       return { available: s?.system?.memory_available !== false,   // missing → true (design bfbaef7)
-        enabled: s?.memory?.enabled === true };                         // missing → off
+        enabled: s?.memory?.enabled === true,
+        introSeen: s?.ui?.memory_intro_seen === true };                   // design B5 (824725d): key not in contract yet                         // missing → off
     },
-    patch: on => ({ memory: { enabled: !!on } })
+    patch: on => ({ memory: { enabled: !!on } }),
+    introSeen: () => ({ ui: { memory_intro_seen: true } })   // 400 until the contract adds it: ignored
   };
   // Error code from either body format: {error_code} (4xx) or legacy gateway {error:{code}} (500/503, §3.9.8).
   // api() already merges both into e.code; the raw-body fallback keeps this file correct on its own.
@@ -63,6 +65,7 @@
     return {
       getSettings: () => call('getSettings').then(SETTINGS.read),
       setEnabled: on => call('patchSettings', null, SETTINGS.patch(on)),
+      markIntroSeen: () => call('patchSettings', null, SETTINGS.introSeen()),
       list: () => call('list').then(FIELDS.list),
       exportAll: () => call('exportAll'),                 // same body as list; client builds the file
       add: (kind, text) => call('addItem', null, FIELDS.add(kind, text)).then(FIELDS.item),
