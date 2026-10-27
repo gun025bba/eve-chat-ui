@@ -133,17 +133,21 @@ function srcFavicon(c) { const u = c.favicon || c.icon; if (typeof u !== 'string
 function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url;
   return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${d}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }
 let _srcSeq = 0;
-// 1.5.0 compact sources: one 44px row (≤3 favicons + "출처 N개 ›"), expands inline; >6 → 5 + 모두 보기 (bottom sheet)
+// 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
+// >6 sources → list shows 5 + 모두 보기 (bottom sheet). Chips are per domain; +N counts sources whose domain has no chip.
 function renderSources(sources) {
   const m = citeMap(sources); if (!m) return '';
   const all = [...m.entries()].sort((a, b) => a[0] - b[0]);
-  const seen = new Set(), favs = [];
-  for (const [, c] of all) { const d = srcDomain(c); if (seen.has(d)) continue; seen.add(d); if (favs.length < 3) favs.push([d, srcFavicon(c)]); }
-  const uniq = new Set(all.map(([, c]) => c.url)).size;
-  const fav = favs.map(([d, u]) => u ? `<span class="fav"><img src="${escapeHtml(u)}" alt="" referrerpolicy="no-referrer" loading="lazy" data-mono="${escapeHtml((d[0] || '?').toUpperCase())}"></span>` : `<span class="fav mono">${escapeHtml((d[0] || '?').toUpperCase())}</span>`).join('');
-  const id = 'src' + (++_srcSeq), many = all.length > 6, shown = many ? all.slice(0, 5) : all;
-  return `<section class="sources" aria-label="출처"><button type="button" class="src-row" aria-expanded="false" aria-controls="${id}"><span class="favs" aria-hidden="true">${fav}</span><span class="src-n">출처 ${uniq}개</span><span class="src-chev" aria-hidden="true">›</span></button>`
-    + `<div class="src-list" id="${id}" hidden><ol role="list">${shown.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
+  const doms = [];
+  for (const [, c] of all) { const d = srcDomain(c); if (!doms.some(x => x.d === d)) doms.push({ d, u: srcFavicon(c) }); }
+  const seen = new Set(doms.map(x => x.d)), shown = doms.slice(0, 2), shownSet = new Set(shown.map(x => x.d));
+  const rest = new Set(all.filter(([, c]) => !shownSet.has(srcDomain(c))).map(([, c]) => c.url)).size;
+  const id = 'src' + (++_srcSeq), many = all.length > 6, items = many ? all.slice(0, 5) : all;
+  const fav = (d, u) => u ? `<span class="fav"><img src="${escapeHtml(u)}" alt="" referrerpolicy="no-referrer" loading="lazy" data-mono="${escapeHtml((d[0] || '?').toUpperCase())}"></span>` : `<span class="fav mono">${escapeHtml((d[0] || '?').toUpperCase())}</span>`;
+  const chip = ({ d, u }) => `<button type="button" class="sc" aria-expanded="false" aria-controls="${id}" aria-label="${escapeHtml(`출처 ${d}`)}"><span class="sc-in">${fav(d, u)}<span class="sc-n">${escapeHtml(d)}</span></span></button>`;
+  const more = rest ? `<button type="button" class="sc sc-more" aria-expanded="false" aria-controls="${id}" aria-label="출처 ${rest}개 더 보기"><span class="sc-in">+${rest}</span></button>` : '';
+  return `<section class="sources" aria-label="출처"><div class="src-row">${shown.map(chip).join('')}${more}</div>`
+    + `<div class="src-list" id="${id}" hidden><ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
     + `<template class="src-all-tpl"><ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
 }
 function renderMarkdown(src, sources) {
@@ -1810,11 +1814,11 @@ if (typeof document !== 'undefined') (function () {
     PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
-  // 1.5.0 compact sources: row toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
+  // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
   const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   function setSrcOpen(sec, open) {
-    const row = sec.querySelector('.src-row'), list = sec.querySelector('.src-list'); if (!row || !list) return;
-    row.setAttribute('aria-expanded', String(open)); sec.classList.toggle('open', open);
+    const chips = sec.querySelectorAll('.sc'), list = sec.querySelector('.src-list'); if (!chips.length || !list) return;
+    chips.forEach(c => c.setAttribute('aria-expanded', String(open))); sec.classList.toggle('open', open);
     if (open) { list.hidden = false; list.classList.remove('in'); void list.offsetWidth; list.classList.add('in'); }
     else if (reduceMotion()) list.hidden = true;
     else { list.classList.remove('in'); const fin = e => { if (e.target !== list || e.propertyName !== 'opacity') return; list.removeEventListener('transitionend', fin); if (!sec.classList.contains('open')) list.hidden = true; }; list.addEventListener('transitionend', fin); }
@@ -1833,8 +1837,8 @@ if (typeof document !== 'undefined') (function () {
     document.body.classList.add('sheet-open'); d.showModal();
   }
   document.addEventListener('click', e => {
-    const row = e.target.closest?.('.sources .src-row');
-    if (row) { const sec = row.closest('.sources'); setSrcOpen(sec, row.getAttribute('aria-expanded') !== 'true'); return; }
+    const chip = e.target.closest?.('.sources .sc');
+    if (chip) { const sec = chip.closest('.sources'); setSrcOpen(sec, chip.getAttribute('aria-expanded') !== 'true'); return; }
     const all = e.target.closest?.('.sources .src-all'); if (all) { openSrcSheet(all.closest('.sources')); return; }
     const cite = e.target.closest?.('sup.cite a[data-n]'); if (!cite) return;
     const sec = cite.closest('.bubble')?.querySelector('.sources'); if (!sec) return; // streaming: no row yet → default link
@@ -1861,7 +1865,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.8.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.9.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

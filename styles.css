@@ -829,15 +829,8 @@ sup.cite a::before{content:"";position:absolute;inset:-14px -6px}
 .sources{margin-top:10px;padding-top:0;border-top:0;min-width:0}
 .sources.fresh{animation:srcFade 120ms ease-out both}
 @keyframes srcFade{from{opacity:0}to{opacity:1}}
-.src-row{display:flex;align-items:center;gap:8px;height:44px;width:max-content;max-width:100%;padding:0 12px;border:0;border-radius:22px;background:var(--src-bg);color:var(--label-2);font:500 13px/18px var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent}
-.src-row:active{background:var(--fill)}
-.favs{display:flex;flex:none}
 .fav{width:20px;height:20px;border-radius:50%;box-shadow:0 0 0 2px var(--src-bg);background:var(--fill);overflow:hidden;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--label);flex:none}
-.fav+.fav{margin-left:-6px}
 .fav img{width:100%;height:100%;object-fit:cover;display:block}
-.src-n{white-space:nowrap}
-.src-chev{display:inline-block;font-size:16px;line-height:1;transition:transform var(--d-2) var(--ease-standard)}
-.sources.open .src-chev{transform:rotate(90deg)}
 .src-list{margin-top:6px;min-width:0}
 .src-list ol,.src-sheet ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
 .src-list:not([hidden]){opacity:0;transform:translateY(-4px);transition:opacity var(--d-2) var(--ease-standard),transform var(--d-2) var(--ease-standard)}
@@ -860,7 +853,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .src-sheet-head{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin-bottom:6px}
 .src-sheet-head h3{margin:0;font-size:17px;font-weight:600}
 :root{--src-bg:var(--layer-1)}
-@media (prefers-reduced-motion:reduce){.src-list:not([hidden]),.src-list.in .src-item,.src-chev,.sources.fresh,.src-item.hl a{transition:none;animation:none;opacity:1;transform:none}.sources.open .src-chev{transform:rotate(90deg)}}
+@media (prefers-reduced-motion:reduce){.src-list:not([hidden]),.src-list.in .src-item,.sources.fresh,.src-item.hl a{transition:none;animation:none;opacity:1;transform:none}}
 .msg.assistant .bubble .sources ol,.src-sheet ol{padding-left:0;margin:0}.msg.assistant .bubble .src-item,.src-sheet .src-item{margin:0}
 
 .fav.mono{font-size:9px;line-height:20px;letter-spacing:-.2px}
@@ -877,3 +870,19 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .pair-hint{margin:0!important;font-size:12px!important}
 .pair-code:disabled{opacity:.5}
 .auth-card.pairing #authRetry{background:transparent;color:var(--accent,#0a84ff);font-weight:400;min-height:44px}
+
+/* 1.9.0 source chips (REFRESH-SPEC §1.5): 26px capsules in a 44px touch row; design tokens only */
+.sources{margin-top:2px}
+.src-row{display:flex;align-items:center;gap:0;height:44px;width:auto;max-width:100%;min-width:0;margin:0;padding:0;border-radius:0;background:none;overflow:hidden}
+.sc{flex:0 1 auto;display:flex;align-items:center;min-width:0;height:44px;margin:0;padding:0 4px;border:0;background:none;color:inherit;font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.sc-in{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;height:26px;padding:0 10px 0 6px;border-radius:13px;background:var(--layer-1);box-shadow:inset 0 0 0 .5px var(--hair);color:var(--label-2);font:var(--t-caption);letter-spacing:.2px;box-sizing:border-box;transition:background-color var(--d-1) var(--ease-standard),color var(--d-1) var(--ease-standard)}
+.sc:active .sc-in{background:var(--layer-2)}
+.sc[aria-expanded="true"] .sc-in{background:var(--layer-2);color:var(--label)}
+.sc-n{min-width:0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc .fav{width:14px;height:14px;box-shadow:none;font-size:8px;line-height:14px}
+.sc .fav.mono{font-size:8px;line-height:14px;letter-spacing:0}
+.sc-more{flex:none;justify-content:center;min-width:44px}
+.sc-more .sc-in{padding:0 10px;font-variant-numeric:tabular-nums}
+.src-list{margin-top:0}
+@media (prefers-reduced-motion:reduce){.sc-in{transition:none}}
+.sc:first-child{padding-left:0}

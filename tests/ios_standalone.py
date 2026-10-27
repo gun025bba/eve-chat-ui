@@ -19,11 +19,11 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.click('#newChat'); pg.wait_for_timeout(400)
         if not touch:
-            check('version 1.8.0', pg.evaluate('__app.version') == '1.8.0')
+            check('version 1.9.0', pg.evaluate('__app.version') == '1.9.0')
             a = pg.evaluate("""(()=>{const i=document.getElementById('input');const txt=[i.placeholder,i.getAttribute('aria-label'),i.id,i.name||''].join(' ');
               return {form:!!i.form, inForm:!!i.closest('form'), forms:document.querySelectorAll('#chatView form').length, name:i.getAttribute('name'), txt, btn:document.getElementById('sendBtn').type}})()""")
             check('composer textarea has no form owner / no <form> in chat view', not a['form'] and not a['inForm'] and a['forms'] == 0, a)
-            check('textarea name is the non-sensitive token (1.8.0 QuickType)', a['name'] == 'eve-composer', a)
+            check('textarea name is the non-sensitive token (1.9.0 QuickType)', a['name'] == 'eve-composer', a)
             check('no contact words in placeholder/label/id', not re.search(r'name|이름|email|이메일|phone|전화|연락처|contact|address|주소|tel', a['txt'], re.I), a['txt'])
             check('send button is type=button', a['btn'] == 'button', a)
             hb = pg.evaluate("[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n);return [c.backgroundColor,c.backdropFilter||'none']})")
@@ -32,7 +32,7 @@ with sync_playwright() as p:
             hb2 = pg.evaluate("(()=>{const c=getComputedStyle(document.querySelector('#listView .navbar'));return [c.backgroundColor,c.backdropFilter||'none']})()")
             check('collapsed list navbar stays opaque, no blur', not hb2[0].startswith('rgba') and hb2[1] == 'none', hb2)
             ac = pg.evaluate("[document.getElementById('input').getAttribute('autocorrect'),document.getElementById('input').getAttribute('spellcheck')]")
-            check('1.8.0: autocorrect off, spellcheck false (PM: QuickType contacts)', ac == ['off', 'false'], ac)
+            check('1.9.0: autocorrect off, spellcheck false (PM: QuickType contacts)', ac == ['off', 'false'], ac)
             # IME: Enter while composing must not send (Korean)
             pg.fill('#input', '안녕')
             pg.evaluate("document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))"); pg.wait_for_timeout(500)
