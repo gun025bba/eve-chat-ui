@@ -19,7 +19,7 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.click('#newChat'); pg.wait_for_timeout(400)
         if not touch:
-            check('version 1.5.0', pg.evaluate('__app.version') == '1.5.0')
+            check('version 1.5.1', pg.evaluate('__app.version') == '1.5.1')
             a = pg.evaluate("""(()=>{const i=document.getElementById('input');const txt=[i.placeholder,i.getAttribute('aria-label'),i.id,i.name||''].join(' ');
               return {form:!!i.form, inForm:!!i.closest('form'), forms:document.querySelectorAll('#chatView form').length, name:i.hasAttribute('name'), txt, btn:document.getElementById('sendBtn').type}})()""")
             check('composer textarea has no form owner / no <form> in chat view', not a['form'] and not a['inForm'] and a['forms'] == 0, a)
@@ -32,7 +32,7 @@ with sync_playwright() as p:
             hb2 = pg.evaluate("(()=>{const c=getComputedStyle(document.querySelector('#listView .navbar'));return [c.backgroundColor,c.backdropFilter||'none']})()")
             check('collapsed list navbar stays opaque, no blur', not hb2[0].startswith('rgba') and hb2[1] == 'none', hb2)
             ac = pg.evaluate("[document.getElementById('input').getAttribute('autocorrect'),document.getElementById('input').getAttribute('spellcheck')]")
-            check('autocorrect/spellcheck kept for Korean prediction', ac == ['on', 'true'], ac)
+            check('1.5.1: autocorrect off, spellcheck false (PM: QuickType contacts)', ac == ['off', 'false'], ac)
             # IME: Enter while composing must not send (Korean)
             pg.fill('#input', '안녕')
             pg.evaluate("document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))"); pg.wait_for_timeout(500)

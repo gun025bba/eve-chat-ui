@@ -1,11 +1,14 @@
-/* Eve service worker — app shell precache, SWR static, network-only API */
-const CACHE = 'llmchat-1.5.0';
-const SHELL = ['./', 'index.html', 'app.js', 'proactive-api.js', 'proactive.js', 'memory-api.js', 'memory.js', 'styles.css', 'manifest.webmanifest', 'offline.html', 'offline.css', 'offline.js',
+/* Eve service worker — network-first HTML, immutable versioned assets, network-only API */
+const CACHE = 'llmchat-1.5.1';
+const VER = CACHE.slice('llmchat-'.length);
+// 1.5.1: versioned asset URLs (same ?v= as index.html) + cache:'reload' so precache never comes from the HTTP cache
+const ASSETS = ['app.js', 'proactive-api.js', 'proactive.js', 'memory-api.js', 'memory.js', 'styles.css'].map(f => `${f}?v=${VER}`);
+const SHELL = ['index.html', ...ASSETS, 'manifest.webmanifest', 'offline.html', 'offline.css?v=16', 'offline.js?v=16',
   'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/shortcut-new.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();   // v11: activate updates immediately; the page reloads once on controllerchange
 });
 self.addEventListener('message', e => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); else if (e.data === 'GET_VERSION' && e.ports && e.ports[0]) e.ports[0].postMessage({ version: CACHE }); });
@@ -20,24 +23,25 @@ self.addEventListener('fetch', e => {
   const scope = new URL(self.registration.scope).pathname;
   if (!u.pathname.startsWith(scope)) return;
 
-  if (req.mode === 'navigate') {                             // app shell: SWR on index, offline page as last resort
+  const isRoot = u.pathname === scope || u.pathname === scope + 'index.html';
+  if (req.mode === 'navigate' || isRoot) {                  // 1.5.1: HTML is network-first (bypassing the HTTP cache); cache only offline
     e.respondWith((async () => {
       const c = await caches.open(CACHE);
-      const isRoot = u.pathname === scope || u.pathname === scope + 'index.html';
-      const cached = isRoot ? (await c.match('./') || await c.match('index.html')) : await c.match(req, { ignoreSearch: true });
-      const net = fetch(req).then(r => { if (r.ok && isRoot) c.put('./', r.clone()); return r; });
-      if (cached) { e.waitUntil(net.catch(() => {})); return cached; }
-      try { return await net; } catch { return (await c.match('offline.html')) || Response.error(); }
+      try { const r = await fetch(req, { cache: 'no-store' }); if (r.ok && isRoot) c.put('index.html', r.clone()); return r; }
+      catch { return (isRoot ? await c.match('index.html') : await c.match(req, { ignoreSearch: true })) || (await c.match('offline.html')) || Response.error(); }
     })());
     return;
   }
-  // static: stale-while-revalidate
+  // 1.5.1: versioned (?v=) assets are immutable → exact-URL cache-first (never ignoreSearch, so an old ?v= can't satisfy a new one);
+  // unversioned static → network-first with cache fallback
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
-    const cached = await c.match(req, { ignoreSearch: true });
-    const net = fetch(req).then(r => { if (r.ok) c.put(req, r.clone()); return r; });
-    if (cached) { e.waitUntil(net.catch(() => {})); return cached; }
-    return net;
+    if (u.searchParams.has('v')) {
+      const hit = await c.match(req); if (hit) return hit;
+      const r = await fetch(req, { cache: 'reload' }); if (r.ok) c.put(req, r.clone()); return r;
+    }
+    try { const r = await fetch(req, { cache: 'no-cache' }); if (r.ok) c.put(req, r.clone()); return r; }
+    catch { return (await c.match(req)) || Response.error(); }
   })());
 });
 
