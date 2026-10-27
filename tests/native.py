@@ -103,7 +103,7 @@ with sync_playwright() as p:
     c=ctx(p,b,standalone=True); pg=c.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     pg.goto(BASE); pg.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.controller", timeout=10000) if False else None
     pg.evaluate("navigator.serviceWorker.ready"); pg.reload(); pg.wait_for_timeout(800)
-    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-1.1.3', keys==['llmchat-1.1.3'], str(keys))
+    keys=pg.evaluate("caches.keys()"); check('SW precache llmchat-1.1.4', keys==['llmchat-1.1.4'], str(keys))
     check('SW controls page', pg.evaluate("!!navigator.serviceWorker.controller"))
     c.set_offline(True); pg.reload(); pg.wait_for_timeout(800)
     check('offline: app shell loads from cache', pg.is_visible('#composer') and pg.locator('.msg').count()>0)
@@ -112,7 +112,7 @@ with sync_playwright() as p:
     check('offline fallback screen for uncached page', '오프라인 상태입니다' in pg.text_content('body'))
     c.set_offline(False); pg.goto(BASE); pg.wait_for_timeout(600)
     r=pg.evaluate("fetch('/v1/models').then(r=>r.status)")
-    inCache=pg.evaluate("caches.open('llmchat-1.1.3').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
+    inCache=pg.evaluate("caches.open('llmchat-1.1.4').then(c=>c.keys()).then(k=>k.some(r=>r.url.includes('/v1/')))")
     check('API never cached (network-only)', r==200 and not inCache)
     pg.evaluate("window.__app.showToast('새 버전이 있어요','새로고침',()=>{})"); pg.wait_for_timeout(400)
     check('update toast renders', pg.is_visible('#toast') and '새로고침' in pg.text_content('#toast'))

@@ -47,7 +47,7 @@ with sync_playwright() as p:
     # 4) error event inside a 200 stream → failed message with friendly text
     newchat(pg); pg.fill('#input','detacherr 오류'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     t=last_asst(pg).inner_text(); e=pg.inner_text('.msg.error') if pg.locator('.msg.error').count() else ''
-    check('error event → failed note + friendly error', '모델 서버 응답이 늦어' in t and '모델 서버 응답이 늦어' in e and 'partial' in t, [t, e])
+    check('error event → failed note + friendly error', '응답이 늦어 답변을 끝내지 못했어요' in t and '응답이 늦어' in e and '모델 서버' not in t+e and 'partial' in t, [t, e])
     # failed row loaded from server shows the same text; unknown code → generic
     tid=pg.evaluate('__app.state().currentId'); pg.goto(BASE+'#/'); pg.wait_for_timeout(600)
     pg.evaluate("localStorage.clear()"); pg.goto(BASE+'#/c/'+tid); pg.wait_for_timeout(1500)
@@ -76,18 +76,18 @@ with sync_playwright() as p:
     st=db()['state']; cn=st.get('cancels', []); mut=[x for x in st.get('mut', []) if x['p'].endswith('/cancel')]
     dmid=pg.evaluate("[...document.querySelectorAll('.msg.assistant')].pop().dataset.mid")
     check('stop → cancel POST with CSRF header, no body', cn and cn[-1]['mid']==dmid and cn[-1]['len']==0 and mut and mut[-1]['ok'], [cn[-1:], mut[-1:]])
-    check('stop → 중지됨, no error', '중지됨' in last_asst(pg).inner_text() and pg.locator('.msg.error').count()==0)
+    check('stop → 중지됨, no error', '답변을 멈췄어요' in last_asst(pg).inner_text() and pg.locator('.msg.error').count()==0)
     sm=[m for m in db()['messages'] if m['id']==dmid][0]; check('server row failed/cancelled', sm['status']=='failed' and sm.get('error_code')=='cancelled', sm.get('status'))
     tid=pg.evaluate('__app.state().currentId'); reload_thread(tid)
-    check('reloaded cancelled row → 중지됨', '중지됨' in last_asst(pg).inner_text(), last_asst(pg).inner_text())
+    check('reloaded cancelled row → 중지됨', '답변을 멈췄어요' in last_asst(pg).inner_text(), last_asst(pg).inner_text())
     # 9) legacy client_disconnected → 중지됨; no_subscriber / too_large / unknown → texts
-    for code, want in [('client_disconnected', '중지됨'), ('no_subscriber', '연결이 오래 끊겨'), ('too_large', '너무 길어져'), ('weird_code', '답변을 끝내지 못했어요')]:
+    for code, want in [('client_disconnected', '답변을 멈췄어요'), ('no_subscriber', '앱을 오래 닫아 두어'), ('too_large', '너무 길어져'), ('weird_code', '답변을 끝내지 못했어요')]:
         req('PUT','/pro/set',{'msgPatch':{dmid:{'status':'failed','error_code':code}}}); reload_thread(tid)
         check(f'failed {code} → {want}', want in last_asst(pg).inner_text(), last_asst(pg).inner_text())
     # 10) pre-admission 429 too_many_generations + Retry-After: friendly text, retry disabled until it passes
     newchat(pg); pg.fill('#input','busy429 하나 더'); pg.click('#sendBtn'); pg.wait_for_timeout(700)
     e=pg.inner_text('.msg.error'); btn=pg.locator('.msg.error .btn.retry')
-    check('429 too_many_generations text + Retry-After', '이미 답변 2개' in e and '2초 뒤' in e, e)
+    check('429 too_many_generations text + Retry-After', '이미 답변 2개를 만들고 있어요' in e and '2초 뒤' in e, e)
     check('retry disabled during Retry-After', btn.is_disabled()); pg.wait_for_timeout(2000); check('retry enabled after', btn.is_enabled())
     # 11) 409 generation_in_progress on regenerate
     newchat(pg); pg.fill('#input','regen409 x'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
@@ -110,7 +110,7 @@ with sync_playwright() as p:
     # 15) old failed row from the server → failure text + visible '다시 시도' that regenerates the same message_id
     req('PUT','/pro/set',{'msgPatch':{dmid:{'status':'incomplete','error_code':None,'metadata':{'incomplete':True,'reason':'upstream_error'},'content':''}}}); reload_thread(tid)
     note=last_asst(pg).locator('.msg-note.failed'); rb=note.locator('button.retry')
-    check('old failed row → text + 다시 시도 visible', note.count()==1 and '모델 서버에 문제' in note.inner_text() and rb.is_visible() and '다시 시도' in rb.inner_text(), last_asst(pg).inner_text())
+    check('old failed row → text + 다시 시도 visible', note.count()==1 and '문제가 생겨 답변을 끝내지 못했어요' in note.inner_text() and rb.is_visible() and '다시 시도' in rb.inner_text(), last_asst(pg).inner_text())
     rb.click(); pg.wait_for_timeout(7000)
     check('다시 시도 → same message_id regenerated', db()['state'].get('lastBody',{}).get('replace_message_id')==dmid and 'A9' in last_asst(pg).inner_text(), db()['state'].get('lastBody'))
     # 16) empty completed reply → no silent empty bubble (let the slow regen finish first)
@@ -122,6 +122,8 @@ with sync_playwright() as p:
     e=pg.locator('.msg.error'); check('user turn without reply → error + 다시 시도', e.count()==1 and '답변을 받지 못했어요' in e.inner_text() and e.locator('button.retry').is_visible(), pg.inner_text('#chatView')[-200:])
     e.locator('button.retry').click(); pg.wait_for_timeout(7000)
     check('retry → reply generated', pg.locator('.msg.assistant').count()>=1 and pg.locator('.msg.error').count()==0, pg.inner_text('#chatView')[-200:])
+    # 18) 1.1.4 copy: stopped note is normal style with retry; no codes / HTTP numbers / infra names on screen
+    txt=pg.inner_text('body'); check('no codes or infra names on screen', not any(x in txt for x in ['모델 서버','서버가 다시','429','503','rate_limited','queue_full']), txt[-300:])
     check('no page errors', not errs, errs)
     b.close()
 print(f'{sum(R)}/{len(R)} passed'); raise SystemExit(0 if all(R) else 1)

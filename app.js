@@ -677,7 +677,9 @@ if (typeof document !== 'undefined') (function () {
     const om = opts.msg, oldFail = om?.status === 'incomplete' && om.errorCode && !STOP_CODES.has(om.errorCode);
     const emptyDone = !live && !opts.stopped && om && om.role !== 'user' && !answer.trim() && think === null && (!om.status || om.status === 'complete');
     const isFail = !live && (om?.status === 'failed' && !STOP_CODES.has(om.errorCode) || oldFail || emptyDone);
-    if (!live && !isFail && (opts.stopped || om?.status === 'incomplete' || (om?.status === 'failed' && STOP_CODES.has(om.errorCode)))) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = '중지됨'; msg.appendChild(st); }
+    if (!live && !isFail && (opts.stopped || om?.status === 'incomplete' || (om?.status === 'failed' && STOP_CODES.has(om.errorCode)))) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = STOPPED_TEXT;
+      if (opts.regen) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn retry'; rb.textContent = '다시 시도'; rb.onclick = regenerate; st.append(' ', rb); }   // normal style, retry kept
+      msg.appendChild(st); }
     else if (isFail) { const st = document.createElement('div'); st.className = 'stopped msg-note failed'; st.setAttribute('role', 'note'); st.textContent = emptyDone && !om.errorCode ? '답변을 받지 못했어요' : failText(om.errorCode);
       if (opts.regen) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn retry'; rb.textContent = '다시 시도'; rb.onclick = regenerate; st.append(' ', rb); }   // regenerates the same message_id
       msg.appendChild(st); }
@@ -863,31 +865,32 @@ if (typeof document !== 'undefined') (function () {
   const RETRYABLE = new Set([429, 502, 503, 504]);
   function errMsg(status, body) {
     let e = {}; try { e = JSON.parse(body).error || {}; } catch {}
-    const code = e.code || '', m = e.message || String(body || '').slice(0, 300);
-    if (code === 'identity_not_allowed') return '이 Tailscale 계정은 허용되지 않았어요 (401 identity_not_allowed).';
-    if (code === 'rate_limited') return '요청이 너무 많아요 (429 rate_limited). 잠시 후 재시도하세요.';
-    if (status === 401) return '이 기기에서 Tailscale 연결을 확인하세요 (401' + (code ? ' ' + code : '') + ').';
-    if (code === 'queue_full') return '서버 대기열이 가득 찼습니다 (429 queue_full). 잠시 후 재시도하세요.';
-    if (code === 'queue_timeout') return '대기 시간이 초과되었습니다 (429 queue_timeout). 잠시 후 재시도하세요.';
-    if (status === 503) return '모델 서버에 연결할 수 없습니다 (503' + (code ? ' ' + code : '') + ').';
-    if (status === 504) return '모델 서버 응답 시간 초과 (504' + (code ? ' ' + code : '') + ').';
-    if (status === 404) return '엔드포인트를 찾을 수 없습니다 (404). Base URL을 확인하세요.';
-    return `서버 오류 ${status}${code ? ' ' + code : ''}: ${m}`;
+    let code = e.code || ''; if (!code) try { code = JSON.parse(body).error_code || ''; } catch {}
+    // 1.1.4 copy: no infrastructure names, codes or HTTP numbers on screen
+    if (code === 'identity_not_allowed') return '이 Tailscale 계정은 허용되지 않았어요.';
+    if (status === 401) return '이 기기에서 Tailscale 연결을 확인하세요.';
+    if (FAIL_TEXT[code]) return FAIL_TEXT[code];
+    if (status === 429) return BUSY_TEXT;
+    if (status === 504) return FAIL_TEXT.upstream_timeout;
+    if (status === 404) return '연결할 주소를 찾을 수 없어요. 설정의 Base URL을 확인해 주세요.';
+    return DEFAULT_FAIL;
   }
   // 1.1.3 (contract §3.8): failed message error_code → friendly text; unknown → generic
-  const FAIL_TEXT = { upstream_error: '모델 서버에 문제가 생겨 답변을 끝내지 못했어요', upstream_timeout: '모델 서버 응답이 늦어 답변을 끝내지 못했어요', timeout: '답변이 너무 오래 걸려 중단됐어요',
-    queue_full: '지금 요청이 많아 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요', queue_timeout: '기다리는 시간이 길어 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요',
-    gateway_restart: '서버가 다시 시작돼 답변이 중단됐어요', internal_error: '서버 오류로 답변을 끝내지 못했어요',
-    no_subscriber: '연결이 오래 끊겨 있어 답변이 중단됐어요', too_large: '답변이 너무 길어져 중단됐어요',
-    too_many_generations: '이미 답변 2개를 만드는 중이에요. 하나가 끝나면 다시 시도해 주세요', server_busy: '서버가 바빠 답변을 시작하지 못했어요. 잠시 후 다시 시도해 주세요',
-    too_many_subscribers: '이 답변을 연 곳이 너무 많아요. 다른 창을 닫고 다시 시도해 주세요', generation_in_progress: '이 답변은 이미 다시 만드는 중이에요. 끝나면 다시 시도해 주세요' };
+  const DEFAULT_FAIL = '답변을 끝내지 못했어요', BUSY_TEXT = '지금 요청이 많아요. 잠시 후 다시 시도해 주세요', STOPPED_TEXT = '답변을 멈췄어요';
+  const FAIL_TEXT = { upstream_error: '문제가 생겨 답변을 끝내지 못했어요', internal_error: '문제가 생겨 답변을 끝내지 못했어요',
+    upstream_timeout: '응답이 늦어 답변을 끝내지 못했어요', timeout: '답변이 너무 오래 걸려 멈췄어요',
+    gateway_restart: '잠시 연결이 끊겨 답변이 멈췄어요', no_subscriber: '앱을 오래 닫아 두어 답변이 멈췄어요', too_large: '답변이 너무 길어져 멈췄어요',
+    queue_full: BUSY_TEXT, queue_timeout: BUSY_TEXT, server_busy: BUSY_TEXT, rate_limited: BUSY_TEXT,
+    too_many_generations: '이미 답변 2개를 만들고 있어요. 하나가 끝나면 다시 시도해 주세요',
+    too_many_subscribers: '이 답변이 열린 창이 너무 많아요. 다른 창을 닫고 다시 시도해 주세요',
+    generation_in_progress: '이 답변은 이미 다시 만드는 중이에요' };
   // 1.1.3: user stops — new 'cancelled' and the legacy incomplete reason for a client abort → 중지됨
   const STOP_CODES = new Set(['cancelled', 'client_disconnected']);
-  const HTTP_CODES = new Set(['queue_full', 'queue_timeout', 'too_many_generations', 'server_busy', 'too_many_subscribers', 'generation_in_progress']);
+  const HTTP_CODES = new Set(['queue_full', 'queue_timeout', 'rate_limited', 'too_many_generations', 'server_busy', 'too_many_subscribers', 'generation_in_progress']);
   const raText = ra => ra > 0 ? ` (${Math.ceil(ra)}초 뒤에 다시 시도할 수 있어요)` : '';
   const retryAfterOf = res => { const v = res.headers.get('Retry-After'); if (!v) return 0; const n = +v; if (Number.isFinite(n)) return Math.max(0, n); const d = Date.parse(v); return isNaN(d) ? 0 : Math.max(0, (d - Date.now()) / 1000); };
-  const failText = code => FAIL_TEXT[code] || '답변을 끝내지 못했어요';
-  const RESUMING = '답변 불러오는 중';
+  const failText = code => FAIL_TEXT[code] || DEFAULT_FAIL;
+  const RESUMING = '답변 불러오는 중…';
   function clearErrors() { box.querySelectorAll('.msg.error').forEach(e => e.remove()); }
   function addError(text, retry, retryAfter) {
     const b = addMsgEl('error');
@@ -957,7 +960,9 @@ if (typeof document !== 'undefined') (function () {
     const slowTimer = setTimeout(() => { if (!acc && !reasoning) { slow = true; fillAssistant(bubble, '', { live: true, slow }); } }, 3000);
     let raf = 0;
     const paint = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); }); };
-    const retry = () => generate(c, replaceId);
+    // 1.1.4: if the thread now ends with a failed assistant row, retry must replace it (replace_message_id),
+    // otherwise gateway 3.1.0 stores the user turn twice
+    const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
     const finish = () => { clearTimeout(slowTimer); if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
@@ -1086,7 +1091,7 @@ if (typeof document !== 'undefined') (function () {
           await untilVisible(); finish(); document.removeEventListener('visibilitychange', onVis);
           bubble.parentElement.remove(); c.loaded = false; await ensureMessages(c);
           if (c.messages.at(-1)?.role === 'assistant') return;
-          addError(`네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`, retry); return;
+          addError('연결이 끊겼어요. 연결 상태를 확인해 주세요.', retry); return;
         }
       }
       if (e) finish();
@@ -1696,7 +1701,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.3'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.1.4'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
