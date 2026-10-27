@@ -29,7 +29,19 @@ with sync_playwright() as p:
             check('consecutive [1][2] → one capsule 1·2', caps.first.inner_text() == '1·2', caps.first.inner_text())
             check('capsule aria-label lists sources w/o www.', caps.first.get_attribute('aria-label') == '출처 1, site1.example.com; 출처 2, site2.example.com', caps.first.get_attribute('aria-label'))
             cs = pg.evaluate("(()=>{const a=document.querySelector('#many sup.cite a'),r=a.getBoundingClientRect(),s=getComputedStyle(a),b=getComputedStyle(a,'::before');return {h:r.height,bg:s.backgroundColor,c:s.color,num:s.fontVariantNumeric,hw:r.width-2*parseFloat(b.left),hh:r.height-2*parseFloat(b.top)}})()")
-            check('capsule visual 16px, blue on tinted', cs['h'] == 16 and cs['c'] == 'rgb(10, 132, 255)' and 'tabular' in cs['num'], cs)
+            acc = pg.evaluate("(()=>{const e=document.createElement('i');e.style.color='var(--accent)';document.body.appendChild(e);const c=getComputedStyle(e).color;e.remove();return c})()")
+            check('capsule visual 16px, var(--accent) on 16% accent mix', cs['h'] == 16 and cs['c'] == acc and 'tabular' in cs['num'] and ('srgb' in cs['bg'] or cs['bg'].startswith('rgba(10, 132, 255, 0.16')), [cs, acc])
+            mono = pg.evaluate("(()=>{const m=document.querySelector('#many .fav.mono'),s=getComputedStyle(m);return {fs:s.fontSize,lh:s.lineHeight,ls:s.letterSpacing,clip:m.scrollWidth<=m.clientWidth}})()")
+            check('monogram 9px/20px, -.2px, not clipped', mono['fs'] == '9px' and mono['lh'] == '20px' and mono['ls'] == '-0.2px' and mono['clip'], mono)
+            g = pg.evaluate("""(()=>{const m=document.getElementById('messages');const t=document.createElement('div');t.className='msg assistant';t.id='glue';
+              const src=[{n:1,title:'a',url:'https://a.example/'},{n:2,title:'b',url:'https://b.example/'}];
+              t.innerHTML='<div class="bubble"><div class="md">'+renderMarkdown('짧은말[1]. 그리고 끝[1][2]」 **굵게**[2]! 아주아주아주아주긴단어입니다요[1]?', src)+'</div></div>';m.appendChild(t);
+              const gs=[...t.querySelectorAll('.cite-glue')].map(x=>x.textContent);const ws=getComputedStyle(t.querySelector('.cite-glue')).whiteSpace;
+              const html=t.innerHTML;t.remove();return {gs,ws,wj:html.includes('\u2060'),all:t.querySelectorAll('sup.cite').length}})()""")
+            check('cite-glue: word + capsule + punctuation', g['gs'][0] == '짧은말1.' and g['gs'][1] == '끝1·2」', g)
+            check('cite-glue: tag-ending word glues capsule only', g['gs'][2] == '2!', g)
+            check('cite-glue: >12-char word glues capsule + punct only', g['gs'][3] == '1?', g)
+            check('cite-glue nowrap, no U+2060', g['ws'] == 'nowrap' and not g['wj'], g)
             check('capsule ::before hit area ≥44', cs['hh'] >= 44 and cs['hw'] >= 16 + 12, cs)
             row = pg.evaluate("(()=>{const s=document.querySelector('#many .sources'),r=s.querySelector('.src-row'),rr=r.getBoundingClientRect();return {sec:s.getBoundingClientRect().height,h:rr.height,txt:r.textContent.trim(),exp:r.getAttribute('aria-expanded'),ctl:!!document.getElementById(r.getAttribute('aria-controls')),favs:r.querySelectorAll('.fav').length,imgs:[...r.querySelectorAll('.fav img')].map(i=>i.src.slice(0,10)),mono:[...r.querySelectorAll('.fav.mono')].map(x=>x.textContent),listHidden:s.querySelector('.src-list').hidden}})()")
             check('collapsed: one 44px row, list hidden', row['h'] == 44 and row['sec'] == 44 and row['listHidden'], row)
@@ -56,7 +68,7 @@ with sync_playwright() as p:
             check('item a11y label + new tab + list role', it['lab'].startswith('1. ') and it['lab'].endswith('site1.example.com, 새 창에서 열림') and it['tgt'] == '_blank' and it['rel'] == 'noopener noreferrer' and it['role'] == 'list', it)
             check('no negative margins', it['ml'] == '0px', it)
             tr = pg.evaluate("(()=>{const l=document.querySelector('#many .src-list'),s=getComputedStyle(l);return [s.transitionDuration,s.transitionTimingFunction,s.transitionProperty]})()")
-            check('motion 280ms cubic-bezier(.32,.72,0,1), opacity/transform only', '0.28s' in tr[0] and '0.32, 0.72, 0, 1' in tr[1] and 'height' not in tr[2] and 'width' not in tr[2], tr)
+            check('motion var(--d-2) var(--ease-standard), opacity/transform only', '0.2s' in tr[0] and '0.32, 0.72, 0, 1' in tr[1] and 'height' not in tr[2] and 'width' not in tr[2], tr)
         else:
             tr = pg.evaluate("(()=>{const l=document.querySelector('#many .src-list'),s=getComputedStyle(l),i=getComputedStyle(l.querySelector('.src-item'));return [s.transitionDuration,i.animationName,s.opacity]})()")
             check(tag + 'instant (no slide/stagger, already opaque)', tr[1] == 'none' and tr[2] == '1', tr)
@@ -67,10 +79,22 @@ with sync_playwright() as p:
         if sh and not reduce:
             check('chips: domain only, 160px ellipsis, wrap', all(c[1] == '160px' and c[2] == 'ellipsis' and c[3] == 'nowrap' and not c[0].startswith('www.') for c in sh['chips']) and sh['wrap'] == 'wrap' and len(sh['chips']) == 4, sh)
             check('sheet no horizontal scroll', sh['sw'], sh)
-        pg.evaluate("document.getElementById('srcSheet').close()"); pg.wait_for_timeout(200)
-        pg.click('#many .src-row'); pg.wait_for_timeout(400)
+        pg.click('#srcSheet .src-close'); pg.wait_for_timeout(60)
+        check(tag + 'sheet closes via animateOut (closing state)', pg.evaluate("document.getElementById('srcSheet').classList.contains('closing')"))
+        pg.wait_for_timeout(500); check(tag + 'sheet closed', not pg.evaluate("document.getElementById('srcSheet').open"))
+        pg.click('#many .src-row'); pg.wait_for_timeout(50)
+        if not reduce: check('collapse waits for transitionend (still visible mid-fade)', not pg.evaluate("document.querySelector('#many .src-list').hidden"))
+        pg.wait_for_timeout(400)
         check(tag + 'row toggle collapses (aria-expanded=false, hidden)', pg.evaluate("(()=>{const s=document.querySelector('#many .sources');return s.querySelector('.src-row').getAttribute('aria-expanded')==='false'&&s.querySelector('.src-list').hidden})()"))
         pg.click('#many .src-row'); pg.wait_for_timeout(400)
+        pg.click('#many .src-all'); pg.wait_for_timeout(300)
+        pg.evaluate("document.getElementById('srcSheet').close()"); pg.click('#many .src-row'); pg.wait_for_timeout(300); pg.evaluate("document.getElementById('messages').scrollTop=0"); pg.wait_for_timeout(100)
+        pg.click('#many .src-row', force=True); pg.wait_for_timeout(600)
+        if not reduce:
+            pg.evaluate("document.getElementById('messages').scrollTop=0"); pg.wait_for_timeout(100)
+            pg.evaluate("document.querySelector('#few .src-row').click()"); pg.wait_for_timeout(700)
+            v = pg.evaluate("(()=>{const r=document.querySelector('#few .src-list').getBoundingClientRect(),m=document.getElementById('messages').getBoundingClientRect();return [r.bottom,m.bottom,document.getElementById('messages').scrollTop]})()")
+            check('expanding on last message scrolls list into view (nearest)', v[0] <= v[1] + 1 and v[2] > 0, v)
         pg.click('#many .src-all'); pg.wait_for_timeout(300)
         check(tag + '모두 보기 opens sheet', pg.evaluate("document.getElementById('srcSheet').open")); pg.evaluate("document.getElementById('srcSheet').close()")
         for w in [390, 375, 320]:
@@ -99,5 +123,5 @@ with sync_playwright() as p:
     check('done: row appears with 120ms fade', fin0.get('fresh') and fin0.get('anim') == 'srcFade 0.12s', fin0)
     check('done: row still present after persist', bool(fin), fin)
     check('stream: no page errors', not errs, errs)
-    b.close()
+    b.close(); put('/csp/off')  # restore mock state (csrf_all expects CSP off)
 print(f"{sum(R)}/{len(R)} passed" if all(R) else f"FAILED {R.count(False)}/{len(R)}")

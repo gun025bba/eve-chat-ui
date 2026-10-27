@@ -45,6 +45,11 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
     const c0 = _cites.get(ns[0]); const lab = ns.map(n => `출처 ${n}, ${srcDomain(_cites.get(n))}`).join('; ');
     return `<sup class="cite"><a href="${escapeHtml(c0.url)}" target="_blank" rel="noopener noreferrer" data-n="${ns.join(',')}" aria-label="${escapeHtml(lab)}">${ns.join('·')}</a></sup>`;
   });
+  // 1.5.0 cite-glue: keep a capsule on the same line as its word and trailing punctuation (no U+2060); long words (>12) glue capsule+punct only
+  if (_cites) s = s.replace(/([^\s<>]*)(<sup class="cite">[\s\S]*?<\/sup>)([.,!?)」]*)/g, (all, w, sup, p) => {
+    const len = [...w.replace(/\u0000\d+\u0000/g, 'x').replace(/&(?:#\d+|\w+);/g, 'x')].length;
+    return len > 12 ? `${w}<span class="cite-glue">${sup}${p}</span>` : `<span class="cite-glue">${w}${sup}${p}</span>`;
+  });
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 // Index where the "stable" (completed) markdown ends: last blank line outside any code fence.
@@ -1743,12 +1748,16 @@ if (typeof document !== 'undefined') (function () {
     row.setAttribute('aria-expanded', String(open)); sec.classList.toggle('open', open);
     if (open) { list.hidden = false; list.classList.remove('in'); void list.offsetWidth; list.classList.add('in'); }
     else if (reduceMotion()) list.hidden = true;
-    else { list.classList.remove('in'); setTimeout(() => { if (!sec.classList.contains('open')) list.hidden = true; }, 280); }
+    else { list.classList.remove('in'); const fin = e => { if (e.target !== list || e.propertyName !== 'opacity') return; list.removeEventListener('transitionend', fin); if (!sec.classList.contains('open')) list.hidden = true; }; list.addEventListener('transitionend', fin); }
+    if (open && sec.closest('.msg') === [...document.querySelectorAll('#messages .msg')].pop()) { // last message: bring the opened list into view once it has settled
+      const go = () => list.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
+      if (reduceMotion()) go(); else { const fin = e => { if (e.target !== list || e.propertyName !== 'transform') return; list.removeEventListener('transitionend', fin); go(); }; list.addEventListener('transitionend', fin); } }
   }
+  function closeSrcSheet(d) { if (d.open && !d.classList.contains('closing')) animateOut(d, () => d.close()); }
   function openSrcSheet(sec) {
     let d = document.getElementById('srcSheet');
     if (!d) { d = document.createElement('dialog'); d.id = 'srcSheet'; d.className = 'src-sheet'; d.setAttribute('aria-labelledby', 'srcSheetTitle'); document.body.appendChild(d);
-      d.addEventListener('click', e => { if (e.target === d || e.target.closest('.src-close')) d.close(); }); d.addEventListener('close', () => document.body.classList.remove('sheet-open')); }
+      d.addEventListener('click', e => { if (e.target === d || e.target.closest('.src-close')) closeSrcSheet(d); }); d.addEventListener('cancel', e => { e.preventDefault(); closeSrcSheet(d); }); d.addEventListener('close', () => document.body.classList.remove('sheet-open')); }
     const n = sec.querySelectorAll('.src-all-tpl')[0]?.content.querySelectorAll('.src-item').length || 0;
     d.innerHTML = `<div class="grabber" aria-hidden="true"></div><div class="src-sheet-head"><h3 id="srcSheetTitle">출처 ${n}개</h3><button type="button" class="text-btn src-close">닫기</button></div><div class="src-sheet-body"></div>`;
     d.querySelector('.src-sheet-body').appendChild(sec.querySelector('.src-all-tpl').content.cloneNode(true));
