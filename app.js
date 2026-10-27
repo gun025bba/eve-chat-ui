@@ -262,13 +262,16 @@ if (typeof document !== 'undefined') (function () {
   commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
+  // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
+  const authCode = j => { try { if (typeof j === 'string') j = JSON.parse(j); } catch { return ''; } return (j && (j.error_code || j.error?.code)) || ''; };
+  const isAuthFail = (status, code) => status === 401 || (status === 403 && code === 'identity_not_allowed');
   async function api(path, opts = {}) {
     const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), ...headers() } });
     if (r.status === 204) return null;
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
     if (!r.ok) {
       const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
-      if (r.status === 401) { clearCards(); showAuthNotice(null, code); }
+      if (isAuthFail(r.status, code)) { clearCards(); showAuthNotice(null, code); }
       throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code });
     }
     return j;
@@ -877,7 +880,7 @@ if (typeof document !== 'undefined') (function () {
     let code = e.code || ''; if (!code) try { code = JSON.parse(body).error_code || ''; } catch {}
     // 1.1.4 copy: no infrastructure names, codes or HTTP numbers on screen
     if (code === 'identity_not_allowed') return '허용되지 않은 계정이에요';
-    if (status === 401) return '서버에 연결할 수 없어요. 연결을 확인해 주세요';
+    if (isAuthFail(status, code)) return '서버에 연결할 수 없어요. 연결을 확인해 주세요';
     if (FAIL_TEXT[code]) return FAIL_TEXT[code];
     if (status === 429) return BUSY_TEXT;
     if (status === 504) return FAIL_TEXT.upstream_timeout;
@@ -1070,8 +1073,8 @@ if (typeof document !== 'undefined') (function () {
       if (res.status === 400 && wsReq) { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = false; setWebOn(false); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        let code; try { code = JSON.parse(body).error?.code; } catch {}
-        if (res.status === 401) showAuthNotice(() => generate(c), code);
+        const code = authCode(body);
+        if (isAuthFail(res.status, code)) showAuthNotice(() => generate(c), code);
         const ra = retryAfterOf(res);
         if (HTTP_CODES.has(code) && (res.status === 429 || res.status === 409)) throw Object.assign(new Error(failText(code) + raText(ra)), { http: res.status, retryAfter: ra });   // before admission: no assistant row
         throw Object.assign(new Error(errMsg(res.status, body)), { http: res.status, retryAfter: ra });
@@ -1431,7 +1434,7 @@ if (typeof document !== 'undefined') (function () {
     try {
       const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });
       const j = await r.json().catch(() => null);
-      if (r.status === 401 || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, j?.error?.code); return false; }   // signed out: drop stored card contents
+      if (isAuthFail(r.status, authCode(j)) || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, authCode(j)); return false; }   // signed out: drop stored card contents
       if (r.ok) { whoami = j; renderWho(); }
       hideAuthNotice(); return true;
     } catch { return true; }   // offline / network error: chat path reports it
@@ -1504,7 +1507,7 @@ if (typeof document !== 'undefined') (function () {
       const r = await fetch(base + '/v1/models');
       if (!r.ok) {
         const body = await r.text().catch(() => '');
-        if (r.status === 401) { let code; try { code = JSON.parse(body).error?.code; } catch {} showAuthNotice(loadModels, code); }
+        if (isAuthFail(r.status, authCode(body))) showAuthNotice(loadModels, authCode(body));
         throw Object.assign(new Error(errMsg(r.status, body)), { http: r.status });
       }
       const j = await r.json(); const ids = (j.data || []).map(m => m.id);
@@ -1725,7 +1728,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.3.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.3.1'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
