@@ -511,7 +511,7 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/rejectreasons/'): STATE['rejectReasons'] = p.endswith('/on')
         if p.startswith('/persist/'): STATE['persist'] = p.endswith('/on')
         if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
-        if p == '/reset': STATE['authHeader'] = False
+        if p == '/reset': STATE['authHeader'] = False; STATE['n429'] = 0  # one-shot q429 must re-arm per run
         if p == '/db/reset':
             DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
         if p.startswith('/fail/'):   # /fail/<code>?<regex>

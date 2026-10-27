@@ -67,7 +67,7 @@ with sync_playwright() as p:
     check('401 whoami at startup -> notice', pg.is_visible('#authNotice'))
     put('/auth/on'); pg.click('#authRetry'); pg.wait_for_timeout(500); check('startup notice clears on retry', pg.is_hidden('#authNotice'))
     put('/deny/on'); pg.reload(); pg.wait_for_timeout(600)
-    check('identity_not_allowed -> distinct message', pg.is_visible('#authNotice') and '허용되지 않은' in pg.text_content('#authTitle'))
+    check('identity_not_allowed -> distinct message', pg.is_visible('#authNotice') and pg.text_content('#authTitle') == '이 계정은 쓸 수 없어요' and '허용된 Tailscale 계정' in pg.text_content('#authBody'))
     put('/deny/off'); pg.click('#authRetry'); pg.wait_for_timeout(500); check('denied notice clears on retry', pg.is_hidden('#authNotice'))
     check('browser never sent Authorization header', put('/x')['authHeader'] is False)
     check('no page errors', not errs, errs); b.close()
