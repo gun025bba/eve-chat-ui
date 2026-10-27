@@ -204,7 +204,59 @@
     });
     open.addEventListener('click', () => { view.hidden = !view.hidden; open.setAttribute('aria-expanded', String(!view.hidden)); if (!view.hidden) loadList(); });
     retry.addEventListener('click', loadList);
-    return { openSettings, flag: true, flushDeletes };
+    /* B5 first-run intro sheet #memIntro (design 824725d). Once per launch at most; seen = localStorage OR server ui.memory_intro_seen. */
+    const INTRO_SEEN = 'eve.mem.introSeen', ix = $('memIntro'), iScrim = $('memIntroScrim');
+    let introTried = false, introPrev = null, introTimer = 0;
+    const localSeen = () => { try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch { return false; } };
+    function intro() {
+      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'list') return;
+      introTried = true;
+      clearTimeout(introTimer);
+      introTimer = setTimeout(async () => {
+        let s; try { s = await api.getSettings(); } catch { return; }   // unreadable/offline: skip this launch, no seen
+        if (!s.available || !s.enabled || s.introSeen || localSeen()) return;            // memory_available=false → no seen either
+        if (!h.isServer() || h.route() !== 'list' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
+        showIntro();
+      }, 600);
+    }
+    function introFocusables() { return [...ix.querySelectorAll('button')].filter(b => !b.disabled && !b.hidden); }
+    function showIntro() {
+      introPrev = document.activeElement;
+      iScrim.hidden = false; ix.hidden = false; void ix.offsetWidth; ix.classList.add('show'); iScrim.classList.add('show');
+      try { localStorage.setItem(INTRO_SEEN, '1'); } catch {}
+      api.markIntroSeen().catch(() => {});                                      // 400 (key not in contract yet) or anything else: ignore
+      $('memIntroTitle').focus();
+    }
+    function closeIntro(after) {
+      if (ix.hidden) return;
+      ix.classList.remove('show'); iScrim.classList.remove('show');
+      const done = () => { ix.hidden = true; iScrim.hidden = true; ix.style.transform = '';
+        if (after) after(); else if (introPrev && introPrev.focus && document.contains(introPrev)) introPrev.focus(); };
+      matchMedia('(prefers-reduced-motion: reduce)').matches ? setTimeout(done, 200) : setTimeout(done, 380);
+    }
+    if (ix) {
+      $('memIntroOk').onclick = () => closeIntro();
+      iScrim.onclick = () => closeIntro();
+      $('memIntroSettings').onclick = () => closeIntro(() => {                   // open Settings › 메모리, focus the toggle; never turns memory off
+        h.openSettings && h.openSettings();
+        let n = 0; const t = setInterval(() => {
+          if (!sec.hidden || ++n > 40) { clearInterval(t); if (!sec.hidden) { sec.scrollIntoView({ block: 'center' }); sw.focus(); } }
+        }, 75);
+      });
+      ix.addEventListener('keydown', ev => {
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeIntro(); return; }
+        if (ev.key !== 'Tab') return;
+        const f = introFocusables(), i = f.indexOf(document.activeElement); ev.preventDefault();
+        f[i < 0 ? (ev.shiftKey ? f.length - 1 : 0) : (i + (ev.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+      });
+      document.addEventListener('focusin', ev => { if (!ix.hidden && !ix.contains(ev.target)) $('memIntroTitle').focus(); });
+      let y0 = null;                                                             // swipe down = 좋아요
+      ix.addEventListener('pointerdown', e => { if (e.target.closest('button')) return; y0 = e.clientY; });
+      ix.addEventListener('pointermove', e => { if (y0 != null) ix.style.transform = `translateY(${Math.max(0, e.clientY - y0)}px)`; });
+      const end = e => { if (y0 == null) return; const dy = e.clientY - y0; y0 = null; ix.style.transform = ''; if (dy > 80) closeIntro(); };
+      ix.addEventListener('pointerup', end); ix.addEventListener('pointercancel', () => { y0 = null; ix.style.transform = ''; });
+    }
+    return { openSettings, flag: true, flushDeletes, intro, closeIntro };
   }
   self.EveMemory = { init, FLAG, order };
 })();

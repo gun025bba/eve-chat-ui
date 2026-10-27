@@ -311,7 +311,7 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
@@ -1169,7 +1169,7 @@ if (typeof document !== 'undefined') (function () {
     const r = app.dataset.route, both = wide.matches;
     listView.inert = !both && r !== 'list'; chatView.inert = !both && r !== 'chat'; archView.inert = r !== 'archive';
   }
-  function setRoute(r) { app.dataset.route = r; save(LS.route, r); syncInert(); if (r === 'list') renderList(); }
+  function setRoute(r) { app.dataset.route = r; save(LS.route, r); syncInert(); if (r === 'list') { renderList(); if (serverReady) MEM?.intro?.(); } }
   function slide(route, dir, dur) { // CSS fallback (and always used after a swipe)
     clearTimeout(navTimer);
     app.style.setProperty('--nav-d', (dur || (dir === 'push' ? 420 : 380)) + 'ms');
@@ -1711,7 +1711,8 @@ if (typeof document !== 'undefined') (function () {
     PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
-  try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
+  try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
+    busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
   else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
@@ -1724,7 +1725,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.2.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.3.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

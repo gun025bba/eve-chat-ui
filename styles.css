@@ -721,6 +721,25 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-toast[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.mem-row{transition:opacity .2s}}
 
+/* B5 memory first-run intro sheet (design 824725d): medium detent, --bg-elev, NATIVE sheet motion */
+.mem-intro-scrim{position:fixed;inset:0;z-index:91;background:var(--scrim);opacity:0;transition:opacity .38s cubic-bezier(.32,.72,0,1)}
+.mem-intro-scrim.show{opacity:1}.mem-intro-scrim[hidden],.mem-intro[hidden]{display:none}
+.mem-intro{position:fixed;left:0;right:0;bottom:0;z-index:92;min-height:55vh;max-height:90vh;overflow:auto;background:var(--bg-elev);border-radius:12px 12px 0 0;
+  padding:8px max(24px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));display:flex;flex-direction:column;align-items:stretch;
+  transform:translateY(100%);transition:transform .38s cubic-bezier(.32,.72,0,1);touch-action:none;word-break:keep-all;box-sizing:border-box}
+@media (prefers-color-scheme:light){.mem-intro{background:#fff}}
+.mem-intro.show{transform:none}
+.mem-intro .grabber{margin:0 auto 14px}
+.mem-intro-icon{width:44px;height:44px;margin:4px auto 12px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:0;transform:scale(.9);transition:opacity .2s .2s,transform .2s .2s}
+.mem-intro.show .mem-intro-icon{opacity:1;transform:none}
+#memIntroTitle{margin:0;text-align:center;font-size:1.375rem;line-height:1.75rem;font-weight:600;color:var(--label);outline:none}
+.mem-intro-sub{margin:6px 0 20px;text-align:center;font-size:.9375rem;line-height:1.25rem;color:var(--label-2)}
+.mem-intro-list{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:16px}
+.mem-intro-list li{display:flex;gap:12px;align-items:flex-start;font-size:1.0625rem;line-height:1.375rem;color:var(--label)}
+.mem-intro-list svg{flex:none;width:28px;height:28px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
+.mem-intro-alt{min-height:44px;color:var(--accent);font-size:17px;margin-top:4px}
+@media (prefers-reduced-motion:reduce){.mem-intro{transform:none;opacity:0;transition:opacity .2s}.mem-intro.show{opacity:1}.mem-intro-scrim{transition:opacity .2s}.mem-intro-icon{transform:none;transition:opacity .2s}}
 /* 1.2.1 — standalone status bar: opaque strip under the status bar (no blurred content behind it), header blur starts below it */
 .navbar::before,#topbar::before{content:"";position:absolute;inset:0 0 auto;height:env(safe-area-inset-top);background:var(--bg);pointer-events:none;display:block;z-index:0}
 @media (display-mode:standalone){.navbar,#topbar{background-clip:padding-box}}
