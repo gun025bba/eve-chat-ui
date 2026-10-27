@@ -40,7 +40,7 @@
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:dark)" href="splash/dark-1080x2340.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:light)" href="splash/light-1080x2340.png">
 
-<link rel="stylesheet" href="/ui/styles.css?v=1.6.0">
+<link rel="stylesheet" href="/ui/styles.css?v=1.7.0">
 <title>Eve</title>
 </head>
 <body>
@@ -119,7 +119,7 @@
     <div id="composer" role="group" aria-label="메시지 작성">
       <div class="field">
         <button id="webBtn" type="button" class="web" aria-pressed="false" aria-label="웹 검색"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg><span>검색</span></button>
-        <textarea id="input" rows="1" placeholder="메시지" aria-label="메시지 입력" enterkeyhint="send" autocorrect="off" autocapitalize="sentences" spellcheck="false" autocomplete="off" inputmode="text" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other"></textarea>
+        <textarea id="input" rows="1" placeholder="메시지" aria-label="메시지 입력" enterkeyhint="send" autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="eve-composer" name="eve-composer" inputmode="text" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other"></textarea>
         <button id="sendBtn" type="button" class="send" aria-label="전송" disabled>
           <svg class="i i-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg><span class="i-stop"></span></button>
       </div>
@@ -202,7 +202,7 @@
     <div class="group a2hs-row" id="a2hsRow"><button type="button" id="showA2hs" class="row-link">홈 화면에 추가 방법<svg class="i chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></div>
     <p class="sec">정보</p>
     <div class="group info-group"><div class="info-row"><span>모델</span><span id="sModelInfo" class="info-val">—</span></div></div>
-    <small id="appVersion" class="app-version">v1.6.0</small>
+    <small id="appVersion" class="app-version">v1.7.0</small>
   </form>
 </dialog>
 <div id="authNotice" class="auth-notice" hidden role="alertdialog" aria-labelledby="authTitle" aria-describedby="authBody">
@@ -269,10 +269,11 @@
 </div>
 <div id="fbLive" class="sr-only" aria-live="polite" role="status"></div>
 <div id="toast" hidden role="status"><span id="toastText"></span><button type="button" id="toastAct" class="text-btn"></button></div>
-<script src="/ui/proactive-api.js?v=1.6.0"></script>
-<script src="/ui/proactive.js?v=1.6.0"></script>
-<script src="/ui/memory-api.js?v=1.6.0"></script>
-<script src="/ui/memory.js?v=1.6.0"></script>
-<script src="/ui/app.js?v=1.6.0"></script>
+<script src="/ui/shell.js?v=1.7.0"></script>
+<script src="/ui/proactive-api.js?v=1.7.0"></script>
+<script src="/ui/proactive.js?v=1.7.0"></script>
+<script src="/ui/memory-api.js?v=1.7.0"></script>
+<script src="/ui/memory.js?v=1.7.0"></script>
+<script src="/ui/app.js?v=1.7.0"></script>
 </body>
 </html>

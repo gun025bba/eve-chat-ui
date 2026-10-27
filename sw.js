@@ -1,8 +1,8 @@
 /* Eve service worker — network-first HTML, immutable versioned assets, network-only API */
-const CACHE = 'llmchat-1.6.0';
+const CACHE = 'llmchat-1.7.0';
 const VER = CACHE.slice('llmchat-'.length);
 // 1.5.1: versioned asset URLs (same ?v= as index.html) + cache:'reload' so precache never comes from the HTTP cache
-const ASSETS = ['app.js', 'proactive-api.js', 'proactive.js', 'memory-api.js', 'memory.js', 'styles.css'].map(f => `${f}?v=${VER}`);
+const ASSETS = ['app.js', 'shell.js', 'proactive-api.js', 'proactive.js', 'memory-api.js', 'memory.js', 'styles.css'].map(f => `${f}?v=${VER}`);
 const SHELL = ['index.html', ...ASSETS, 'manifest.webmanifest', 'offline.html', 'offline.css?v=16', 'offline.js?v=16',
   'favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/shortcut-new.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'];

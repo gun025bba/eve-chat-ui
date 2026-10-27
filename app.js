@@ -255,7 +255,7 @@ if (typeof document !== 'undefined') (function () {
   const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   document.documentElement.classList.toggle('standalone', isStandalone());
   document.documentElement.classList.toggle('ios', isIOS);
-  const buzz = n => { if (!isIOS && navigator.vibrate) try { navigator.vibrate(n); } catch {} };
+  const buzz = n => { if (self.EveShell?.haptic(n <= 10 ? 'light' : n <= 20 ? 'medium' : 'heavy')) return; if (!isIOS && navigator.vibrate) try { navigator.vibrate(n); } catch {} };   // 1.7.0: iOS shell haptics when bridged
   const wide = matchMedia('(min-width: 761px)');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -1841,7 +1841,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.6.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.7.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -1856,5 +1856,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();
