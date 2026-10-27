@@ -694,8 +694,17 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-tools{display:flex;justify-content:space-between;margin:8px 0}.danger-text{color:var(--red,#ff453a)}
 .mem-form{margin:8px 0}.mem-form-btns{display:flex;gap:8px;justify-content:flex-end}
 .mem-state-t{display:block;font-weight:600}.mem-state-s{display:block}
-.mem-edit{background:none;border:0;color:var(--accent);font:inherit;padding:8px}
+.mem-edit{background:none;border:0;color:var(--accent);font:inherit;padding:0 12px;min-height:44px;min-width:44px}
 .mem-row{touch-action:pan-y;transition:transform .2s}
 .mem-sheet{position:sticky;bottom:0;background:var(--bg-elev-2);border-radius:12px;padding:16px;display:grid;gap:8px}
-.mem-toast{position:sticky;bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg-elev-2);border-radius:12px;padding:10px 14px;margin:8px 0}
 .mem-sheet[hidden],.mem-toast[hidden],.mem-form[hidden]{display:none}
+/* design bfbaef7: 44pt targets, accent +, capsule undo toast above the sheet's bottom safe area, export/wipe groups */
+.mem-add{min-width:44px;min-height:44px;border:0;background:none;color:var(--accent);font-size:28px;line-height:1;border-radius:10px}
+.mem-del,.mem-row-btn,.mem-sheet .btn,.mem-form .btn,.mem-toast .btn{min-height:44px}
+.mem-row-btn{width:100%;text-align:left;word-break:keep-all}.mem-row-btn.accent{color:var(--accent)}.mem-row-btn.danger-text{color:var(--danger,#ff453a)}
+.mem-group{margin-top:12px}.mem-total{text-align:center;margin:8px 0 0}.mem-group[hidden]{display:none}
+.mem-list.group{padding:0;list-style:none}
+.mem-toast{position:sticky;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:5;width:max-content;max-width:calc(100% - 24px);margin:12px auto 0;display:flex;align-items:center;gap:12px;padding:6px 6px 6px 18px;border-radius:999px;background:var(--bg-elev-2);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.mem-toast .btn{white-space:nowrap;border-radius:999px;color:var(--accent)}
+.mem-toast[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.mem-row{transition:opacity .2s}}

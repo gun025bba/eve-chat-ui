@@ -17,7 +17,7 @@
     ro: '지금은 메모리를 바꿀 수 없어요'
   };
   const SAVE_ERR = { secret_detected: '비밀번호·키·카드번호처럼 보이는 내용은 저장할 수 없어요', invalid: '300자까지 쓸 수 있어요',
-    cap_exceeded: '메모리가 가득 찼어요', internal: '저장하지 못했어요. 잠시 후 다시 시도해 주세요' };
+    cap_exceeded: '메모리가 가득 찼어요', busy: '지금 요청이 많아요. 잠시 후 다시 시도해 주세요', internal: '저장하지 못했어요. 잠시 후 다시 시도해 주세요' };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const D = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' });
   function order(items) {                                   // spec B3 = injection order (MEM §3): pinned → live tasks → rest by updated_at desc
@@ -30,7 +30,7 @@
     const M = self.EveMemoryAPI, api = M.make(h.api), $ = id => document.getElementById(id);
     const sec = $('memSection'), sw = $('sMemory'), note = $('sMemNote'), open = $('memOpen'), count = $('memCount'), view = $('memoryView'),
       list = $('memList'), state = $('memState'), retry = $('memRetry'), banner = $('memBanner'), addB = $('memAdd'), wipeB = $('memWipe'),
-      form = $('memForm'), kindI = $('memKind'), textI = $('memText'), formErr = $('memFormErr'), sheet = $('memWipeSheet');
+      form = $('memForm'), expG = $('memExportGroup'), expB = $('memExport'), total = $('memTotal'), kindI = $('memKind'), textI = $('memText'), formErr = $('memFormErr'), sheet = $('memWipeSheet');
     if (!sec) return null;
     let st = { serverOn: false, enabled: true, readOnly: false, kill: false }, items = [], loaded = false, editing = null;
     const pending = new Map();                                 // id → {it, timer}: deletes waiting for the undo toast to close
@@ -40,19 +40,23 @@
     function toast(text, act, fn, ms) {
       if (view.hidden) return h.showToast(text, act, fn, ms);
       tText.textContent = text; tAct.textContent = act || ''; tAct.hidden = !act; tAct.onclick = () => { hide(); fn && fn(); };
-      tEl.hidden = false; clearTimeout(tT); tT = setTimeout(hide, ms || 3000);
+      tEl.hidden = false; clearTimeout(tT); const dur = ms || 3000; tT = setTimeout(hide, dur);
+      tEl.onfocusin = () => clearTimeout(tT);                         // paused while focus is inside the toast
+      tEl.onfocusout = () => { clearTimeout(tT); tT = setTimeout(hide, dur); };
       function hide() { clearTimeout(tT); tEl.hidden = true; }
     }
     function paint() {
       sec.hidden = !st.serverOn;
-      sw.checked = st.enabled; sw.disabled = st.kill || !h.isServer();
+      sw.checked = st.enabled && !st.kill; sw.disabled = st.kill || !h.isServer();
       note.textContent = !h.isServer() ? MSG.offline : st.kill ? MSG.kill : st.enabled ? MSG.on : MSG.off;
       note.classList.toggle('warn', st.kill);
       open.disabled = !h.isServer();
       count.textContent = loaded ? `${items.length}개` : '';
       banner.hidden = !ro(); view.classList.toggle('mem-off', !st.enabled);
       addB.disabled = wipeB.disabled = ro(); if (ro()) { form.hidden = true; sheet.hidden = true; }
-      wipeB.hidden = loaded && !items.length;
+      const n = items.filter(i => !pending.has(i.id)).length;
+      wipeB.parentElement.hidden = loaded && !n; expG.hidden = !loaded || !n;           // export works in read-only/off too
+      total.hidden = !loaded; total.textContent = `${n} / 200`;
       list.querySelectorAll('button').forEach(b => { b.disabled = ro(); });
     }
     function showState(text, sub, canRetry) {
@@ -60,11 +64,12 @@
       if (text) { state.appendChild(el('span', 'mem-state-t', text)); if (sub) state.appendChild(el('span', 'mem-state-s', sub)); }
     }
     // a write just said read-only / kill switch: keep that until the sheet reopens
-    async function reread() { try { const s = await api.getSettings(); st = Object.assign(st, s, { kill: st.kill, readOnly: st.readOnly || s.readOnly }); } catch {} paint(); }
+    async function reread() {   // returns after paint
+       try { const s = await api.getSettings(); st.enabled = s.enabled; st.kill = !s.available; } catch {} paint(); }
     // shared write-error handling (§3.9.8 / spec C): returns true if handled as a state change
     function writeBlocked(k) {
       if (k === 'read_only') { st.readOnly = true; paint(); renderList(); reread(); return true; }
-      if (k === 'kill_switch') { st.kill = true; paint(); renderList(); reread(); return true; }
+      if (k === 'kill_switch') { reread().then(renderList); return true; }   // fallback for a mid-session change: settings decide
       if (k === 'off') { st.serverOn = false; paint(); return true; }
       return false;
     }
@@ -125,7 +130,7 @@
     }
     const submit = async () => {
       const text = textI.value.trim(); if (!text) return;
-      const save = $('memFormSave'); save.disabled = true; formErr.hidden = true;
+      const save = $('memFormSave'); save.disabled = true; formErr.hidden = true; textI.removeAttribute('aria-invalid');
       try {
         const r = editing ? await api.edit(editing, text) : await api.add(kindI.value, text);
         items = items.filter(x => x.id !== r.id).concat(r); form.hidden = true; editing = null; renderList();
@@ -133,8 +138,10 @@
         const k = M.errState(e);
         if (writeBlocked(k)) { form.hidden = true; return; }
         if (k === 'conflict' || k === 'not_found') { form.hidden = true; editing = null; loadList(); return; }   // changed elsewhere: show the current list
+        if (k === 'off') { form.hidden = true; return; }
+        textI.setAttribute('aria-invalid', 'true');
         formErr.textContent = k === 'network' ? '연결이 끊겨 저장하지 못했어요' : SAVE_ERR[k] || SAVE_ERR.invalid; formErr.hidden = false;
-        if (k === 'internal' || k === 'network') { const rb = el('button', 'btn', '다시 시도'); rb.type = 'button'; rb.onclick = submit; formErr.append(' ', rb); }
+        if (k === 'internal' || k === 'network' || k === 'busy') { const rb = el('button', 'btn', '다시 시도'); rb.type = 'button'; rb.onclick = submit; formErr.append(' ', rb); }
       } finally { save.disabled = false; }
     };
     $('memFormSave').onclick = submit;
@@ -142,7 +149,28 @@
     $('memFormCancel').onclick = () => { form.hidden = true; editing = null; };
     addB.onclick = () => openForm(null);
     wipeB.onclick = () => { if (!ro()) { sheet.hidden = false; $('memWipeNo').focus(); } };
-    $('memWipeNo').onclick = () => { sheet.hidden = true; };
+    $('memWipeNo').onclick = () => { sheet.hidden = true; wipeB.focus(); };
+    sheet.addEventListener('keydown', ev => {                 // focus trap inside the wipe-all sheet
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); $('memWipeNo').click(); return; }
+      if (ev.key !== 'Tab') return;
+      const f = [$('memWipeYes'), $('memWipeNo')], i = f.indexOf(document.activeElement);
+      ev.preventDefault(); f[(i + (ev.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+    });
+    const today = () => { const d = new Date(), z = n => String(n).padStart(2, '0'); return `eve-memory-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}.json`; };
+    expB.onclick = async () => {                              // device-only file: share sheet on iOS, else download
+      expB.disabled = true; expB.textContent = '내보내는 중…';
+      try {
+        const j = await api.exportAll(), name = today(), blob = new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' });
+        const file = typeof File === 'function' ? new File([blob], name, { type: 'application/json' }) : null;
+        const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (ios && file && navigator.canShare?.({ files: [file] })) {
+          try { await navigator.share({ files: [file] }); } catch (e) { if (e && e.name !== 'AbortError') throw e; }
+        } else {
+          const a = document.createElement('a'), u = URL.createObjectURL(blob); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1000);
+        }
+      } catch (e) { if (M.errState(e) === 'off') { st.serverOn = false; paint(); } else toast('내보내지 못했어요', '', null, 3000); }
+      finally { expB.disabled = false; expB.textContent = '메모리 내보내기'; }
+    };
     $('memWipeYes').onclick = async () => {
       const b = $('memWipeYes'); b.disabled = true;
       try { await api.deleteAll(); pending.forEach(p => clearTimeout(p.timer)); pending.clear(); items = []; sheet.hidden = true; renderList(); }
@@ -154,18 +182,17 @@
       try { items = await api.list(); loaded = true; renderList(); }
       catch (e) {
         const k = M.errState(e);
-        if (k === 'off' || e.http === 404) { st.serverOn = false; paint(); return; }    // GET /v1/memory 404 = server memory off (no item to miss): unavailable, not an error
-        if (k === 'kill_switch') { st.kill = true; paint(); }
+        if (k === 'off') { st.serverOn = false; paint(); return; }    // GET /v1/memory 404 = server memory off (no item to miss): unavailable, not an error
         showState(MSG.loadErr, '', true);
       }
     }
     async function openSettings() {
       view.hidden = true; open.setAttribute('aria-expanded', 'false'); loaded = false; items = []; form.hidden = true; sheet.hidden = true;
       if (!h.isServer()) { st.serverOn = false; paint(); return; }
-      try { st = Object.assign({ kill: false }, await api.getSettings()); }
+      try { const s = await api.getSettings(); st = { serverOn: true, enabled: s.enabled, kill: !s.available, readOnly: false }; }   // memory_available=false → shown, toggle disabled + footer
       catch { st.serverOn = false; paint(); return; }             // settings unreadable → keep memory UI hidden
       paint();
-      if (st.serverOn) api.list().then(x => { items = x; loaded = true; paint(); }).catch(e => { if (e.http === 404) { st.serverOn = false; paint(); } });
+      api.list().then(x => { items = x; loaded = true; paint(); }).catch(e => { if (M.errState(e) === 'off') { st.serverOn = false; paint(); } });
     }
     sw.addEventListener('change', async () => {               // optimistic, rollback on failure (same as 선톡 toggle)
       const on = sw.checked, prev = st.enabled; st.enabled = on; paint();

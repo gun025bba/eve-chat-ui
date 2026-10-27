@@ -46,6 +46,6 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 
 - 기본값은 꺼짐이에요. `localStorage['eve.flag.memory'] = '1'`일 때만 설정에 메모리 영역이 보여요.
 - API 경로와 필드 이름은 `memory-api.js`에만 있어요. 스키마는 eve-serving ui-api-contract §3.9를 따라요.
-- `/v1/settings` 안의 `memory.enabled` 위치는 아직 확정되지 않았어요. 그래서 `memory-api.js`의 `SETTINGS`에서만 읽고 써요.
-- 서버 메모리가 꺼져 있으면(`settings`에 `memory` 블록이 없거나 `GET /v1/memory`가 404) 메모리 영역을 숨겨요. 오류로 보여 주지 않아요.
+- 사용자 `memory.enabled`는 `/v1/settings`에 있고, 키가 없으면 꺼짐이에요. 읽기 전용 `system.memory_available`이 서버 킬스위치예요(없으면 true). 둘 다 true일 때만 메모리가 동작해요. 읽기 전용 상태는 쓰기 응답 503 `memory_read_only`로만 알아요.
+- `/v1/memory*`가 `{"detail":"Not Found"}` 404를 주면 서버 메모리가 꺼진 것으로 보고 메모리 영역을 숨겨요. `{"error_code":"not_found"}` 404는 이미 지워진 항목이에요.
 - 500·503 응답은 예전 `{error:{code}}` 형식이고, 4xx 응답은 `{error_code}` 형식이에요. 둘 다 읽어요.

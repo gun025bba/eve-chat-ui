@@ -10,7 +10,7 @@ pro = lambda: req('PUT', '/__pro')
 R = []
 def check(name, ok, extra=''): R.append(bool(ok)); print(('PASS' if ok else 'FAIL'), name, extra)
 SETTINGS = "localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit',system:'',showThink:false,noThink:false}));"
-SYS = {'proactive_available': True, 'tools_available': True, 'memory_read_only': False}
+SYS = {'proactive_available': True, 'tools_available': True, 'memory_read_only': False, 'memory_available': True}
 put('/auth/on'); put('/persist/on'); put('/db/reset'); put('/fail/clear'); put('/pro/reset')
 errs = []
 memGets = lambda: [x for x in pro()['bodies'] if x['p'] == '/v1/memory' and x['m'] == 'GET']
@@ -91,19 +91,45 @@ with sync_playwright() as p:
     check('503 memory_read_only → banner + sub-line, writes disabled, toggle usable', pg.is_visible('#memBanner') and '저장된 메모리는 그대로 있고, 곧 다시 쓸 수 있어요' in pg.text_content('#memBanner') and pg.is_disabled('#memAdd') and pg.is_disabled('#memWipe') and pg.locator('#memList .mem-del:not([disabled])').count() == 0 and not pg.is_disabled('#sMemory'))
     check('settings re-read', len([x for x in pro()['bodies'] if x['p'] == '/v1/settings' and x['m'] == 'GET']) > nset)
 
-    # 8) system.memory_read_only → read-only list, toggle usable
+    # 8) system.memory_read_only is ignored (read-only only from a 503)
     put('/pro/set', {'memMode': None, 'system': dict(SYS, memory_read_only=True)}); settings(); open_list()
-    check('read_only: list shown, + / edit / delete / 모두 지우기 disabled, toggle usable', rows().count() > 0 and pg.is_visible('#memBanner') and pg.is_disabled('#memAdd') and pg.is_disabled('#memWipe') and pg.locator('#memList button:not([disabled])').count() == 0 and not pg.is_disabled('#sMemory'))
+    check('system.memory_read_only ignored: writes enabled', rows().count() > 0 and pg.is_hidden('#memBanner') and not pg.is_disabled('#memAdd') and not pg.is_disabled('#memWipe'))
     put('/pro/set', {'system': SYS})
 
-    # 9) 403 kill_switch → banner + toggle disabled + footer
-    settings(); open_list(); put('/pro/set', {'memMode': 'kill'})
-    pg.click('#memAdd'); pg.fill('#memText', '테스트'); pg.click('#memFormSave'); pg.wait_for_timeout(700)
-    check('403 kill_switch → banner, toggle disabled, footer', pg.is_visible('#memBanner') and pg.is_disabled('#sMemory') and pg.text_content('#sMemNote') == '지금은 메모리 기능을 쓸 수 없어요')
+    # 9) system.memory_available=false (server kill switch) → toggle disabled + footer, list closed; missing memory key → off
+    put('/pro/set', {'memMode': 'availOff'}); n0 = len(memGets()); settings()
+    check('memory_available=false → toggle disabled + footer', pg.is_visible('#memSection') and pg.is_disabled('#sMemory') and not pg.is_checked('#sMemory') and pg.text_content('#sMemNote') == '지금은 메모리 기능을 쓸 수 없어요')
+    open_list()
+    check('memory_available=false → read-only banner on memory screen, writes disabled, export allowed', pg.is_visible('#memBanner') and pg.is_disabled('#memAdd') and pg.is_disabled('#memWipe') and pg.is_visible('#memExport') and not pg.is_disabled('#memExport'))
+    put('/pro/set', {'memMode': None, 'system': {k: v for k, v in SYS.items() if k != 'memory_available'}}); settings()
+    check('memory_available missing → treated as true', not pg.is_disabled('#sMemory'))
+    put('/pro/set', {'system': SYS})
+    put('/pro/set', {'memMode': None, 'memNoKey': True}); settings()
+    check('missing memory key → toggle off + off footer', not pg.is_checked('#sMemory') and not pg.is_disabled('#sMemory') and pg.text_content('#sMemNote').startswith('꺼져 있어요'))
+    put('/pro/set', {'memNoKey': False})
 
-    # 10) server memory off (no settings.memory, bare 404) → hidden, not an error
-    put('/pro/set', {'memMode': 'off'}); settings()
-    check('server off: memory section hidden, no error', pg.is_hidden('#memSection'))
+    # 10) {"detail":"Not Found"} on /v1/memory* → section hidden (not an error); on PATCH too
+    put('/pro/set', {'memMode': 'gone'}); settings()
+    check('detail 404 on list → section hidden, no error', pg.is_hidden('#memSection'))
+    put('/pro/set', {'memMode': None}); settings(); open_list()
+    put('/pro/set', {'memMode': 'e429'}); rows().nth(0).locator('.mem-edit').click(); pg.fill('#memText', '바뀐 내용'); pg.click('#memFormSave'); pg.wait_for_timeout(600)
+    check('PATCH 429 {error:{code:rate_limited}} → busy text + 다시 시도', '지금 요청이 많아요. 잠시 후 다시 시도해 주세요' in pg.text_content('#memFormErr') and pg.locator('#memFormErr button').count() == 1)
+    put('/pro/set', {'memMode': 'gone'}); pg.click('#memFormSave'); pg.wait_for_timeout(600)
+    check('PATCH detail 404 → section hidden', pg.is_hidden('#memSection'))
+    put('/pro/set', {'memMode': None})
+
+    # 10b) 44pt targets, accent +, export row
+    settings(); open_list()
+    sz = pg.evaluate("['#memAdd','#memWipe','#memExport','.mem-edit','.mem-del'].map(q=>{const r=document.querySelector(q).getBoundingClientRect();return [q,Math.round(r.height),Math.round(r.width)]})")
+    check('all memory buttons ≥ 44pt high (and + ≥ 44 wide)', all(h_ >= 44 for _, h_, _w in sz) and sz[0][2] >= 44, sz)
+    check('+ uses --accent', pg.evaluate("getComputedStyle(document.querySelector('#memAdd')).color === getComputedStyle(document.querySelector('.mem-edit')).color"))
+    check('count line N / 200 + export group before wipe group', pg.text_content('#memTotal').endswith('/ 200') and pg.evaluate("document.getElementById('memExportGroup').compareDocumentPosition(document.getElementById('memWipe')) & 4"))
+    with pg.expect_download() as dl: pg.click('#memExport')
+    import re as _re
+    check('export → eve-memory-YYYY-MM-DD.json download', _re.fullmatch(r'eve-memory-\d{4}-\d{2}-\d{2}\.json', dl.value.suggested_filename) is not None and pro()['bodies'][-1]['p'] == '/v1/memory/export', dl.value.suggested_filename)
+    put('/pro/set', {'memMode': 'drop'}); pg.click('#memExport'); pg.wait_for_timeout(600)
+    check('export failure → 내보내지 못했어요', '내보내지 못했어요' in pg.text_content('#memToastText') and pg.text_content('#memExport') == '메모리 내보내기')
+    put('/pro/set', {'memMode': None})
 
     # 11) list load: network failure → error + 다시 시도; empty state; 모두 지우기 sheet
     put('/pro/set', {'memMode': None}); settings(); put('/pro/set', {'memMode': 'drop'}); open_list()
@@ -115,7 +141,7 @@ with sync_playwright() as p:
     pg.click('#memWipeNo'); check('취소 → nothing', pg.is_hidden('#memWipeSheet') and pro()['memItems'], [pg.is_hidden('#memWipeSheet'), len(pro()['memItems'])])
     pg.click('#memWipe'); pg.click('#memWipeYes'); pg.wait_for_timeout(700)
     w = pro()['memWrites'][-1]
-    check('DELETE /v1/memory → empty state', w['method'] == 'DELETE' and w['path'] == '/v1/memory' and not pro()['memItems'] and '아직 기억한 게 없어요' in pg.text_content('#memState') and "대화 중에 '기억해'라고 하거나 + 로 직접 추가할 수 있어요" in pg.text_content('#memState'))
+    check('DELETE /v1/memory → empty state', w['method'] == 'DELETE' and w['path'] == '/v1/memory' and not pro()['memItems'] and pg.is_hidden('#memExport') and '아직 기억한 게 없어요' in pg.text_content('#memState') and "대화 중에 '기억해'라고 하거나 + 로 직접 추가할 수 있어요" in pg.text_content('#memState'))
 
     # 12) in-chat remember card: same §C path — 저장 verb, reissue → approve on press, SSE token ignored
     put('/pro/set', {'sseToken': True}); home(); pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']; n0 = len(pro()['bodies'])
@@ -129,9 +155,9 @@ with sync_playwright() as p:
     check('no tokens stored', not any(t in (pg.evaluate("JSON.stringify(localStorage)") or '') for t in ['confirm_token', 'ssetok', '"tok']))
     put('/pro/set', {'sseToken': False})
     # 13) card approve errors: 500/503 legacy bodies, unknown code → invalid
-    for st_, code, kind, want in [(500, 'internal_error', 'legacy', '저장하지 못했어요. 잠시 후 다시 시도해 주세요'), (503, 'memory_read_only', 'legacy', '지금은 메모리를 바꿀 수 없어요'), (422, 'weird_new_code', 'ec', '요청 내용이 올바르지 않아 진행하지 않았어요')]:
+    for st_, code, kind, want in [(500, 'internal_error', 'legacy', '저장하지 못했어요. 잠시 후 다시 시도해 주세요'), (503, 'memory_read_only', 'legacy', '지금은 메모리를 바꿀 수 없어요'), (422, 'weird_new_code', 'ec', '요청 내용이 올바르지 않아 진행하지 않았어요'), (403, 'kill_switch', 'ec', '지금은 이 기능을 쓸 수 없어요'), (403, 'scope_denied', 'reissue', '이 작업은 할 수 있는 권한이 없어요')]:
         put('/pro/reset'); home(); pg.click('#newChat'); pg.wait_for_timeout(300)
-        put('/pro/set', {'approveLegacy' if kind == 'legacy' else 'approveCode': [st_, code]})
+        put('/pro/set', {'actCode': {'reissue': [st_, code]}} if kind == 'reissue' else {'approveLegacy' if kind == 'legacy' else 'approveCode': [st_, code]})
         pg.fill('#input', 'confirmremember 커피'); pg.click('#sendBtn'); pg.wait_for_timeout(1800)
         c = pg.locator('.confirm-card[data-aid="01JACT0000000000000000000M"]').last; c.locator('.cc-primary').click(); pg.wait_for_timeout(900)
         check(f'card {st_} {code} → text', want in c.inner_text(), c.inner_text())

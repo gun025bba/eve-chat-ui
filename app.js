@@ -868,8 +868,8 @@ if (typeof document !== 'undefined') (function () {
     let e = {}; try { e = JSON.parse(body).error || {}; } catch {}
     let code = e.code || ''; if (!code) try { code = JSON.parse(body).error_code || ''; } catch {}
     // 1.1.4 copy: no infrastructure names, codes or HTTP numbers on screen
-    if (code === 'identity_not_allowed') return '이 Tailscale 계정은 허용되지 않았어요.';
-    if (status === 401) return '이 기기에서 Tailscale 연결을 확인하세요.';
+    if (code === 'identity_not_allowed') return '허용되지 않은 계정이에요';
+    if (status === 401) return '서버에 연결할 수 없어요. 연결을 확인해 주세요';
     if (FAIL_TEXT[code]) return FAIL_TEXT[code];
     if (status === 429) return BUSY_TEXT;
     if (status === 504) return FAIL_TEXT.upstream_timeout;
@@ -1399,9 +1399,9 @@ if (typeof document !== 'undefined') (function () {
   }
   function showAuthNotice(retry, code) {
     const denied = code === 'identity_not_allowed';
-    $('#authTitle').textContent = denied ? '허용되지 않은 Tailscale 계정이에요' : 'Tailscale 연결을 확인하세요';
-    $('#authBody').textContent = denied ? '이 Tailscale 계정은 이 서버를 쓸 수 없어요. 허용된 계정으로 로그인한 뒤 다시 시도하세요.'
-      : '이 기기에서 Tailscale이 켜져 있고 로그인되어 있어야 서버에 연결할 수 있어요.';
+    $('#authTitle').textContent = denied ? '이 계정은 쓸 수 없어요' : '서버에 연결할 수 없어요';
+    $('#authBody').textContent = denied ? '허용된 Tailscale 계정으로 로그인한 뒤 다시 시도해 주세요.'
+      : '이 기기에서 Tailscale을 켜고 로그인하면 연결돼요.';
     if (retry) authRetry = retry;
     if (!authEl.hidden) return;
     authEl.hidden = false; requestAnimationFrame(() => authEl.classList.add('in'));

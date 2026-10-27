@@ -24,12 +24,13 @@
     add: (kind, text) => ({ kind, text }),                                 // strict body: unknown fields → 400
     edit: (it, text) => ({ text, if_updated_at: it.updatedAtRaw || undefined })   // 409 conflict if changed meanwhile
   };
-  // §3.9.7 — PLACEMENT NOT CONFIRMED (architect). Only this object reads/writes the settings shape.
+  // Architect decision (eve-serving main 0cdadea; supersedes contract §3.9.7 text): per-user memory.enabled in /v1/settings
+  // (missing → off); read-only system.memory_available = server kill switch (never PATCHed). Active = both true.
+  // Read-only is NOT taken from settings: it comes only from a 503 memory_read_only on a write.
   const SETTINGS = {
     read(s) {
-      const m = s && s.memory;
-      return { serverOn: !!m && typeof m === 'object',                   // GW_MEMORY_ENABLED=false → no memory block at all
-        enabled: m?.enabled !== false, readOnly: s?.system?.memory_read_only === true };
+      return { available: s?.system?.memory_available !== false,   // missing → true (design bfbaef7)
+        enabled: s?.memory?.enabled === true };                         // missing → off
     },
     patch: on => ({ memory: { enabled: !!on } })
   };
@@ -40,16 +41,20 @@
     if (e.code) return String(e.code);
     try { const j = JSON.parse(e.body || ''); return String(j.error_code || j.error?.code || ''); } catch { return ''; }
   }
-  // → 'network' | 'off' (server kill switch: bare 404, feature unavailable, not an error) | 'kill_switch' | 'read_only'
-  //   | 'internal' | 'not_found' | 'conflict' | 'item_gone' | 'secret_detected' | 'cap_exceeded' | 'invalid'
+  // 404 by body: {"detail":"Not Found"} (no code) on any /v1/memory* = server memory off → 'off' (hide, not an error);
+  //              {"error_code":"not_found"} (PATCH/DELETE items/{id} only) = item already gone → 'not_found'.
+  // 500/503/429/401 use {error:{code}}; everything else {error_code}. kill_switch only comes from approve (cards).
+  // → 'network' | 'off' | 'kill_switch' | 'read_only' | 'internal' | 'busy' | 'not_found' | 'conflict' | 'item_gone'
+  //   | 'secret_detected' | 'cap_exceeded' | 'invalid'
   function errState(e) {
     if (!e || !e.http) return 'network';
     const c = codeOf(e);
     if (c === 'memory_read_only') return 'read_only';
     if (c === 'kill_switch') return 'kill_switch';
     if (c === 'internal_error') return 'internal';
+    if (c === 'rate_limited' || e.http === 429) return 'busy';
     if (['not_found', 'conflict', 'item_gone', 'secret_detected', 'cap_exceeded'].includes(c)) return c;
-    if (e.http === 404) return 'off';                                    // route absent (byte-identical legacy 404)
+    if (e.http === 404) return 'off';                                    // {"detail":"Not Found"}: route absent
     if (e.http >= 500) return 'internal';
     return 'invalid';                                                     // unknown code → invalid text
   }
@@ -59,7 +64,7 @@
       getSettings: () => call('getSettings').then(SETTINGS.read),
       setEnabled: on => call('patchSettings', null, SETTINGS.patch(on)),
       list: () => call('list').then(FIELDS.list),
-      exportAll: () => call('exportAll'),
+      exportAll: () => call('exportAll'),                 // same body as list; client builds the file
       add: (kind, text) => call('addItem', null, FIELDS.add(kind, text)).then(FIELDS.item),
       edit: (it, text) => call('editItem', it.id, FIELDS.edit(it, text)).then(FIELDS.item),
       deleteItem: (id, keepalive) => call('deleteItem', id, undefined, keepalive ? { keepalive: true } : null),
