@@ -21,6 +21,6 @@ with sync_playwright() as p:
     check('font-synthesis none', r['syn'] in ('none',), r['syn'])
     check('real weight 700', r['w']=='700', r['w'])
     check('no title transition/animation', r['tr'] in ('0s',) and r['an']=='none')
-    check('version label 1.5.2', (r['ver'] or '').startswith('v1.5.2') and r['appv']=='1.5.2', r['ver'])
+    check('version label 1.6.0', (r['ver'] or '').startswith('v1.6.0') and r['appv']=='1.6.0', r['ver'])
     b.close()
 print('ALL PASS' if all(R) else 'SOME FAIL'); raise SystemExit(0 if all(R) else 1)

@@ -78,7 +78,9 @@ class H(SimpleHTTPRequestHandler):
     def auth(s):
         if s.headers.get('Authorization'): STATE['authHeader'] = True
         if STATE.get('denied'): s.j(401, err('identity_not_allowed', 'authentication_error', 'not allowed')); return False
-        if not STATE['authed']: s.j(401, err('unauthenticated', 'authentication_error', 'Tailscale identity required')); return False
+        if STATE.get('invalidSession'): s.j(401, err('invalid_session', 'authentication_error', 'Session expired or revoked: pair this browser again.')); return False
+        if not STATE['authed']: s.j(401, {"error_code": "unauthenticated"} if STATE.get('auth4') else err('unauthenticated', 'authentication_error', 'Tailscale identity required')); return False
+        if STATE.get('scope403') and urlparse(s.path).path.startswith('/v1/chat'): s.j(403, {"error_code": "scope_denied"}); return False
         return True
     def body(s):
         n = int(s.headers.get('Content-Length') or 0); return json.loads(s.rfile.read(n)) if n else {}
@@ -339,7 +341,12 @@ class H(SimpleHTTPRequestHandler):
             s.j(403, ec('invalid'))
         return ok
     def do_PATCH(s): s.gate('PATCH') and (s.threads_api('PATCH') or s.j(404, err('not_found')))
-    def do_DELETE(s): s.gate('DELETE') and (s.threads_api('DELETE') or s.j(404, err('not_found')))
+    def do_DELETE(s):
+        if not s.gate('DELETE'): return
+        if urlparse(s.path).path == '/v1/session':   # 4.0.0 logout (eve-serving #65): revoke own session, clear cookie, 204
+            STATE.setdefault('logouts', []).append({'t': time.time(), 'xer': s.headers.get('X-Eve-Request')}); STATE['authed'] = False
+            return s.j(204, None, {'Set-Cookie': 'eve_session=; Max-Age=0; Path=/'})
+        s.threads_api('DELETE') or s.j(404, err('not_found'))
     def ev(s, o): s.wfile.write(f'data: {json.dumps(o)}\n\n'.encode()); s.wfile.flush(); time.sleep(0.08)
     def do_POST(s):
         if not s.gate('POST'): return
@@ -350,6 +357,15 @@ class H(SimpleHTTPRequestHandler):
             if not m or m['thread_id'] != tid: return s.j(404, err('not_found'))
             if mid in GEN: GEN[mid]['cancel'] = True
             s.send_response(204); s.end_headers(); return
+        if urlparse(s.path).path == '/v1/pair':   # 4.0.0 identity-transport §4: unauthenticated, 5 fails → code invalidated; success/failure only
+            b = s.body(); STATE.setdefault('pairBodies', []).append(b)
+            code = STATE.get('pairCode')
+            if code and str(b.get('code', '')) == code:
+                STATE.update(authed=True, pairCode=None, pairFails=0, invalidSession=False)
+                return s.j(204, None, {'Set-Cookie': 'eve_session=mock; HttpOnly; SameSite=Strict; Path=/'})
+            STATE['pairFails'] = STATE.get('pairFails', 0) + 1
+            if STATE['pairFails'] >= 5: STATE['pairCode'] = None   # lock: outstanding codes voided
+            return s.j(401, err('pair_failed', 'authentication_error', 'Pairing failed'))
         if s.threads_api('POST'): return
         body = s.body()
         if not s.auth(): return
@@ -506,6 +522,10 @@ class H(SimpleHTTPRequestHandler):
         p = s.path
         if p.startswith('/auth/'): STATE['authed'] = p.endswith('/on')
         if p.startswith('/deny/'): STATE['denied'] = p.endswith('/on')
+        if p.startswith('/auth4/'): STATE['auth4'] = p.endswith('/on')
+        if p.startswith('/invalidsession/'): STATE['invalidSession'] = p.endswith('/on')
+        if p.startswith('/scope403/'): STATE['scope403'] = p.endswith('/on')
+        if p.startswith('/paircode/'): STATE.update(pairCode=p[10:] or None, pairFails=0, pairBodies=[])
         if p.startswith('/csp/'): STATE['csp'] = p.endswith('/on')
         if p.startswith('/rejectcomment/'): STATE['rejectComment'] = p.endswith('/on')
         if p.startswith('/rejectreasons/'): STATE['rejectReasons'] = p.endswith('/on')

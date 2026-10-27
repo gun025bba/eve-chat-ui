@@ -58,7 +58,7 @@ with sync_playwright() as p:
     # 401 handling: chat call + whoami retry
     put('/auth/off'); pg.wait_for_timeout(100)
     pg.fill('#input','hi again'); pg.click('#sendBtn'); pg.wait_for_timeout(600)
-    check('401 chat -> Tailscale notice', pg.is_visible('#authNotice') and 'Tailscale' in pg.text_content('#authNotice'))
+    check('401 chat -> pairing notice', pg.is_visible('#authNotice') and pg.is_visible('#pairCode') and '연결 코드' in pg.text_content('#authNotice'))
     pg.click('#authRetry'); pg.wait_for_timeout(500)
     check('retry while still unauthenticated keeps notice', pg.is_visible('#authNotice'))
     put('/auth/on'); pg.click('#authRetry'); pg.wait_for_timeout(1500)
