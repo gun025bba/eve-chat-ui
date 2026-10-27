@@ -431,7 +431,7 @@ body.kb-open #composer{padding-bottom:8px}
 :root{--tint-archive:#FF9F0A;--tint-warn:#FFD60A;--thumb-on:var(--label);--banner-bg:rgba(255,159,10,.14);--d-toast:2800ms}
 @media (prefers-color-scheme:light){:root{--tint-archive:#FF9500;--tint-warn:#FFCC00;--banner-bg:rgba(255,149,0,.12)}}
 .offline-bar{background:var(--banner-bg);font-size:13px;font-weight:500}
-#listView .offline-bar{top:calc(var(--nav-h,44px) + env(safe-area-inset-top))}
+#listView .offline-bar{top:var(--nav-h,44px)}
 .ra-archive{background:var(--tint-archive)}.ra-restore{background:var(--accent)}
 #convList li.row.full .ra-archive,#archList li.row.full .ra-restore{width:100%;text-align:right;padding-right:24px}
 #archList{list-style:none;margin:0;padding:0}
@@ -473,7 +473,7 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 #app[data-route=archive] #chatView{transform:translateX(100%);visibility:hidden}
 #archiveView .navbar{position:absolute;top:0;left:0;right:0;z-index:5}
 #archiveView .nav-title{position:absolute;left:50%;translate:-50% 0;font:600 17px/22px var(--font)}
-#archiveView .scroller{position:absolute;inset:0;overflow-y:auto;padding-top:calc(var(--nav-h,44px) + env(safe-area-inset-top) + 8px)}
+#archiveView .scroller{position:absolute;inset:0;overflow-y:auto;padding-top:calc(var(--nav-h,44px) + 8px)}
 .arch-empty{text-align:center;padding:72px 32px;color:var(--label-2)}
 .arch-empty svg{width:44px;height:44px;color:var(--label-3)}
 .arch-empty h3{font-size:17px;font-weight:600;color:var(--label);margin:12px 0 4px}.arch-empty p{font-size:15px;margin:0}
