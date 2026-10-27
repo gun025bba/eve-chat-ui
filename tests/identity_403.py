@@ -1,4 +1,4 @@
-# 1.3.1: gateway #57 — 403 identity_not_allowed is treated exactly like 401 (auth notice); other 403s keep their behavior
+# 1.3.2: gateway #57 — 403 identity_not_allowed is treated exactly like 401 (auth notice); other 403s keep their behavior
 import os, json, re
 from playwright.sync_api import sync_playwright
 B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
@@ -17,7 +17,7 @@ with sync_playwright() as p:
     def send(pg):
         pg.click('#newChat'); pg.wait_for_timeout(400)
         pg.fill('#input', 'hi'); pg.click('#sendBtn'); pg.wait_for_timeout(1200)
-    ctx, pg = page({}); check('version 1.3.1', pg.evaluate('__app.version') == '1.3.1'); check('baseline: no auth notice', not vis(pg)); ctx.close()
+    ctx, pg = page({}); check('version 1.3.2', pg.evaluate('__app.version') == '1.3.2'); check('baseline: no auth notice', not vis(pg)); ctx.close()
     for sh, mk in SHAPES.items():
         ctx, pg = page({r'/whoami$': (403, mk('identity_not_allowed'))}); check(f'[{sh}] whoami 403 identity_not_allowed → auth notice', vis(pg)); ctx.close()
         ctx, pg = page({r'/v1/threads\?': (403, mk('identity_not_allowed'))}); check(f'[{sh}] api() threads 403 identity_not_allowed → auth notice', vis(pg)); ctx.close()

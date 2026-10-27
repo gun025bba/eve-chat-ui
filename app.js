@@ -262,7 +262,7 @@ if (typeof document !== 'undefined') (function () {
   commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
-  // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
+  // 1.3.2: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
   const authCode = j => { try { if (typeof j === 'string') j = JSON.parse(j); } catch { return ''; } return (j && (j.error_code || j.error?.code)) || ''; };
   const isAuthFail = (status, code) => status === 401 || (status === 403 && code === 'identity_not_allowed');
   async function api(path, opts = {}) {
@@ -1156,14 +1156,16 @@ if (typeof document !== 'undefined') (function () {
   function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
+    if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); submitComposer(); }
   });
-  $('#composer').addEventListener('submit', e => {
-    e.preventDefault();
+  // 1.3.2: #composer is no longer a <form> (iOS AutoFill classifies form-associated fields and ignores autocomplete=off),
+  // so the send button is type=button and submit is handled here.
+  function submitComposer() {
     if (controller) { stopGeneration(); return; }
     const t = input.value.trim(); if (!t) return;
     send(t);
-  });
+  }
+  sendBtn.addEventListener('click', e => { e.preventDefault(); submitComposer(); });
 
   /* ---------- navigation stack (NATIVE §1, §4) ---------- */
   const app = $('#app'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
@@ -1728,7 +1730,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.3.1'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.3.2'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
