@@ -1141,7 +1141,8 @@ if (typeof document !== 'undefined') (function () {
   }
 
   /* ---------- composer ---------- */
-  function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; if (!controller) sendBtn.disabled = !input.value.trim(); }
+  let growH = -1;
+  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
@@ -1261,8 +1262,7 @@ if (typeof document !== 'undefined') (function () {
   function closeSwipe() { if (openRow) { const m = openRow.querySelector('.row-main'); m.style.transition = ''; m.style.transform = ''; openRow.classList.remove('swiped'); openRow = null; } }
   function swipeArchive(row, c) {
     const m = row.querySelector('.row-main'); m.style.transition = 'transform 260ms var(--ease-sheet)'; m.style.transform = 'translateX(-100%)';
-    row.style.height = row.offsetHeight + 'px'; row.classList.add('removing', 'collapsing');
-    requestAnimationFrame(() => { row.style.height = '0px'; });
+    row.classList.add('removing', 'collapsing');   // 1.2.1: opacity only (no height animation / forced layout read)
     setTimeout(() => { openRow = null; archiveConv(c); }, 300);
   }
   for (const ul of [$('#convList'), $('#archList')]) {
@@ -1704,7 +1704,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.2.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.2.1'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
