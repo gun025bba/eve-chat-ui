@@ -35,7 +35,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.1.4', pg.evaluate('window.__app && window.__app.version') == '1.1.4', [errs, pg.url, pg.content()[:300]])
+    check('version 1.2.0', pg.evaluate('window.__app && window.__app.version') == '1.2.0', [errs, pg.url, pg.content()[:300]])
     pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
@@ -179,7 +179,7 @@ with sync_playwright() as p:
     seq = [x['p'].rsplit('/', 1)[-1] for x in pro()['bodies'] if '01JACT00000000000000000001/' in x['p']]
     check('press → reissue then approve', seq == ['reissue', 'approve'], seq)
     check('approve {confirm_token,payload_hash}', len(ap) == 1 and set(ap[0]['b']) == {'confirm_token', 'payload_hash'} and ap[0]['b']['payload_hash'] == 'sha256:h1')
-    check('confirmed 실행했어요', c1.get_attribute('data-state') == 'confirmed' and '실행했어요' in c1.inner_text())
+    check('confirmed 추가했어요 (VERB_DONE[add])', c1.get_attribute('data-state') == 'confirmed' and '추가했어요' in c1.inner_text())
     check('tokens not persisted', 'tok1' not in pg.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)'))
     c2.locator('.cc-secondary').click(); pg.wait_for_timeout(600)
     check('reject → declined', c2.get_attribute('data-state') == 'declined')

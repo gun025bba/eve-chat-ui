@@ -18,7 +18,7 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 - 스트리밍은 SSE(`text/event-stream`)를 써요. 리버스 프록시를 쓴다면 버퍼링을 꺼 주세요.
 
 ## 버전
-- SemVer를 따르고, 현재 버전은 **1.1.4**이에요.
+- SemVer를 따르고, 현재 버전은 **1.2.0**이에요.
 - 서비스 워커 캐시 이름은 `llmchat-<버전>`이에요(`sw.js`). 정적 파일의 `?v=<버전>`과 `app.js`의 `APP_VERSION`도 같이 올려요.
 - 실행 중인 버전은 설정 화면 아래에 `v<버전> · SW <버전>`으로 표시돼요.
 
@@ -41,3 +41,11 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 - 오류는 HTTP 상태가 아니라 본문 `error_code`로 판단해요.
 
 테스트: `tests/run_e2e.sh proactive.py`, `tests/run_e2e.sh csrf_all.py`, `node tests/sw_push.js`. 포트는 `EVE_PORT`로 바꿀 수 있어요(기본 8765).
+
+## 메모리 (Part B, 플래그 뒤)
+
+- 기본값은 꺼짐이에요. `localStorage['eve.flag.memory'] = '1'`일 때만 설정에 메모리 영역이 보여요.
+- API 경로와 필드 이름은 `memory-api.js`에만 있어요. 스키마는 eve-serving ui-api-contract §3.9를 따라요.
+- 사용자 `memory.enabled`는 `/v1/settings`에 있고, 키가 없으면 꺼짐이에요. 읽기 전용 `system.memory_available`이 서버 킬스위치예요(없으면 true). 둘 다 true일 때만 메모리가 동작해요. 읽기 전용 상태는 쓰기 응답 503 `memory_read_only`로만 알아요.
+- `/v1/memory*`가 `{"detail":"Not Found"}` 404를 주면 서버 메모리가 꺼진 것으로 보고 메모리 영역을 숨겨요. `{"error_code":"not_found"}` 404는 이미 지워진 항목이에요.
+- 500·503 응답은 예전 `{error:{code}}` 형식이고, 4xx 응답은 `{error_code}` 형식이에요. 둘 다 읽어요.

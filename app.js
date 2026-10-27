@@ -151,6 +151,7 @@ if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThin
 if (typeof document !== 'undefined') (function () {
   const $ = s => document.querySelector(s);
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
+  let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
   const ICON = {
     copy: COPY_SVG,
@@ -867,8 +868,8 @@ if (typeof document !== 'undefined') (function () {
     let e = {}; try { e = JSON.parse(body).error || {}; } catch {}
     let code = e.code || ''; if (!code) try { code = JSON.parse(body).error_code || ''; } catch {}
     // 1.1.4 copy: no infrastructure names, codes or HTTP numbers on screen
-    if (code === 'identity_not_allowed') return '이 Tailscale 계정은 허용되지 않았어요.';
-    if (status === 401) return '이 기기에서 Tailscale 연결을 확인하세요.';
+    if (code === 'identity_not_allowed') return '허용되지 않은 계정이에요';
+    if (status === 401) return '서버에 연결할 수 없어요. 연결을 확인해 주세요';
     if (FAIL_TEXT[code]) return FAIL_TEXT[code];
     if (status === 429) return BUSY_TEXT;
     if (status === 504) return FAIL_TEXT.upstream_timeout;
@@ -1398,9 +1399,9 @@ if (typeof document !== 'undefined') (function () {
   }
   function showAuthNotice(retry, code) {
     const denied = code === 'identity_not_allowed';
-    $('#authTitle').textContent = denied ? '허용되지 않은 Tailscale 계정이에요' : 'Tailscale 연결을 확인하세요';
-    $('#authBody').textContent = denied ? '이 Tailscale 계정은 이 서버를 쓸 수 없어요. 허용된 계정으로 로그인한 뒤 다시 시도하세요.'
-      : '이 기기에서 Tailscale이 켜져 있고 로그인되어 있어야 서버에 연결할 수 있어요.';
+    $('#authTitle').textContent = denied ? '이 계정은 쓸 수 없어요' : '서버에 연결할 수 없어요';
+    $('#authBody').textContent = denied ? '허용된 Tailscale 계정으로 로그인한 뒤 다시 시도해 주세요.'
+      : '이 기기에서 Tailscale을 켜고 로그인하면 연결돼요.';
     if (retry) authRetry = retry;
     if (!authEl.hidden) return;
     authEl.hidden = false; requestAnimationFrame(() => authEl.classList.add('in'));
@@ -1501,7 +1502,7 @@ if (typeof document !== 'undefined') (function () {
     $('#a2hsRow').hidden = isStandalone();
     snap = formState();
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
-    renderWho(); loadModels(); PRO?.openSettings();
+    renderWho(); loadModels(); PRO?.openSettings(); MEM?.openSettings();
   }
   $('#openSettings').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
@@ -1689,6 +1690,8 @@ if (typeof document !== 'undefined') (function () {
   if (self.EveProactive) try {
     PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
+  // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
+  try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
   else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
@@ -1701,7 +1704,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.1.4'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.2.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

@@ -50,7 +50,7 @@
         verb: S(v.verb), ambiguous: v.ambiguous === true, display: S(v.display), whenAt: S(v.when && v.when.at)
       };
     },
-    system: s => { const y = (s && s.system) || {}; return { proactive: y.proactive_available !== false, tools: y.tools_available !== false, memoryRO: y.memory_read_only === true }; }   // CT Q8/Q17, read-only
+    system: s => { const y = (s && s.system) || {}; return { proactive: y.proactive_available !== false, tools: y.tools_available !== false, memoryRO: false }; }   // memory read-only is never read from settings: only a 503 memory_read_only sets it (architect, 0cdadea)   // CT Q8/Q17, read-only
   };
   const UNSUPPORTED = new Set([404, 405, 501]);
   // Confirm-token + decision endpoints send no CORS headers: same-origin only (/ui/ → relative /v1). eve-serving PR #16.

@@ -50,7 +50,7 @@
   const dangerOf = (x, variant) => variant === 'forget' || x.op === 'delete' || x.verbs.includes('send') || x.verbs.includes('delete');
   const DENIED = { secret_detected: '비밀번호나 키처럼 보여서 진행하지 않았어요', cap_exceeded: '허용된 한도를 넘어서 진행하지 않았어요', tainted: '외부 내용이 섞인 요청이라 진행하지 않았어요',
     scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '그사이 지워진 항목이 있어서 진행하지 않았어요',
-    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', memory_read_only: '지금은 메모리를 바꿀 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
   const CROSS = '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 돼요';
   const RTF = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }), YTF = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   function shortDate(iso) {                            // spec B2: 오늘 / N일 전 / 10월 21일 / 2025년 3월 2일
@@ -59,12 +59,14 @@
     if (diff <= 0) return '오늘'; if (diff < 7) return diff + '일 전';
     return (d.getFullYear() === now.getFullYear() ? RTF : YTF).format(d);
   }
-  const VERB = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };   // architect: payload_view.verb; unknown → run
+  const VERB_LABEL = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };
+  const VERB_DONE = { add: '추가했어요', update: '변경했어요', send: '보냈어요', delete: '삭제했어요', run: '실행했어요' };
+  const verbOf = x => VERB_LABEL[x.verb] ? x.verb : 'run';   // architect: payload_view.verb; unknown → run
   const VAR = {
     remember: { ic: 'brain', title: () => '메모리에 저장할까요?', primary: () => '저장', secondary: '취소', done: () => '저장했어요' },
     forget: { ic: 'trash', title: x => x.ambiguous ? '어떤 걸 지울까요?' : '메모리에서 지울까요?', primary: (x, n) => `${n}개 지우기`, secondary: '취소', done: (x, n) => `${n}개 지웠어요` },
-    proactive: { ic: 'bell', title: () => '다시 알려 드릴까요?', primary: () => '예약', secondary: '괜찮아요', done: x => x.display ? `${x.display}에 알려 드릴게요` : '알림을 예약했어요' },
-    tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => VERB[x.verb] || VERB.run, secondary: '취소', done: () => '실행했어요' }
+    proactive: { ic: 'bell', title: () => '다시 알려 드릴까요?', primary: () => '알림 예약', secondary: '괜찮아요', done: x => x.display ? `${x.display}에 알려 드릴게요` : '알림을 예약했어요' },
+    tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => VERB_LABEL[verbOf(x)], secondary: '취소', done: x => VERB_DONE[verbOf(x)] }
   };
   const EXPIRED = '시간이 지나 취소됐어요';
   const deniedText = c => DENIED[c] || (c ? DENIED.invalid : '진행하지 않았어요');   // SSE denied without code → generic; unknown API code → invalid
@@ -165,6 +167,8 @@
     function settleErr(e, retry) {
       if (!e.http) return setState('error', '연결이 끊겼어요', { retry });   // network only: retryable
       if (e.code === 'expired') return setState('expired', EXPIRED);          // branch on body.error_code, never on HTTP status
+      if (e.code === 'internal_error') return setState('error', '저장하지 못했어요. 잠시 후 다시 시도해 주세요', { retry });   // 500 fail-closed: nothing changed, fresh reissue → approve is safe
+      if (e.code === 'memory_read_only') { SYS.memoryRO = true; }
       if (e.code === 'conflict') return recheck(() => setState('denied', DENIED.conflict));   // 1.1.1: load the real outcome first
       return setState('denied', deniedText(e.code || 'invalid'));
     }
@@ -206,7 +210,7 @@
       } catch (e) {
         tok = null;
         if (!e.http) return recheck();                 // may have executed server-side: never blind-retry approve (security review Low 4)
-        retryFn = () => { setState('pending'); }; settleErr(e, retryFn);
+        retryFn = () => { setState('pending'); yes.onclick(); }; settleErr(e, retryFn);
       }
     };
     async function recheck(onFail) {                         // GET /v1/actions/{id} (fallback: pending list) to learn the real outcome
