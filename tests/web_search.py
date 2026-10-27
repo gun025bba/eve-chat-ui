@@ -28,7 +28,7 @@ with sync_playwright() as p:
         const words=[e.id,e.name,e.placeholder,e.getAttribute('aria-label'),e.className].join(' ');
         out[sel]={ok:e.getAttribute('autocomplete')==='off'&&e.hasAttribute('data-1p-ignore')&&e.dataset.lpignore==='true'&&e.dataset.formType==='other'&&!bad.test(words),words}; }
       const t=document.querySelector('#input'), f=document.querySelector('#composer');
-      out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='sentences'&&t.getAttribute('autocorrect')==='on'&&!t.form&&!t.closest('form')&&f.tagName!=='FORM'};
+      out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='sentences'&&t.getAttribute('autocorrect')==='off'&&t.spellcheck===false&&!t.form&&!t.closest('form')&&f.tagName!=='FORM'};
       return out;})()""")
     for k, v in af.items(): check('no contact AutoFill hints: ' + k, v['ok'], v)
     check('toggle visible in composer', pg.evaluate("!!document.querySelector('#composer .field #webBtn')") and btn.is_visible())
@@ -55,7 +55,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2200)
     last = pg.locator('.msg.assistant').last
     cites = last.locator('.md sup.cite a')
-    check('citation capsules rendered (1.5.0: [1,2] merged)', cites.count() >= 3, cites.count())
+    check('citation capsules rendered (1.5.1: [1,2] merged)', cites.count() >= 3, cites.count())
     check('cite [1] -> source url', cites.first.get_attribute('href') == 'https://example.com/notes?a=1&b=2', cites.first.get_attribute('href'))
     check('cite rel/target', all(cites.nth(i).get_attribute('rel') == 'noopener noreferrer' and cites.nth(i).get_attribute('target') == '_blank' for i in range(cites.count())))
     md = last.locator('.md').inner_html()
