@@ -39,9 +39,11 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  if (_cites) s = s.replace(/\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\](?!\()/g, (all, list) => {
-    const ns = list.split(',').map(x => +x.trim()); if (!ns.every(n => _cites.has(n))) return all;
-    return ns.map(n => { const c = _cites.get(n); return `<sup class="cite"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(c.title || c.domain || '')}" aria-label="출처 ${n}">${n}</a></sup>`; }).join('');
+  if (_cites) s = s.replace(/(?:\[\d{1,3}(?:\s*,\s*\d{1,3})*\](?!\())+/g, all => {
+    // 1.5.0: consecutive citations ([1,2] or [1][2]) merge into one capsule "1·2"
+    const ns = [...new Set(all.match(/\d{1,3}/g).map(Number))]; if (!ns.every(n => _cites.has(n))) return all;
+    const c0 = _cites.get(ns[0]); const lab = ns.map(n => `출처 ${n}, ${srcDomain(_cites.get(n))}`).join('; ');
+    return `<sup class="cite"><a href="${escapeHtml(c0.url)}" target="_blank" rel="noopener noreferrer" data-n="${ns.join(',')}" aria-label="${escapeHtml(lab)}">${ns.join('·')}</a></sup>`;
   });
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
@@ -118,15 +120,26 @@ let _cites = null;
 function safeUrl(u) { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : ''; } catch { return ''; } }
 function citeMap(sources) {
   if (!Array.isArray(sources) || !sources.length) return null;
-  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '' }); });
+  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '' }); });
   return m.size ? m : null;
 }
-function srcDomain(c) { if (c.domain) return c.domain; try { return new URL(c.url).hostname.replace(/^www\./, ''); } catch { return ''; } }
+function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
+function srcFavicon(c) { const u = c.favicon || c.icon; if (typeof u !== 'string') return ''; if (/^data:image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|webp|gif|jpeg);base64,/i.test(u)) return u; return /^\/(?!\/)[\w\-./?=&%]+$/.test(u) ? u : ''; } // server-provided only: data: or same-origin path (CSP img-src 'self' data:)
+function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url;
+  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${d}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }
+let _srcSeq = 0;
+// 1.5.0 compact sources: one 44px row (≤3 favicons + "출처 N개 ›"), expands inline; >6 → 5 + 모두 보기 (bottom sheet)
 function renderSources(sources) {
   const m = citeMap(sources); if (!m) return '';
-  const items = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([n, c]) => { const d = srcDomain(c);
-    return `<li><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer"><span class="sn">${n}</span><span class="st">${escapeHtml(c.title || d || c.url)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }).join('');
-  return `<section class="sources" aria-label="출처"><h4>출처</h4><ol>${items}</ol></section>`;
+  const all = [...m.entries()].sort((a, b) => a[0] - b[0]);
+  const seen = new Set(), favs = [];
+  for (const [, c] of all) { const d = srcDomain(c); if (seen.has(d)) continue; seen.add(d); if (favs.length < 3) favs.push([d, srcFavicon(c)]); }
+  const uniq = new Set(all.map(([, c]) => c.url)).size;
+  const fav = favs.map(([d, u]) => u ? `<span class="fav"><img src="${escapeHtml(u)}" alt="" referrerpolicy="no-referrer" loading="lazy" data-mono="${escapeHtml((d[0] || '?').toUpperCase())}"></span>` : `<span class="fav mono">${escapeHtml((d[0] || '?').toUpperCase())}</span>`).join('');
+  const id = 'src' + (++_srcSeq), many = all.length > 6, shown = many ? all.slice(0, 5) : all;
+  return `<section class="sources" aria-label="출처"><button type="button" class="src-row" aria-expanded="false" aria-controls="${id}"><span class="favs" aria-hidden="true">${fav}</span><span class="src-n">출처 ${uniq}개</span><span class="src-chev" aria-hidden="true">›</span></button>`
+    + `<div class="src-list" id="${id}" hidden><ol role="list">${shown.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
+    + `<template class="src-all-tpl"><ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
 }
 function renderMarkdown(src, sources) {
   _cites = citeMap(sources);
@@ -660,6 +673,7 @@ if (typeof document !== 'undefined') (function () {
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
+    if (live) bubble._streamed = true;
     if (live && bubble._live && !opts.slow && !opts.resuming && patchLive(bubble, think, answer, live && thinking)) return;
     const prev = bubble.querySelector('details.think');
     let html = '';
@@ -676,9 +690,12 @@ if (typeof document !== 'undefined') (function () {
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
     else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}`;
-    bubble._live = live;
+    const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     bubble.innerHTML = html;
+    if (wasLive && !live) bubble._freshAt = performance.now();
+    { const sec = !live && bubble._freshAt && bubble.querySelector('.sources'), el = sec ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill
+      if (sec && el < 120) { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; } }
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
@@ -1006,7 +1023,7 @@ if (typeof document !== 'undefined') (function () {
         setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
       }
       if (j.object === 'chat.completion.tool_result') {
-        if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; }
+        if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
         setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
       }
       if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
@@ -1718,6 +1735,39 @@ if (typeof document !== 'undefined') (function () {
     PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
+  // 1.5.0 compact sources: row toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function setSrcOpen(sec, open) {
+    const row = sec.querySelector('.src-row'), list = sec.querySelector('.src-list'); if (!row || !list) return;
+    row.setAttribute('aria-expanded', String(open)); sec.classList.toggle('open', open);
+    if (open) { list.hidden = false; list.classList.remove('in'); void list.offsetWidth; list.classList.add('in'); }
+    else if (reduceMotion()) list.hidden = true;
+    else { list.classList.remove('in'); setTimeout(() => { if (!sec.classList.contains('open')) list.hidden = true; }, 280); }
+  }
+  function openSrcSheet(sec) {
+    let d = document.getElementById('srcSheet');
+    if (!d) { d = document.createElement('dialog'); d.id = 'srcSheet'; d.className = 'src-sheet'; d.setAttribute('aria-labelledby', 'srcSheetTitle'); document.body.appendChild(d);
+      d.addEventListener('click', e => { if (e.target === d || e.target.closest('.src-close')) d.close(); }); d.addEventListener('close', () => document.body.classList.remove('sheet-open')); }
+    const n = sec.querySelectorAll('.src-all-tpl')[0]?.content.querySelectorAll('.src-item').length || 0;
+    d.innerHTML = `<div class="grabber" aria-hidden="true"></div><div class="src-sheet-head"><h3 id="srcSheetTitle">출처 ${n}개</h3><button type="button" class="text-btn src-close">닫기</button></div><div class="src-sheet-body"></div>`;
+    d.querySelector('.src-sheet-body').appendChild(sec.querySelector('.src-all-tpl').content.cloneNode(true));
+    document.body.classList.add('sheet-open'); d.showModal();
+  }
+  document.addEventListener('click', e => {
+    const row = e.target.closest?.('.sources .src-row');
+    if (row) { const sec = row.closest('.sources'); setSrcOpen(sec, row.getAttribute('aria-expanded') !== 'true'); return; }
+    const all = e.target.closest?.('.sources .src-all'); if (all) { openSrcSheet(all.closest('.sources')); return; }
+    const cite = e.target.closest?.('sup.cite a[data-n]'); if (!cite) return;
+    const sec = cite.closest('.bubble')?.querySelector('.sources'); if (!sec) return; // streaming: no row yet → default link
+    e.preventDefault();
+    const n = cite.dataset.n.split(',')[0]; setSrcOpen(sec, true);
+    let it = sec.querySelector(`.src-list .src-item[data-n="${n}"]`);
+    if (!it) { openSrcSheet(sec); it = document.querySelector(`#srcSheet .src-item[data-n="${n}"]`); }
+    if (!it) return;
+    it.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
+    it.classList.remove('hl'); void it.offsetWidth; it.classList.add('hl'); setTimeout(() => it.classList.remove('hl'), 600);
+  });
+  document.addEventListener('error', e => { const img = e.target; if (img?.tagName === 'IMG' && img.dataset.mono && img.parentElement?.classList.contains('fav')) { const f = img.parentElement; f.classList.add('mono'); f.textContent = img.dataset.mono; } }, true);
   try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
@@ -1732,7 +1782,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.4.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.5.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
