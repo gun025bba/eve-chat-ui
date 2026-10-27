@@ -511,7 +511,7 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .mig-note{font-size:12px;color:var(--label-3);margin:8px 0 0}
 .mig-ring{width:48px;height:48px;transform:rotate(-90deg);margin:8px auto;display:block}
 .mig-ring circle{fill:none;stroke-width:4}.mig-ring .trk{stroke:var(--fill)}.mig-ring .val{stroke:var(--accent);stroke-dasharray:138;stroke-dashoffset:138;transition:stroke-dashoffset 300ms var(--ease-out);stroke-linecap:round}
-.mig-track{height:3px;border-radius:2px;background:var(--fill);overflow:hidden;margin:4px 0 12px}.mig-track i{display:block;height:100%;width:0;background:var(--accent);transition:width 300ms}
+.mig-track{height:3px;border-radius:2px;background:var(--fill);overflow:hidden;margin:4px 0 12px}.mig-track i{display:block;height:100%;width:100%;transform:scaleX(0);transform-origin:left;background:var(--accent);transition:transform 300ms var(--ease-standard)}
 .mig-fails{list-style:none;padding:0;margin:8px 0;text-align:left}.mig-fails li{padding:6px 0;font-size:15px}.mig-fails small{display:block;font-size:13px;color:var(--label-2)}
 .ctx-title{padding:12px 16px;font-size:13px;color:var(--label-2);text-align:center}
 #titleWrap{cursor:pointer}
@@ -770,8 +770,8 @@ body{word-break:keep-all}
 @media (prefers-color-scheme:light){.codeblock{background:var(--code-bg)}}
 .actions .icon,.actions button{color:var(--label-3)}
 /* navigation: headline + caption subtitle */
-#title{font:var(--t-headline);letter-spacing:-.2px}
-#modelName{font:var(--t-caption);letter-spacing:.2px;color:var(--label-3)}
+#title{font-size:17px;line-height:22px;letter-spacing:-.2px}
+#modelName{font-size:12px;line-height:14px;font-weight:500;letter-spacing:.2px;margin-top:0}
 #topbar,.navbar{box-shadow:none}
 #topbar::after,.navbar::after{background:var(--hair-strong)}
 .large-title{font:var(--t-large);letter-spacing:-.4px}
