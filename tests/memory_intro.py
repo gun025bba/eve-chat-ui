@@ -34,7 +34,7 @@ with sync_playwright() as p:
 
     # 1) flag off → nothing
     setup(); ctx, pg = launch(flag=False)
-    check('version 1.3.1', pg.evaluate('__app.version') == '1.3.1' and 'v1.3.1' in pg.text_content('#appVersion'))
+    check('version 1.3.2', pg.evaluate('__app.version') == '1.3.2' and 'v1.3.2' in pg.text_content('#appVersion'))
     check('flag off → no sheet, no seen', not shown(pg) and seenLocal(pg) is None and not uiPatches()); ctx.close()
 
     # 2) memory.enabled false → no sheet, no seen

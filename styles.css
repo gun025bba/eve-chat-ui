@@ -10,13 +10,13 @@
   --r-xs:6px;--r-sm:10px;--r-md:14px;--r-lg:20px;--r-xl:24px;
   --d-1:120ms;--d-2:200ms;--d-3:320ms;--d-4:450ms;--d-instant:var(--d-1);--d-fast:var(--d-2);--d-base:var(--d-3);--d-slow:var(--d-4);--kb:0px;
   --ease-standard:cubic-bezier(.32,.72,0,1);--ease-out:cubic-bezier(.22,1,.36,1);--ease-in:cubic-bezier(.4,0,1,1);--ease-spring:cubic-bezier(.34,1.3,.64,1);--ease-spring-soft:linear(0,.25 6%,.6 15%,.86 27%,.98 40%,1.01 52%,1,1);--ease-sheet:var(--ease-standard);
-  --composer-h:72px;--header-h:44px;--vvh:100dvh;
+  --composer-h:72px;--header-bg:#101011;--title-solid:#F5F5F7;--subtitle-solid:#8E8E93;--header-h:44px;--vvh:100dvh;
 }
 @media (prefers-color-scheme:light){:root{
   --bg:#fff;--bg-elev:#F2F2F7;--bg-elev-2:#E5E5EA;--fill:rgba(120,120,128,.12);
   --label:#1D1D1F;--label-2:rgba(60,60,67,.62);--label-3:rgba(60,60,67,.32);
   --separator:rgba(60,60,67,.18);--accent:#007AFF;--user-bubble:#E9E9EB;--user-fg:#1D1D1F;
-  --danger:#FF3B30;--code-bg:#F6F6F8;--material:rgba(255,255,255,.72);--scrim:rgba(0,0,0,.25);--green:#34C759}}
+  --header-bg:#F6F6F7;--title-solid:#1D1D1F;--subtitle-solid:#6E6E73;--danger:#FF3B30;--code-bg:#F6F6F8;--material:rgba(255,255,255,.72);--scrim:rgba(0,0,0,.25);--green:#34C759}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--label);font:17px/1.55 var(--font);
   -webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none}
@@ -29,7 +29,7 @@ button:active{transform:scale(.96);transition-duration:var(--d-instant)}
 /* header */
 #topbar{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:var(--s2);
   height:calc(var(--header-h) + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left));
-  background:var(--material);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+  background:var(--header-bg)}
 #topbar::after,.navbar::after{content:"";position:absolute;left:0;right:0;bottom:0;height:.5px;background:var(--separator);opacity:0;transition:opacity var(--d-2) var(--ease-out);pointer-events:none}
 #topbar.scrolled::after,.navbar.collapsed::after{opacity:1}
 #titleWrap{flex:1;min-width:0;text-align:center;line-height:1.15}
@@ -262,14 +262,11 @@ img,svg{-webkit-user-drag:none;pointer-events:none}
 /* §2 navbar */
 .navbar{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:4px;height:var(--nav-h);
   padding:env(safe-area-inset-top) max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left));
-  background:var(--material);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);transition:background-color var(--d-1)}
+  background:var(--header-bg)}
 #listView .navbar{justify-content:space-between}
 .navbar .nav-inline-title{position:absolute;left:50%;bottom:11px;translate:-50% 0;opacity:0;transform:translateY(4px);transition:opacity var(--d-fast) linear,transform var(--d-fast) var(--ease-out);font:600 17px/22px var(--font)}
 .navbar.collapsed .nav-inline-title{opacity:1;transform:none}
 .navbar.collapsed{box-shadow:0 .5px 0 var(--separator)}
-#listView .navbar:not(.collapsed){background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
-.navbar:not(.collapsed)::before{content:"";position:absolute;inset:0 0 auto;height:env(safe-area-inset-top);background:var(--bg)}
-#topbar::before{display:none}
 .navbar .icon{color:var(--accent)}
 .icon:active,.nav-back:active{background:none;transform:none;opacity:.35;transition-duration:0ms}
 .icon,.nav-back{transition:opacity 200ms linear}
@@ -522,25 +519,10 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 
 @media (prefers-color-scheme:light){.empty .mark{background-image:url(icons/mark-light.svg)}}
 
-/* v10 header text crispness (iOS standalone): the glass lives on a pseudo-element BEHIND the content.
-   With backdrop-filter on #topbar itself, WebKit could promote the absolutely positioned #titleWrap to its own
-   compositing layer and paint it under the backdrop pass, so the title/subtitle were blurred with the backdrop
-   while the in-flow buttons stayed sharp. Only visible with a status-bar safe area (standalone). */
-#topbar{isolation:isolate;background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
-#topbar::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--material);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
-#topbar #titleWrap{z-index:1;transform:none;will-change:auto;filter:none}
-
-/* v11 header crispness, take 2 (iOS standalone): no backdrop-filter anywhere in the chat header.
-   WebKit in standalone (content under the status bar) still smeared the absolutely positioned title/subtitle
-   when any backdrop-filter layer sat in the same stacking context, and --label-3 (32% alpha) made the subtitle
-   look washed out on top of that. The header is now an opaque solid bar with solid text colours. */
-:root{--topbar-solid:#101011;--title-solid:#F5F5F7;--subtitle-solid:#8E8E93}
-@media (prefers-color-scheme:light){:root{--topbar-solid:#F6F6F7;--title-solid:#1D1D1F;--subtitle-solid:#6E6E73}}
-#topbar{background:var(--topbar-solid)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;isolation:auto}
-#topbar::after{content:none!important;display:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-#topbar #titleWrap,#topbar #title,#topbar #modelName{opacity:1!important;filter:none!important;text-shadow:none!important;transform:none!important;will-change:auto!important;mix-blend-mode:normal!important;-webkit-text-stroke:0!important;animation:none!important;transition:none!important;-webkit-font-smoothing:antialiased}
-#topbar #title{color:var(--title-solid)!important}
-#topbar #modelName{color:var(--subtitle-solid)!important}
+/* 1.3.2: headers are opaque (no backdrop-filter): a translucent, blurred header under the iOS standalone status bar
+   (black-translucent) showed the content blurred behind the status bar and smeared the title. */
+#topbar #title{color:var(--title-solid)}
+#topbar #modelName{color:var(--subtitle-solid)}
 
 /* v12 header title crispness, take 3 (iOS standalone): only #title (Korean glyphs, weight 600) smeared while the
    400-weight subtitle stayed sharp. Likely causes: WebKit synthesising a 600 weight for the CJK fallback face
@@ -740,9 +722,6 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
 .mem-intro-alt{min-height:44px;color:var(--accent);font-size:17px;margin-top:4px}
 @media (prefers-reduced-motion:reduce){.mem-intro{transform:none;opacity:0;transition:opacity .2s}.mem-intro.show{opacity:1}.mem-intro-scrim{transition:opacity .2s}.mem-intro-icon{transform:none;transition:opacity .2s}}
-/* 1.2.1 — standalone status bar: opaque strip under the status bar (no blurred content behind it), header blur starts below it */
-.navbar::before,#topbar::before{content:"";position:absolute;inset:0 0 auto;height:env(safe-area-inset-top);background:var(--bg);pointer-events:none;display:block;z-index:0}
-@media (display-mode:standalone){.navbar,#topbar{background-clip:padding-box}}
 /* 1.2.1 — no horizontal scroll from long sources/links/tables/code (design 2deb88d SOURCES-SPEC.md) */
 html,body,#messages{overflow-x:clip}
 .msg,.msg>*,.bubble,.md,.md *{min-width:0}

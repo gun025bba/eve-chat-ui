@@ -13,11 +13,11 @@ errs = []
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark').new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500)
-    check('version 1.3.1', pg.evaluate('__app.version') == '1.3.1')
+    check('version 1.3.2', pg.evaluate('__app.version') == '1.3.2')
     a = pg.evaluate("(()=>{const i=document.getElementById('input');return [i.tagName,i.name,i.getAttribute('autocomplete'),i.getAttribute('autocorrect'),i.getAttribute('autocapitalize'),i.getAttribute('enterkeyhint')]})()")
-    check('composer: textarea, non-name name, autocomplete off, autocorrect/autocapitalize/enterkeyhint', a == ['TEXTAREA', 'eve-composer-text', 'off', 'on', 'sentences', 'send'] and not re.search(r'name|contact|tel|email', a[1].replace('eve-composer', '')), a)
-    s = pg.evaluate("(()=>{const r=[];document.querySelectorAll('.navbar,#topbar').forEach(n=>{const c=getComputedStyle(n,'::before');r.push([c.display,c.backgroundColor])});return r})()")
-    check('opaque status-bar strip on every header (::before, var(--bg))', s and all(d == 'block' and bg == 'rgb(0, 0, 0)' for d, bg in s), s)
+    check('composer: textarea, non-name name, autocomplete off, autocorrect/autocapitalize/enterkeyhint', a == ['TEXTAREA', '', 'off', 'on', 'sentences', 'send'] and not re.search(r'name|contact|tel|email', a[1]), a)
+    s = pg.evaluate("(()=>[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n);return [c.backgroundColor,c.backdropFilter||c.webkitBackdropFilter||'none']}))()")
+    check('1.3.2: every header opaque, no backdrop-filter', s and all(not bg.startswith('rgba') and bg != 'transparent' and bf == 'none' for bg, bf in s), s)
     pg.evaluate("""(()=>{const m=document.getElementById('messages');const d=document.createElement('div');d.className='msg assistant';
       const long='https://example.com/'+'a'.repeat(400);
       d.innerHTML='<div class="bubble"><div class="md"><p>'+long+'</p><table><tr>'+'<td>wide-cell-content</td>'.repeat(30)+'</tr></table><div class="codeblock"><pre><code>'+'const x = 1; '.repeat(80)+'</code></pre></div></div><div class="sources"><h4>출처</h4><ol><li><a href="#"><span class="sn">1</span><span class="st">'+'아주긴제목'.repeat(100)+'</span><span class="sd">'+'x'.repeat(200)+'.com</span></a></li></ol></div></div>';
