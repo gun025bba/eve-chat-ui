@@ -32,7 +32,7 @@ with sync_playwright() as p:
             acc = pg.evaluate("(()=>{const e=document.createElement('i');e.style.color='var(--accent)';document.body.appendChild(e);const c=getComputedStyle(e).color;e.remove();return c})()")
             check('capsule visual 16px, var(--accent) on 16% accent mix', cs['h'] == 16 and cs['c'] == acc and 'tabular' in cs['num'] and ('srgb' in cs['bg'] or cs['bg'].startswith('rgba(10, 132, 255, 0.16')), [cs, acc])
             mono = pg.evaluate("(()=>{const m=document.querySelector('#many .fav.mono'),s=getComputedStyle(m);return {fs:s.fontSize,lh:s.lineHeight,ls:s.letterSpacing,clip:m.scrollWidth<=m.clientWidth}})()")
-            check('monogram 8px/14px in chip, not clipped', mono['fs'] == '8px' and mono['lh'] == '14px' and mono['ls'] == 'normal' and mono['clip'], mono)
+            check('monogram 9px/14px in chip, not clipped', mono['fs'] == '9px' and mono['lh'] == '14px' and mono['ls'] == 'normal' and mono['clip'], mono)
             g = pg.evaluate("""(()=>{const m=document.getElementById('messages');const t=document.createElement('div');t.className='msg assistant';t.id='glue';
               const src=[{n:1,title:'a',url:'https://a.example/'},{n:2,title:'b',url:'https://b.example/'}];
               t.innerHTML='<div class="bubble"><div class="md">'+renderMarkdown('짧은말[1]. 그리고 끝[1][2]」 **굵게**[2]! 아주아주아주아주긴단어입니다요[1]?', src)+'</div></div>';m.appendChild(t);
@@ -45,14 +45,14 @@ with sync_playwright() as p:
             check('capsule ::before hit area ≥44', cs['hh'] >= 44 and cs['hw'] >= 16 + 12, cs)
             row = pg.evaluate("""(()=>{const s=document.querySelector('#many .sources'),r=s.querySelector('.src-row'),cs=[...r.querySelectorAll('.sc')],ins=cs.map(c=>c.querySelector('.sc-in')),rb=r.getBoundingClientRect();
               const st=getComputedStyle(ins[0]);return {sec:s.getBoundingClientRect().height,rowH:rb.height,n:cs.length,txt:cs.map(c=>(c.querySelector('.sc-n')||c).textContent.trim()),h:ins.map(x=>x.getBoundingClientRect().height),tops:ins.map(x=>Math.round(x.getBoundingClientRect().top)),
-              hit:cs.map(c=>[c.getBoundingClientRect().width,c.getBoundingClientRect().height]),fav:[...r.querySelectorAll('.sc .fav')].map(f=>f.getBoundingClientRect().width),rad:st.borderRadius,bg:st.backgroundColor,sh:st.boxShadow,tp:st.transitionProperty,ft:st.fontSize+'/'+st.fontWeight,
+              hit:cs.map(c=>[c.getBoundingClientRect().width,c.getBoundingClientRect().height]),fav:[...r.querySelectorAll('.sc .fav')].map(f=>f.getBoundingClientRect().width),rad:st.borderRadius,bg:st.backgroundColor,sh:st.boxShadow,td:st.transitionDuration,ft:st.fontSize+'/'+st.fontWeight,
               exp:cs.map(c=>c.getAttribute('aria-expanded')),ctl:cs.every(c=>!!document.getElementById(c.getAttribute('aria-controls'))),labs:cs.map(c=>c.getAttribute('aria-label')),oneLine:r.scrollWidth<=r.clientWidth,
               imgs:[...r.querySelectorAll('.fav img')].map(i=>i.src.slice(0,10)),mono:[...r.querySelectorAll('.fav.mono')].map(x=>x.textContent),listHidden:s.querySelector('.src-list').hidden,old:!!s.querySelector('.src-n,.src-chev,.favs')}})()""")
             l1 = pg.evaluate("(()=>{const e=document.createElement('i');e.style.background='var(--layer-1)';document.body.appendChild(e);const c=getComputedStyle(e).backgroundColor;e.remove();return c})()")
             check('collapsed: chips only (no 44px row text/chevron), list hidden', row['n'] == 3 and row['listHidden'] and not row['old'], row)
             check('≤2 domain chips + "+N" (N = sources w/o a chip)', row['txt'][:2] == ['site1.example.com', 'site2.example.com'] and row['txt'][2] == '+4', row['txt'])
             check('chip capsule 26px tall, radius 13, 14px favicon', all(h == 26 for h in row['h']) and row['rad'] == '13px' and set(row['fav']) == {14}, row)
-            check('chip tokens: layer-1 bg, .5px hair inset, caption 12/500, bg/color transition only', row['bg'] == l1 and '0.5px' in row['sh'] and row['ft'] == '12px/500' and row['tp'] == 'background-color, color', [row['bg'], l1, row['sh'], row['ft'], row['tp']])
+            check('chip tokens: layer-1 bg, .5px hair inset, caption 12/500, no transitions', row['bg'] == l1 and '0.5px' in row['sh'] and row['ft'] == '12px/500' and row['td'] == '0s', [row['bg'], l1, row['sh'], row['ft'], row['td']])
             check('one line: same top, row ≤ one 44px touch row, no overflow', len(set(row['tops'])) == 1 and row['rowH'] == 44 and row['sec'] == 44 and row['oneLine'], row)
             check('touch targets ≥44 (chip, +N)', all(h == 44 for _, h in row['hit']) and row['hit'][2][0] >= 44, row['hit'])
             check('aria: expanded=false + controls list, labels', row['exp'] == ['false'] * 3 and row['ctl'] and row['labs'] == ['출처 site1.example.com', '출처 site2.example.com', '출처 4개 더 보기'], row)
