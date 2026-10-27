@@ -53,6 +53,8 @@ with sync_playwright() as p:
 
     # 4) single delete: no confirm, toast '삭제됨 · 되돌리기' 2.8s, DELETE after it closes; undo cancels
     r2 = rows().nth(3); rid = r2.get_attribute('data-id'); r2.locator('.mem-del').click(); pg.wait_for_timeout(300)
+    tb = pg.evaluate("(()=>{const t=document.getElementById('memToast').getBoundingClientRect(),d=document.getElementById('settings').getBoundingClientRect();return [Math.round(d.bottom-t.bottom), Math.round(t.top)]})()")
+    check('undo toast pinned near sheet bottom (short list)', 0 <= tb[0] <= 60, tb)
     check('no confirm sheet, row hidden, toast + 되돌리기 + first-time backup note', pg.locator('.mem-confirm').count() == 0 and rows().count() == 3 and '삭제됨' in pg.text_content('#memToastText') and '백업에는 최대 7일 남아요' in pg.text_content('#memToastText') and pg.text_content('#memToastAct') == '되돌리기' and not pro()['memDeletes'])
     pg.click('#memToastAct'); pg.wait_for_timeout(3200)
     check('되돌리기 → row back, no DELETE', rows().count() == 4 and not pro()['memDeletes'])
