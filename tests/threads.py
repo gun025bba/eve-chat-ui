@@ -17,7 +17,7 @@ with sync_playwright() as p:
     c=b.new_context(viewport={'width':393,'height':852}, is_mobile=True, has_touch=True)
     c.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);"+SETTINGS+"}")
     pg=c.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
-    pg.goto(BASE+'#/'); pg.wait_for_timeout(1500)
+    pg.goto(BASE+'#/log'); pg.wait_for_timeout(1500)
     st=pg.evaluate('__app.state()'); check('server mode', st['mode']=='server', str(st))
     n0=pg.locator('#convList li.row').count(); check('first page loaded', 0<n0<45, str(n0))
     for _ in range(6): pg.evaluate("document.querySelector('#convList').closest('.scroll, main, section, #listView').querySelectorAll('*').forEach(e=>{if(e.scrollHeight>e.clientHeight)e.scrollTop=e.scrollHeight})"); pg.wait_for_timeout(500)
@@ -27,7 +27,7 @@ with sync_playwright() as p:
     marks=pg.locator('#convList mark').count(); check('server search highlights <mark>', marks>=1, str(marks))
     pg.locator('#convList li').filter(has=pg.locator('mark')).first.click(); pg.wait_for_timeout(1200)
     check('search hit opens thread', pg.evaluate("document.querySelector('#app').dataset.route")=='chat' and '바나나' in pg.inner_text('#chatView'))
-    pg.goto(BASE+'#/'); pg.wait_for_timeout(800); pg.fill('#search',''); pg.wait_for_timeout(500)
+    pg.goto(BASE+'#/log'); pg.wait_for_timeout(800); pg.fill('#search',''); pg.wait_for_timeout(500)
     # new thread send
     pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500); pg.fill('#input','hello server'); pg.click('#sendBtn'); pg.wait_for_timeout(4000)
     d=db(); th=[t for t in d['threads'] if t['title']!='' and not t['title'].startswith('서버 대화')]
@@ -57,7 +57,7 @@ with sync_playwright() as p:
     msgs=[m for m in db()['messages'] if m['thread_id']==cid]
     check('regenerate replaces (no new user msg)', len(msgs)==2 and not msgs[1].get('feedback'), str(len(msgs)))
     # archive with undo then commit
-    pg.goto(BASE+'#/'); pg.wait_for_timeout(1200)
+    pg.goto(BASE+'#/log'); pg.wait_for_timeout(1200)
     pg.evaluate("document.querySelector('#convList li.row').scrollIntoView()")
     pg.locator('#convList li.row').first.dispatch_event('contextmenu'); pg.wait_for_timeout(400)
     if pg.is_visible('#ctx'):

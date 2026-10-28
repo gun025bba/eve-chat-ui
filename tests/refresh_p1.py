@@ -22,7 +22,7 @@ with sync_playwright() as p:
         nav = pg.evaluate("document.getElementById('modelName').textContent")   # 1.10.0 B1: the empty screen (tile / headline / chips) is gone — see b1_empty.py
         css = open(__import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'styles.css')).read()
         check(f'[{scheme}] mig track/ring use var(--d-3), no 300ms', 'stroke-dashoffset var(--d-3)' in css and '.mig-track i{display:block;height:100%;width:100%;transform:scaleX(0);transform-origin:left;background:var(--accent);transition:transform var(--d-3)' in css)
-        check(f'[{scheme}] no model name in nav subtitle or empty state', nav == '로컬 · 비공개' and 'Qwen' not in pg.inner_text('#chatView'), nav)
+        check(f'[{scheme}] no model name in nav subtitle or empty state (B2: "로컬 · 비공개" moved to the top of settings)', nav == '' and '로컬 · 비공개' in pg.text_content('#sPriv') and 'Qwen' not in pg.inner_text('#chatView'), nav)
         c = pg.evaluate("""(()=>{const f=document.querySelector('#composer .field'),i=document.getElementById('input'),s=document.getElementById('sendBtn');i.focus();
           const fc=getComputedStyle(f),ic=getComputedStyle(i),a=getComputedStyle(f,'::after');
           return {radius:fc.borderTopLeftRadius,shadow:fc.boxShadow,outline:ic.outlineStyle,ring:a.boxShadow,send:getComputedStyle(s,'::after').opacity,dis:s.disabled,sw:s.getBoundingClientRect().width,hit:s.getBoundingClientRect().width-2*parseFloat(getComputedStyle(s,'::before').left)}})()""")

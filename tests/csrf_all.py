@@ -81,7 +81,7 @@ with sync_playwright() as p:
     check('cross-origin base: card shown', cx.count() == 1, q.evaluate('__app.state()'))
     check('cross-origin base: approve + reject disabled', cx.locator('.cc-primary').is_disabled() and cx.locator('.cc-secondary').is_disabled())
     check('cross-origin base: clear message', '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요' in cx.inner_text(), cx.inner_text())
-    q.evaluate("history.back()"); q.wait_for_timeout(400); q.click('#openSettings'); q.wait_for_timeout(700)
+    q.click("#backBtn"); q.wait_for_timeout(600); q.click("#logBack"); q.wait_for_timeout(600); q.click("#openSettings"); q.wait_for_timeout(700)
     check('settings: cross-origin base warning shown', q.is_visible('#sBaseWarn') and '이 앱과 다른 서버를 쓰고 있어요' in q.inner_text('#sBaseWarn'))
     q.fill('#sBase', ''); q.wait_for_timeout(100); check('warning hides for same server', not q.is_visible('#sBaseWarn'))
     q.fill('#sBase', FOREIGN); q.keyboard.press('Escape'); q.wait_for_timeout(400)

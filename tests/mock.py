@@ -676,6 +676,14 @@ class H(SimpleHTTPRequestHandler):
                 if b.get('memory'): PRO['settings']['memory'] = {'enabled': True}
                 th['updated_at'] = now()
             return s.j(200, out)
+        if p == '/b2/seed':   # 1.10.0 B2 fixtures: {title, created?, updated?, archived?, messages:[{role, content, created_at?, origin?, provenance?, kind?, template_kind?, read_at?, …}]}
+            b = s.body(); out = {}
+            with LOCK:
+                th = new_thread(b.get('title', '대화'), b.get('created'), archived=bool(b.get('archived'))); out['thread'] = th['id']; out['msgs'] = []
+                for m in b.get('messages', []):
+                    m = dict(m); role = m.pop('role'); c = m.pop('content', ''); out['msgs'].append(add_msg(th['id'], role, c, **m)['id'])
+                th['updated_at'] = b.get('updated') or b.get('created') or now()
+            return s.j(200, out)
         if p == '/seed':
             b = s.body(); out = []
             with LOCK:

@@ -68,6 +68,7 @@ with sync_playwright() as p:
     req('PUT','/pro/set',{'resume404':False})
     def reload_thread(tid):
         pg.goto(BASE+'#/'); pg.wait_for_timeout(400); pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(1500)
+        pg.click('#openLog'); pg.wait_for_timeout(500)
         pg.click(f'#convList li.row[data-id="{tid}"]'); pg.wait_for_timeout(1200)
     def nres(): return len(db()['state'].get('resumes', []))
     # 8) stop with a mid → POST .../cancel (CSRF header, no body) → 중지됨; server row failed/cancelled
