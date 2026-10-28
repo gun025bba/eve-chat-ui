@@ -1465,7 +1465,7 @@ if (typeof document !== 'undefined') (function () {
   window.addEventListener('popstate', e => {
     popping = false;
     if (ignorePop) { ignorePop--; return; }
-    const st = e.state || { route: 'today' };
+    const st = e.state || { route: location.hash === '#/log' ? 'list' : location.hash === '#/archive' ? 'archive' : 'today' };   // a hand-typed hash change has no state: read the route from the hash
     if (st.route === 'chat' && st.from) chatFrom = st.from;
     if (st.route === 'chat' && st.id && st.id !== currentId && (convs.some(c => c.id === st.id) || archivedList.some(c => c.id === st.id))) { saveDraft(); currentId = st.id; persist(); renderAll(); loadDraft(); ensureMessages(cur()); }
     const r = RANK[st.route] != null ? st.route : 'today';

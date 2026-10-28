@@ -20,7 +20,10 @@ sw = open(os.path.join(d, 'sw.js')).read()
 check('sw: no ignoreSearch for versioned assets, precache uses cache:reload', "cache: 'reload'" in sw and 'styles.css' not in re.search(r"const SHELL = \[[^\]]*\]", sw).group(0).replace('...ASSETS', ''), None)
 OPAQ = """(()=>{const bad=[];for(const n of document.querySelectorAll('*')){const c=getComputedStyle(n);const bf=c.backdropFilter||c.webkitBackdropFilter||'none';if(bf!=='none')bad.push((n.id||n.className||n.tagName)+' '+bf)}
   const hdr=[...document.querySelectorAll('#topbar,.navbar,.sheet-head,.src-sheet-head')].filter(n=>n.offsetParent!==null).map(n=>[n.id||n.className,getComputedStyle(n).backgroundColor]);
-  return {bad,hdr:hdr.filter(([,bg])=>!/^rgb\\(/.test(bg)&&!(bg==='rgba(0, 0, 0, 0)'&&false))}})()"""
+  // B2 (large-title screens): the nav is transparent only while the title is expanded (nothing scrolled under it); its ::before is an opaque material that fades in on .collapsed
+  const tl=n=>/^rgb\\(/.test(getComputedStyle(n,'::before').backgroundColor)&&getComputedStyle(n,'::before').content!=='none';
+  const hdr2=[...document.querySelectorAll('#topbar,.navbar,.sheet-head,.src-sheet-head')].filter(n=>n.offsetParent!==null&&!(getComputedStyle(n).backgroundColor==='rgba(0, 0, 0, 0)'&&tl(n)&&n.closest('#todayView,#listView'))).map(n=>[n.id||n.className,getComputedStyle(n).backgroundColor]);
+  return {bad,hdr:hdr2.filter(([,bg])=>!/^rgb\\(/.test(bg))}})()"""
 with sync_playwright() as p:
     b = p.chromium.launch()
     for scheme in ['dark', 'light']:

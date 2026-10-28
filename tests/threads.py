@@ -23,11 +23,11 @@ with sync_playwright() as p:
     for _ in range(6): pg.evaluate("document.querySelector('#convList').closest('.scroll, main, section, #listView').querySelectorAll('*').forEach(e=>{if(e.scrollHeight>e.clientHeight)e.scrollTop=e.scrollHeight})"); pg.wait_for_timeout(500)
     n1=pg.locator('#convList li.row').count(); check('infinite scroll loads all', n1==45, str(n1))
     # search
-    pg.fill('#search','바나나'); pg.wait_for_timeout(900)
+    pg.click('#logSearch'); pg.wait_for_timeout(300); pg.fill('#search','바나나'); pg.wait_for_timeout(900)
     marks=pg.locator('#convList mark').count(); check('server search highlights <mark>', marks>=1, str(marks))
     pg.locator('#convList li').filter(has=pg.locator('mark')).first.click(); pg.wait_for_timeout(1200)
     check('search hit opens thread', pg.evaluate("document.querySelector('#app').dataset.route")=='chat' and '바나나' in pg.inner_text('#chatView'))
-    pg.goto(BASE+'#/log'); pg.wait_for_timeout(800); pg.fill('#search',''); pg.wait_for_timeout(500)
+    pg.goto(BASE+'#/log'); pg.wait_for_timeout(800); (pg.click('#searchCancel') if pg.evaluate("document.querySelector('#listView').classList.contains('searching')") else None); pg.wait_for_timeout(500)   # B2: 취소 leaves search mode (the list was kept in search mode after opening a hit)
     # new thread send
     pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500); pg.fill('#input','hello server'); pg.click('#sendBtn'); pg.wait_for_timeout(4000)
     d=db(); th=[t for t in d['threads'] if t['title']!='' and not t['title'].startswith('서버 대화')]
@@ -79,7 +79,7 @@ with sync_playwright() as p:
     check('outbox flushed', pg.evaluate('__app.state().outbox')==0)
     # 503 persistence_disabled fallback
     req('PUT','/persist/off')
-    c2=b.new_context(viewport={'width':393,'height':852}); c2.add_init_script(SETTINGS); q=c2.new_page(); q.goto(BASE+'#/'); q.wait_for_timeout(1500)
+    c2=b.new_context(viewport={'width':393,'height':852}); c2.add_init_script(SETTINGS); q=c2.new_page(); q.goto(BASE+'#/log'); q.wait_for_timeout(1500)
     check('503 -> local mode', q.evaluate('__app.state().mode')=='local')
     check('local-mode notice', '이 기기에만' in q.inner_text('#syncStatus'), q.inner_text('#syncStatus'))
     q.evaluate("__app.newChat()"); q.wait_for_timeout(500); q.fill('#input','local only'); q.click('#sendBtn'); q.wait_for_timeout(3500)
@@ -92,7 +92,7 @@ with sync_playwright() as p:
     # migration
     c3=b.new_context(viewport={'width':393,'height':852})
     c3.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);"+SETTINGS+"localStorage.setItem('llmchat.convs',JSON.stringify(["+",".join(f"{{id:'L{i}',title:'{'importfail ' if i==2 else ''}로컬 {i}',updated:Date.now()-{i}*1e5,messages:[{{role:'user',content:'u{i}'}},{{role:'assistant',content:'a{i}'}}]}}" for i in range(7))+"]))}")
-    m=c3.new_page(); m.on('pageerror', lambda e: errs.append(str(e))); m.goto(BASE+'#/'); m.wait_for_timeout(2000)
+    m=c3.new_page(); m.on('pageerror', lambda e: errs.append(str(e))); m.goto(BASE+'#/log'); m.wait_for_timeout(2000)
     check('migration sheet offered', m.is_visible('#migrateSheet'))
     m.click('#migGo'); m.wait_for_timeout(4000)
     check('partial failure view', m.get_attribute('#migrateSheet','data-view')=='partial' and m.locator('#migFailList li').count()==1)
