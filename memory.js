@@ -232,7 +232,7 @@
     function introFocusables() { return [...ix.querySelectorAll('button')].filter(b => !b.disabled && !b.hidden); }
     function showIntro() {
       introPrev = document.activeElement;
-      { const er = $('memIntroErr'); er.classList.remove('on'); er.setAttribute('aria-hidden', 'true'); }   // reopened sheet starts with the line reserved but invisible
+      { const er = $('memIntroErr'); er.classList.remove('on'); er.removeAttribute('role'); er.setAttribute('aria-hidden', 'true'); }   // reopened sheet starts with the line reserved but invisible
       iScrim.hidden = false; ix.hidden = false; void ix.offsetWidth; ix.classList.add('show'); iScrim.classList.add('show');
       saveSeen();                                                               // fire at show; failure is handled when 좋아요 is tapped
       $('memIntroTitle').focus();
@@ -249,8 +249,8 @@
       ok.onclick = async () => {
         if (!introSaved) {                                                       // not on the server yet: try again now; keep the sheet if it still fails
           const er = $('memIntroErr'); ok.disabled = true; const saved = await saveSeen(); ok.disabled = false;   // the error line (if already shown) stays visible while retrying: no flicker
-          if (!saved) { er.textContent = ERR_TEXT; er.setAttribute('aria-hidden', 'false'); er.classList.add('on'); ok.focus(); return; }   // in the sheet's reserved line (the app toast sits under the sheet's scrim); re-set text so role=alert announces again
-          er.classList.remove('on'); er.setAttribute('aria-hidden', 'true');
+          if (!saved) { er.textContent = ERR_TEXT; er.setAttribute('role', 'alert'); er.setAttribute('aria-hidden', 'false'); er.classList.add('on'); ok.focus(); return; }   // in the sheet's reserved line (the app toast sits under the sheet's scrim); role=alert is set only while the error is shown (an always-present alert region would count as an error banner)
+          er.classList.remove('on'); er.removeAttribute('role'); er.setAttribute('aria-hidden', 'true');
         }
         closeIntro();
       };
