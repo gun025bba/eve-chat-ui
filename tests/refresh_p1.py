@@ -13,7 +13,7 @@ with sync_playwright() as p:
     for scheme in ['dark', 'light']:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme=scheme); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1');localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit'}))")
-        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.click('#newChat'); pg.wait_for_timeout(800)
+        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(800)
         if scheme == 'dark':
             check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
             t = pg.evaluate("""(()=>{const r=getComputedStyle(document.documentElement),g=n=>r.getPropertyValue(n).trim();
@@ -23,7 +23,7 @@ with sync_playwright() as p:
         css = open(__import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'styles.css')).read()
         check(f'[{scheme}] mig track/ring use var(--d-3), no 300ms', 'stroke-dashoffset var(--d-3)' in css and '.mig-track i{display:block;height:100%;width:100%;transform:scaleX(0);transform-origin:left;background:var(--accent);transition:transform var(--d-3)' in css)
         check(f'[{scheme}] no model name in nav subtitle or empty state', nav == '로컬 · 비공개' and 'Qwen' not in pg.inner_text('#chatView'), nav)
-        c = pg.evaluate("""(()=>{const f=document.querySelector('.field'),i=document.getElementById('input'),s=document.getElementById('sendBtn');i.focus();
+        c = pg.evaluate("""(()=>{const f=document.querySelector('#composer .field'),i=document.getElementById('input'),s=document.getElementById('sendBtn');i.focus();
           const fc=getComputedStyle(f),ic=getComputedStyle(i),a=getComputedStyle(f,'::after');
           return {radius:fc.borderTopLeftRadius,shadow:fc.boxShadow,outline:ic.outlineStyle,ring:a.boxShadow,send:getComputedStyle(s,'::after').opacity,dis:s.disabled,sw:s.getBoundingClientRect().width,hit:s.getBoundingClientRect().width-2*parseFloat(getComputedStyle(s,'::before').left)}})()""")
         check(f'[{scheme}] floating capsule composer r22 (B1 one-line) + hairline + float shadow', c['radius'] == '22px' and 'inset' in c['shadow'] and '24px' in c['shadow'], c)

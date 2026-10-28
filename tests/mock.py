@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
 UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
+STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'delay': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
 def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False, 'memory_available': True}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0, memDeletes=[], memWrites=[], memItems=[
@@ -230,6 +230,8 @@ class H(SimpleHTTPRequestHandler):
         if not s.auth(): return True
         STATE['calls'].append(f'{method} {s.path}')
         if not STATE['persist']: s.j(503, err('persistence_disabled', 'server_error', 'conversation storage is disabled')); return True
+        for pat, ms in STATE['delay'].items():   # 1.10.0 B2: /delay/<ms>?<regex> holds matching calls (skeleton tests)
+            if re.search(pat, f'{method} {path}'): time.sleep(ms / 1000)
         for pat, code in STATE['fail'].items():
             if re.search(pat, f'{method} {path}'): s.j(code, err('mock_failure', 'server_error')); return True
         with LOCK:
@@ -627,11 +629,15 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False; STATE['n429'] = 0  # one-shot q429 must re-arm per run
         if p == '/db/reset':
-            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
+            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, delay={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
         if p.startswith('/fail/'):   # /fail/<code>?<regex>
             code, _, pat = p[6:].partition('?'); 
             if code == 'clear': STATE['fail'] = {}
             else: STATE['fail'][__import__('urllib.parse').parse.unquote(pat)] = int(code)
+        if p.startswith('/delay/'):
+            ms, _, pat = p[7:].partition('?')
+            if ms == 'clear': STATE['delay'] = {}
+            else: STATE['delay'][__import__('urllib.parse').parse.unquote(pat)] = int(ms)
         if p == '/importfix': STATE['importfix'] = True
         if p.startswith('/whoamifalse/'): STATE['whoamiFalse'] = p.endswith('/on')
         if p == '/pro/reset': pro_reset()

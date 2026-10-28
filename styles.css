@@ -1008,3 +1008,150 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 @keyframes hlFade{from{opacity:1}to{opacity:0}}
 .confirm-card[data-state=pending] .cc-head svg{color:var(--pend)}   /* 확인 대기 icon (§2): --pend, darker in light for 4.5:1 */
 #toast:not(.show){pointer-events:none}   /* B1: a faded-out toast must never swallow taps (it sits right above the composer, where the + menu opens) */
+
+/* ===== 1.10.0 B2 오늘 + 기록 + 이동 (DIRECTION-B-SPEC d196833 §1 §4 §9.2): root = 오늘, 기록 pushed over it. transform/opacity only; no blur. ===== */
+/* stack: 오늘 ▸ 기록 ▸ 보관함, chat over whichever opened it (#app[data-from]) */
+#todayView{z-index:1}#listView{z-index:2}#archiveView{z-index:3}#chatView{z-index:4}
+#listView{transform:translateX(100%)}
+#app[data-route=list] #listView{transform:none}
+#app:not([data-route=today]) #todayView{transform:translateX(-30%)}
+#app[data-route=chat][data-from=today] #listView{transform:translateX(100%)}
+#app[data-route=chat][data-from=archive] #archiveView{transform:translateX(-30%)}
+#app[data-route=today] #chatView{transform:translateX(100%);box-shadow:none}
+#app[data-route=today].transitioning #chatView{box-shadow:-8px 0 24px rgba(0,0,0,.25)}
+#todayView::after,#archiveView::after{content:"";position:absolute;inset:0;z-index:30;background:#000;opacity:var(--dim,0);pointer-events:none;transition:opacity var(--nav-d,420ms) var(--ease-sheet)}
+#app:not([data-route=today]):not(.dragging) #todayView::after,#app[data-route=chat][data-from=archive]:not(.dragging) #archiveView::after,#app[data-route=archive]:not(.dragging) #listView::after{opacity:.25}
+@media (prefers-color-scheme:light){#app:not([data-route=today]):not(.dragging) #todayView::after,#app[data-route=chat][data-from=archive]:not(.dragging) #archiveView::after,#app[data-route=archive]:not(.dragging) #listView::after{opacity:.1}}
+#app.dragging #todayView::after,#app.dragging #archiveView::after{transition:none}
+#app:not([data-route=today]):not(.transitioning):not(.dragging):not(.vt) #todayView,
+#app:not([data-route=list]):not(.transitioning):not(.dragging):not(.vt) #listView,
+#app[data-route=today]:not(.transitioning):not(.dragging):not(.vt) #chatView{visibility:hidden}
+#app[data-route=chat][data-from=archive]:not(.transitioning):not(.dragging):not(.vt) #archiveView{visibility:hidden}
+#app.transitioning #listView,#app.transitioning #todayView{visibility:visible}
+/* ≥761px: 기록 is the sidebar; the right pane is 오늘 or the chat */
+@media (min-width:761px){
+  #todayView{flex:1;min-width:0;order:2}#chatView{order:2}#listView,#archiveView{order:1}
+  #archiveView{width:320px;flex:none;background:var(--bg-elev);box-shadow:.5px 0 0 var(--separator)}
+  #app[data-route=chat] #todayView,#app:not([data-route=chat]) #chatView,#app:not([data-route=archive]) #archiveView,#app[data-route=archive] #listView{display:none}
+  #logBack,#openLog,#todayView #openSettings{display:none}
+  #backBtn{visibility:visible}
+  #listView .wk{background:var(--bg-elev)}
+  #convList .row-main,#archList .row-main{background:var(--layer-1)}
+  #convList .row.active .row-main{background:var(--layer-2)}
+  #todayView::after{display:none}
+}
+@media (max-width:760px){#openSettings3{display:none}}
+/* titles (§4/§9.2): --b-title 34/41 700, --b-date 15/20 500 --sub */
+.b-title{font:700 34px/41px var(--font);letter-spacing:-.4px;margin:2px 0 0;padding:0 max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));max-width:600px;margin-left:auto;margin-right:auto;box-sizing:border-box;overflow-wrap:anywhere}
+.b-date{font:500 15px/20px var(--font);color:var(--sub);margin:0 auto;padding:0 max(20px,env(safe-area-inset-right)) 14px max(20px,env(safe-area-inset-left));max-width:600px;box-sizing:border-box}
+#todayView .navbar,#listView .navbar{justify-content:space-between}
+#listView .l-nav{justify-content:flex-end}#logBack{margin-right:auto}
+#todayView .scroller{padding-bottom:calc(var(--composer-h) + 24px)}
+/* 오늘 timeline */
+.today-rail{list-style:none;margin:0 auto;padding:6px max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));max-width:600px;box-sizing:border-box}
+.ev .tx{font:var(--b-body);color:var(--tx);min-width:0;overflow-wrap:anywhere}
+.ev.me .tx{font-weight:500;color:var(--me)}
+.today-rail .ev .tx.d{font:var(--b-sub);color:var(--sub);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.today-rail .ev.cont .tx.d{-webkit-line-clamp:2}
+.today-rail .ev.cont .ct,.today-rail .ev.cont .cp{display:block}
+.ev.more .who{color:var(--sub)}
+.ev.tap .ev-hit{position:absolute;inset:-2px -8px 8px -8px;border-radius:12px;background:none;z-index:1;cursor:pointer}
+.ev.tap .ev-hit:active{background:var(--fill);transform:none}
+.ev.pro[data-unread] .who-n::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--badge);vertical-align:1px}
+.ev.stg,.rail-now.stg{animation:tIn var(--d-3) var(--ease-out) both}
+@keyframes tIn{from{opacity:0;transform:translateY(8px)}}
+.skel-ev{animation:tPulse 1.4s ease-in-out infinite alternate}
+.skel-ev .s-tm{position:absolute;left:0;top:5px;width:24px;height:10px;border-radius:5px;background:var(--fill)}
+.skel-ev .s-a,.skel-ev .s-b{display:block;height:14px;margin-top:6px;border-radius:7px;background:var(--fill)}
+.skel-ev .s-a{width:70%}.skel-ev .s-b{width:45%;margin-top:8px}
+@keyframes tPulse{from{opacity:.5}to{opacity:1}}
+#app:not([data-route=today]) .skel-ev{animation-play-state:paused}
+.t-err .t-err-b{display:flex;align-items:center;gap:6px;min-height:22px;padding:2px 0;font:var(--b-sub);color:var(--sub)}
+.t-err .t-err-b .i{width:14px;height:14px;flex:none;color:var(--sub)}
+.t-err .text-btn{min-width:44px;min-height:44px;padding:0 4px;margin-left:-4px;color:var(--accent);font:500 15px/22px var(--font)}
+@media (prefers-reduced-motion:reduce){.ev.stg,.rail-now.stg{animation:fadeIn var(--d-2) linear both}.skel-ev{animation:none;opacity:.75}}
+/* settings: the privacy line moved here from the nav subtitle (§10) */
+.priv{display:flex;align-items:center;gap:6px;margin:0;padding:10px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));font:500 13px/18px var(--font);color:var(--sub)}
+.priv .i{width:14px;height:14px;flex:none}
+#modelName:empty{display:none}
+/* 기록 (§9.2) */
+.l-head{position:relative}
+#listView .scroller{padding-top:calc(var(--nav-h) + 0px)}
+.wk{position:sticky;top:var(--nav-h);z-index:3;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin:0;padding:6px max(12px,env(safe-area-inset-right)) 4px max(12px,env(safe-area-inset-left));text-align:center;background:var(--bg)}
+.wk.sw{animation:wkIn var(--d-1) linear both}
+@keyframes wkIn{from{opacity:0}}
+.wk-c{display:flex;flex-direction:column;align-items:center;min-width:0;min-height:56px;padding:2px 0;background:none;color:var(--sub);cursor:pointer}
+.wk-c:active{transform:none;background:none}
+.wk-w{font:500 11px/14px var(--font);color:var(--sub)}
+.wk-c.fut .wk-w{color:var(--label-3)}
+.wk-n{position:relative;display:grid;place-items:center;width:36px;height:36px;margin-top:2px;border-radius:50%;font:600 17px/22px var(--font);font-variant-numeric:tabular-nums;color:var(--label)}
+.wk-c[aria-disabled=true]{cursor:default}.wk-c[aria-disabled=true] .wk-n{color:var(--label-3);font-weight:500}
+.wk-c.has .wk-n::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--sub)}
+.wk-c.sel .wk-n{background:var(--accent);color:#fff}.wk-c.sel.has .wk-n::after{background:var(--brand)}
+#convList,#archList{margin:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));padding:0;list-style:none}
+#archList{padding-top:0}
+#convList li.group-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:18px 4px 8px;font:var(--b-day);letter-spacing:.2px;color:var(--sub);scroll-margin-top:calc(var(--nav-h) + 72px)}
+#convList li.group-label .gl-c{flex:none;font-weight:500}
+#convList li.row,#archList li.row,#convList li.hit{background:var(--danger)}
+#convList li.hit{background:var(--layer-1)}
+#convList .row-main,#archList .row-main,#convList li.hit .row-main{display:flex;align-items:flex-start;gap:12px;min-height:56px;padding:11px 14px;background:var(--layer-1)}
+#convList .row-main::after,#archList .row-main::after{left:14px}
+#convList li.row.g9 .row-main::after,#archList li.row.g9 .row-main::after,#convList li.hit.g9 .row-main::after{display:none}
+#convList li.g1,#archList li.g1{border-radius:16px 16px 0 0}#convList li.g9,#archList li.g9{border-radius:0 0 16px 16px}#convList li.g1.g9,#archList li.g1.g9{border-radius:16px}
+.r-tm{flex:none;width:36px;font:var(--b-time);color:var(--sub);font-variant-numeric:tabular-nums;white-space:nowrap}
+.r-bd{flex:1;min-width:0}
+#convList .row-top,#archList .row-top{display:flex;align-items:center;gap:6px;min-width:0}
+#convList .row-title,#archList .row-title,#convList .hit .row-title{flex:1;min-width:0;font:500 15px/21px var(--font);color:var(--label)}
+#convList .row-sub,#archList .row-sub,#convList .hit .row-sub{margin:0;padding:0;font:400 13px/18px var(--font);color:var(--sub)}
+#convList .row.unread .row-sub{color:var(--sub)}
+.r-eve{flex:none;width:12px;height:12px;color:var(--brand)}
+.row .unread-dot{left:3px;width:8px;height:8px;margin-top:-4px}
+.row-top .unread-pill{flex:none}
+#convList li.skel,#archList li.skel{background:var(--layer-1);border-radius:16px;margin-top:8px}
+.no-results{color:var(--sub);text-align:left;padding:16px 4px}
+#listEmpty{padding:18px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));text-align:left;font:15px/22px var(--font);color:var(--sub);margin:0}
+.archived-row{display:flex;align-items:center;gap:12px;width:calc(100% - max(16px,env(safe-area-inset-right)) - max(16px,env(safe-area-inset-left)));min-height:56px;margin:24px max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));padding:0 14px;border-radius:16px;background:var(--layer-1);color:var(--label);font:500 15px/20px var(--font)}
+.archived-row span{flex:none}.archived-row small{flex:1;margin-left:-8px;text-align:left;color:var(--sub);font:500 15px/20px var(--font)}
+#archivedCount:not(:empty)::before{content:"· "}
+.archived-row svg{color:var(--sub)}.archived-row .chev{color:var(--label-3)}
+/* search mode: title + week strip fade out, the field takes the nav */
+#listView .l-search{position:absolute;left:max(12px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));top:calc(env(safe-area-inset-top) + 4px);height:36px;margin:0;display:flex;align-items:center;gap:4px;opacity:0;pointer-events:none;z-index:2;transition:opacity var(--d-2) var(--ease-out)}
+#listView .l-search svg{left:8px;top:9px}
+#listView .l-search input{flex:1;min-width:0;width:auto}
+#listView .l-search .text-btn{flex:none;min-width:44px;height:44px;padding:0 8px;color:var(--accent);font:17px/22px var(--font)}
+#listView.searching .l-search{opacity:1;pointer-events:auto}
+#listView .l-head,#listView .wk,#logSearch,#logBack,#openSettings3{transition:opacity var(--d-2) var(--ease-out)}
+#listView.searching .l-head,#listView.searching .wk{position:absolute;left:0;right:0;opacity:0;pointer-events:none;z-index:0}
+#listView.searching #logSearch,#listView.searching #logBack,#listView.searching #openSettings3{opacity:0;pointer-events:none}
+#listView.searching #convList{position:relative;z-index:1;margin-top:8px}
+
+/* 오늘 composer (#tComposer) = the chat composer's rules, id-renamed: #composer→#tComposer #input→#tInput #sendBtn→#tSend #plusBtn→#tPlus #plusMenu→#tMenu #webBtn→#tWeb */
+#tComposer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:8px max(16px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  background:linear-gradient(to top,var(--bg) 55%,transparent)}
+#tInput{flex:1;min-width:0;font:17px/22px var(--font);color:var(--label);background:transparent;border:0;outline:0;resize:none;padding:5px 0;max-height:160px}
+#tInput::placeholder{color:var(--label-3)}
+body.kb-open #tComposer{padding-bottom:8px}
+#tInput{padding-left:4px}
+#tComposer{translate:0 calc(-1 * var(--kb))}
+#tComposer{padding:10px max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));background:linear-gradient(transparent,var(--bg) 40%)}
+#tInput{padding:7px 2px;font-size:17px}
+#tInput:focus,#tInput:focus-visible{outline:0;box-shadow:none}
+#tWeb{width:36px;height:36px;border-radius:50%}
+#tComposer{padding-top:24px}
+#tInput{padding:11px 2px;font:17px/22px var(--font);max-height:120px}
+#tInput::placeholder{color:var(--label-3)}
+#tMenu #tWeb{display:flex;align-items:center;gap:10px;width:100%;height:44px;min-width:0;padding:0 12px;border-radius:10px;font:500 16px/22px var(--font);color:var(--label);text-align:left;background:none}
+#tMenu #tWeb:active{background:var(--fill);transform:none}
+#tMenu #tWeb span{display:block;flex:1;min-width:0}
+#tMenu #tWeb::before{display:none}
+#tMenu #tWeb .i{width:20px;height:20px}
+#tMenu #tWeb .i-check{color:var(--accent);opacity:0}
+#tMenu #tWeb.on{background:none;color:var(--label)}
+#tMenu #tWeb.on .i-check{opacity:1}
+/* nav on 오늘/기록: transparent at rest, --material crossfades in (opacity) once the title has scrolled away (§4) */
+#todayView .navbar,#listView .navbar{background:transparent}
+#todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-fast) linear;pointer-events:none}
+#todayView .navbar.collapsed::before,#listView .navbar.collapsed::before{opacity:1}
+@media (min-width:761px){#listView .navbar:not(.collapsed)::before{display:block}}
+#convList li.row:not(.swiped),#archList li.row:not(.swiped){background:var(--layer-1)}
+#convList li.row.swiped,#archList li.row.swiped,#convList li.row.removing,#archList li.row.removing{background:var(--danger)}

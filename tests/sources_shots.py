@@ -14,7 +14,7 @@ with sync_playwright() as p:
     for scheme in ['dark', 'light']:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True, color_scheme=scheme); pg = ctx.new_page()
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
-        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1000); pg.click('#newChat'); pg.wait_for_timeout(600)
+        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1000); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(600)
         for n in [1, 2, 5]:
             pg.evaluate("""([md,src])=>{const m=document.getElementById('messages');m.innerHTML='';
               const u=document.createElement('div');u.className='msg user';u.innerHTML='<div class="bubble">이번 주 서울 날씨 정리해 줘</div>';m.appendChild(u);

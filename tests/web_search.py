@@ -21,7 +21,7 @@ with sync_playwright() as p:
     pg.on('request', lambda r: reqs.append(r.url))
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(400)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     btn = pg.locator('#webBtn')
     def menu(): pg.click('#plusBtn'); pg.wait_for_timeout(300)   # 1.10.0 B1: the web toggle is the "웹 검색" row of the + menu
     af = pg.evaluate(r"""(()=>{const bad=/name|address|contact|e-?mail|phone|tel|street|city|zip|postal|이름|주소|연락|전화/i;

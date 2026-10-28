@@ -24,7 +24,7 @@ with sync_playwright() as p:
     def card(i): return pg.locator(f'.confirm-card[data-aid="{i}"]')
     def ask(text, aid):
         put('/pro/reset'); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
-        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.click('#newChat'); pg.wait_for_timeout(400)
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         pg.fill('#input', text); pg.click('#sendBtn'); pg.wait_for_timeout(1800)
         return card(aid)
     def calls(aid):

@@ -254,7 +254,7 @@ with sync_playwright() as p:
     pg.evaluate('history.back()'); pg.wait_for_timeout(300)
 
     # SSE confirmation + denied
-    put('/pro/set', {'sseToken': True}); pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']
+    put('/pro/set', {'sseToken': True}); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400); issued = pro()['issued']
     pg.fill('#input', 'confirm 치과'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     cs = card('01JACT0000000000000000000S')
     check('stream card pending', cs.count() == 1 and cs.get_attribute('data-state') == 'pending')

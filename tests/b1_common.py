@@ -20,7 +20,7 @@ ACT = {'action_id': '01JACT00000000000000000001', 'tool': 'calendar_add_event', 
        'provenance': {'actor': 'user', 'job_id': None, 'job_name': None},
        'payload_view': {'verb': 'add', 'title': '치과', 'start': '2026-10-29T15:00:00+09:00', 'end': '2026-10-29T16:00:00+09:00', 'all_day': False, 'display': '10/29 (목) 15:00–16:00', 'location': '역삼동 치과', 'notes': None, 'calendar_id': 'cal_1', 'calendar': '개인'}}
 def open_thread(pg, title):
-    pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1300)
+    pg.goto(B + '/ui/#/log'); pg.reload(); pg.wait_for_timeout(1300)   # 1.10.0 B2: the root is Today; the thread list is the log
     if pg.evaluate("document.getElementById('app').dataset.route") == 'chat': pg.evaluate('history.back()'); pg.wait_for_timeout(400)
     pg.locator('#convList li.row', has_text=title).first.click(); pg.wait_for_timeout(1200)
 def seed(title, messages, **kw): return put('/b1/seed', dict(title=title, messages=messages, **kw))

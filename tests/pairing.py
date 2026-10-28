@@ -33,7 +33,7 @@ try:
         check('right code → session, notice hidden', pg.is_hidden('#authNotice'))
         check('paired flag stored (no code/token in storage)', pg.evaluate("localStorage.getItem('eve.paired')") == '1' and 'WXYZ' not in pg.evaluate("JSON.stringify(localStorage)"))
         # chat works after pairing
-        pg.click('#newChat'); pg.wait_for_timeout(400); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(1500)
+        pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(1500)
         check('chat works after pairing', pg.locator('.msg.assistant').count() >= 1 and pg.locator('.msg.error').count() == 0)
         # session expires → re-pair notice; message resent after pairing
         put('/auth/off'); put('/paircode/QRST-6789')
@@ -63,7 +63,7 @@ try:
         check('re-pair clears invalid_session', pg.is_hidden('#authNotice'))
         # 403 scope_denied: session kept, message, no pairing
         put('/scope403/on')
-        (pg.is_visible('#input') or pg.click('#newChat')); pg.wait_for_timeout(400); pg.fill('#input', 'scope'); pg.click('#sendBtn'); pg.wait_for_timeout(1000)
+        (pg.is_visible('#input') or pg.evaluate("__app.newChat()")); pg.wait_for_timeout(400); pg.fill('#input', 'scope'); pg.click('#sendBtn'); pg.wait_for_timeout(1000)
         check('403 scope_denied → no auth/pairing notice', pg.is_hidden('#authNotice'))
         check('403 scope_denied → not-allowed-in-this-session message', '이 세션에서는 할 수 없는 작업이에요' in ' '.join(pg.locator('.msg.error').all_text_contents()), pg.locator('.msg.error').all_text_contents())
         check('paired flag kept', pg.evaluate("localStorage.getItem('eve.paired')") == '1')

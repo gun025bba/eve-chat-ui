@@ -30,7 +30,7 @@ with sync_playwright() as p:
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200)
         if scheme == 'dark': check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
         r = pg.evaluate(OPAQ); check(f'[{scheme}] list: no computed backdrop-filter; headers opaque', not r['bad'] and not r['hdr'], r)
-        pg.click('#newChat'); pg.wait_for_timeout(500)
+        pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
         r = pg.evaluate(OPAQ); check(f'[{scheme}] chat: no computed backdrop-filter; headers opaque', not r['bad'] and not r['hdr'], r)
         f = pg.evaluate("(()=>{const f=getComputedStyle(document.querySelector('#composer .field'));return f.backgroundColor})()")
         check(f'[{scheme}] composer field opaque', f.startswith('rgb('), f)

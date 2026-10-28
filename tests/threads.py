@@ -29,7 +29,7 @@ with sync_playwright() as p:
     check('search hit opens thread', pg.evaluate("document.querySelector('#app').dataset.route")=='chat' and '바나나' in pg.inner_text('#chatView'))
     pg.goto(BASE+'#/'); pg.wait_for_timeout(800); pg.fill('#search',''); pg.wait_for_timeout(500)
     # new thread send
-    pg.click('#newChat'); pg.wait_for_timeout(500); pg.fill('#input','hello server'); pg.click('#sendBtn'); pg.wait_for_timeout(4000)
+    pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500); pg.fill('#input','hello server'); pg.click('#sendBtn'); pg.wait_for_timeout(4000)
     d=db(); th=[t for t in d['threads'] if t['title']!='' and not t['title'].startswith('서버 대화')]
     check('send creates server thread', len(d['threads'])==46, str(len(d['threads'])))
     cid=pg.evaluate('__app.state().currentId'); check('tmp id adopted', cid and not cid.startswith('tmp-'), cid)
@@ -82,7 +82,7 @@ with sync_playwright() as p:
     c2=b.new_context(viewport={'width':393,'height':852}); c2.add_init_script(SETTINGS); q=c2.new_page(); q.goto(BASE+'#/'); q.wait_for_timeout(1500)
     check('503 -> local mode', q.evaluate('__app.state().mode')=='local')
     check('local-mode notice', '이 기기에만' in q.inner_text('#syncStatus'), q.inner_text('#syncStatus'))
-    q.click('#newChat'); q.wait_for_timeout(500); q.fill('#input','local only'); q.click('#sendBtn'); q.wait_for_timeout(3500)
+    q.evaluate("__app.newChat()"); q.wait_for_timeout(500); q.fill('#input','local only'); q.click('#sendBtn'); q.wait_for_timeout(3500)
     check('local mode chat works (no thread_id sent)', 'Hello' in q.inner_text('#chatView') and 'thread_id' not in db()['state'].get('lastBody',{}))
     q.close(); c2.close()
     # persistence switched off mid-session in server mode: reply still arrives, notice shown

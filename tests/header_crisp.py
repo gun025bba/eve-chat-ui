@@ -28,7 +28,7 @@ with sync_playwright() as p:
             pg=c.new_page()
             if sa: c.new_cdp_session(pg).send('Emulation.setEmulatedMedia',{'features':[{'name':'display-mode','value':'standalone'}]})
             pg.goto('http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+'/ui/'); pg.wait_for_timeout(1000)
-            pg.wait_for_function("document.querySelector('#app').dataset.route==='chat'")
+            pg.evaluate("__app.newChat()"); pg.wait_for_function("document.querySelector('#app').dataset.route==='chat'")
             m=('standalone' if sa else 'tab')+'/'+scheme
             if sa: print('info display-mode standalone media matches:', pg.evaluate("matchMedia('(display-mode: standalone)').matches"), '(app keys off navigator.standalone)')
             r=pg.evaluate(JS)

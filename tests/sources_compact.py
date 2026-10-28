@@ -21,7 +21,7 @@ with sync_playwright() as p:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True, reduced_motion='reduce' if reduce else 'no-preference')
         pg = ctx.new_page(); errs = []; reqs = []
         pg.on('pageerror', lambda e: errs.append(str(e))); pg.on('request', lambda r: reqs.append(r.url))
-        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.click('#newChat'); pg.wait_for_timeout(500)
+        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
         pg.evaluate("document.querySelector('#messages .empty')?.remove()")
         pg.evaluate(JS, [MD, SRC, False]); pg.evaluate(JS, ['하나[1] 둘[2]', SRC[:3], True]); pg.wait_for_timeout(300)
         if not reduce:
@@ -116,7 +116,7 @@ with sync_playwright() as p:
     ctx = b.new_context(viewport={'width': 390, 'height': 844}); pg = ctx.new_page(); errs = []
     pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.add_init_script("localStorage.setItem('llmchat.webSearch','1');localStorage.setItem('eve.mem.introSeen','1')")
-    pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.click('#newChat'); pg.wait_for_timeout(400)
+    pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     pg.fill('#input', 'ws 질문'); pg.click('#sendBtn')
     seen = {'cite_no_row': False}
     for _ in range(200):

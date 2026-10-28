@@ -25,6 +25,7 @@ with sync_playwright() as p:
     check('settings shows login', 'user@example.com' in pg.text_content('#sWho') and pg.is_visible('#sWho'))
     check('models load without key', '연결 성공' in pg.text_content('#sStatus'), pg.text_content('#sStatus'))
     pg.click('#saveSettings'); pg.wait_for_timeout(400)
+    pg.evaluate('__app.newChat()'); pg.wait_for_timeout(500)   # 1.10.0 B2: the root is Today, a chat starts explicitly
     pg.fill('#input','hi'); pg.click('#sendBtn'); pg.wait_for_timeout(150)
     print('typing dots before first token:',pg.locator('.msg.assistant .typing').count(),'| send has stop:',pg.evaluate("document.querySelector('#sendBtn').classList.contains('stop')"))
     pg.wait_for_timeout(1300)
@@ -47,7 +48,7 @@ with sync_playwright() as p:
     print('429:',pg.locator('.msg.error').last.text_content())
     pg.locator('.btn.retry').last.click(); pg.wait_for_timeout(900)
     print('after retry last assistant:',pg.locator('.msg.assistant .bubble').last.inner_text()[:60].replace('\n',' / '),'| errors shown:',pg.locator('.msg.error').count())
-    pg.click('#backBtn'); pg.click('#openSettings'); pg.check('#sNoThink'); pg.click('#saveSettings'); pg.click('#convList li.row.active')
+    pg.click('#backBtn'); pg.click('#openSettings'); pg.check('#sNoThink'); pg.click('#saveSettings'); pg.click('#openLog'); pg.wait_for_timeout(500); pg.click('#convList li.row.active')
     pg.fill('#input','nothink test'); pg.click('#sendBtn'); pg.wait_for_timeout(900)
     print('sent last msg:',repr(last()))
     pg.fill('#input','long stop'); pg.click('#sendBtn'); pg.wait_for_timeout(1500); pg.click('#sendBtn'); pg.wait_for_timeout(400)

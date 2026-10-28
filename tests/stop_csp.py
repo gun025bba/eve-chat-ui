@@ -30,7 +30,7 @@ with sync_playwright() as p:
     put('/persist/on')
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(200)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(500)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
     check('empty-state chips staggered via CSSOM (no style attr)', pg.evaluate("[...document.querySelectorAll('.chip')].every(c => !c.getAttribute('style') || c.style.animationDelay)"))
     pg.fill('#input', 'slow stop test'); pg.click('#sendBtn'); pg.wait_for_timeout(1500)
     btn = pg.locator('#sendBtn')
@@ -79,7 +79,7 @@ with sync_playwright() as p:
     check('markdown image rendered as link, no <img>', md.locator('img').count() == 0 and any('고양이' in l[2] for l in links), links)
     # ---------- local-only mode ----------
     put('/persist/off'); pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(1000)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(400)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     pg.fill('#input', 'slow local'); pg.click('#sendBtn'); pg.wait_for_timeout(1200); pg.click('#sendBtn'); pg.wait_for_timeout(600)
     a = pg.locator('.msg.assistant').last
     check('local: partial kept + marker', '조각0' in a.inner_text() and a.locator('.stopped').count() == 1)
