@@ -486,7 +486,7 @@ if (typeof document !== 'undefined') (function () {
     go('chat');
   }
   function updateThread(c, patch) {
-    const before = { title: c.title }; Object.assign(c, patch); persist(); renderList(); if (c === cur()) $('#title').textContent = c.title;
+    const before = { title: c.title }; Object.assign(c, patch); persist(); renderList(); if (c === cur()) setConvTitle(c.title);
     if (mode === 'server' && !c.fresh) write('patch', 'patch:' + c.id, { id: c.id, patch }, () => { Object.assign(c, before); persist(); renderAll(); }, '이름을 저장하지 못했어요');
   }
   function startRename(row, c) {
@@ -974,10 +974,11 @@ if (typeof document !== 'undefined') (function () {
     ev.querySelector('.tm').textContent = hhmm(t); box.innerHTML = ''; box.appendChild(ev);
   }
   setInterval(() => { const n = box.querySelector('.rail-now'); if (n && !document.hidden) { const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); } }, 60000);
+  function setConvTitle(t) { $('#title').textContent = t; box.setAttribute('aria-label', t || '대화'); }   /* the message list is named after the thread (screen readers: "<title>, list") */
   function renderMessages(keep) {
     box.innerHTML = '';
     const c = cur();
-    $('#title').textContent = c ? c.title : '새 대화';
+    setConvTitle(c ? c.title : '새 대화');
     const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
     chatView.classList.toggle('archived', !!c?.archived);
     if (c?.loading && !c.messages.length) { box.innerHTML = '<div class="older loading"><span class="spin"></span></div>'; return; }
@@ -1051,7 +1052,7 @@ if (typeof document !== 'undefined') (function () {
   async function send(text) {
     let c = cur();
     if (!c || c.archived) { c = blankConv(); convs.unshift(c); currentId = c.id; }
-    if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); $('#title').textContent = c.title; }
+    if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); setConvTitle(c.title); }
     clearErrors(); closeAllFbPanels();
     box.querySelectorAll('.actions .r').forEach(r => r.remove());
     c.messages.push({ role: 'user', content: text, created: Date.now() });
