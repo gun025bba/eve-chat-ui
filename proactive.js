@@ -11,7 +11,7 @@
   const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;   // Eve sprite (design a197571)
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;          // glyphs not in the sprite
   const IC = {
-    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), sun: icon('sun-horizon'), bell: icon('bell'),
+    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), 'sun-horizon': icon('sun-horizon'), bell: icon('bell'),
     wrench: svg('<path d="M14.7 6.3a4 4 0 0 0 5 5L13 18l-3 3-4-4 3-3 6.7-6.7a4 4 0 0 0-1-1z"/>'),
     brain: icon('memory'), trash: icon('trash'), warn: icon('warning'), check: icon('check'), err: icon('info')
   };
@@ -351,7 +351,7 @@
         const who = wrap.querySelector(':scope > .who');
         if (who) {
           who.querySelector('.who-ic')?.remove();
-          const ic = IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle']; if (ic) who.insertAdjacentHTML('afterbegin', ic.replace('class="i"', 'class="i who-ic"'));
+          const ic = IC[{ briefing: 'sun-horizon', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle']; if (ic) who.insertAdjacentHTML('afterbegin', ic.replace('class="i"', 'class="i who-ic"'));
           who.querySelector('.who-n').textContent = label;
         }
       }
@@ -361,9 +361,13 @@
       }
       (m.pendingActions || []).forEach(a => mountCard(a, wrap));
     }
+    function ccHost(after) {   // the .cc-stack lives inside the message (.ev body column): after the text / chips / briefing card, before the action row
+      let s = after.querySelector(':scope > .cc-stack'); if (s) return s;
+      s = el('div', 'cc-stack'); const act = after.querySelector(':scope > .actions'); if (act) act.before(s); else after.appendChild(s); return s;
+    }
     function mountCard(a, after) {
       if (cards.has(a.action_id) && document.body.contains(cards.get(a.action_id))) return;
-      const host = after.nextElementSibling && after.nextElementSibling.classList.contains('cc-stack') ? after.nextElementSibling : (() => { const s = el('div', 'cc-stack'); after.after(s); return s; })();
+      const host = ccHost(after);   // §8.2: inside the Eve event body (under the text, 8px), not a sibling row
       host.appendChild(renderConfirmCard(a, { P, onSettled: (id, s) => { a.status = { confirmed: 'executed', declined: 'rejected', expired: 'expired', error: 'failed' }[s]; } }));
     }
     /* read rule (A3.3): ≥50% visible for 1s while the page is visible → local now, POST via outbox */
@@ -531,7 +535,13 @@
       if (items.length && items.every(i => i.created)) items.sort((a, b) => a.created - b.created);   // oldest first (server order otherwise)
       return items;
     }
-    return { pendingList, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
+    /* 오늘 일정 cell (B3 §7): GET /v1/settings `briefing.enabled`. false → the briefing is switched off → the cell is hidden; no `briefing` key / no boolean → unknown (null) → the saved briefing message decides. */
+    async function briefingEnabled() {
+      if (!h.isServer() || !h.online()) return null;
+      const s = await api.getSettings(), b = s && s.briefing;
+      return b && typeof b === 'object' && typeof b.enabled === 'boolean' ? b.enabled : null;
+    }
+    return { pendingList, briefingEnabled, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
   }
   self.EveProactive = { init, renderConfirmCard, setCardState, ULID, when };
 })();

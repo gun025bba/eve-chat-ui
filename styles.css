@@ -2,7 +2,7 @@
   color-scheme:dark light;
   --bg:#000;--bg-elev:#1C1C1E;--bg-elev-2:#2C2C2E;--fill:rgba(120,120,128,.24);
   --label:#F5F5F7;--label-2:rgba(235,235,245,.62);--label-3:rgba(235,235,245,.32);
-  --separator:rgba(84,84,88,.6);--accent:#0A84FF;--user-bubble:#2C2C2E;--user-fg:#F5F5F7;
+  --separator:rgba(84,84,88,.6);--accent:#0A84FF;--accent-fill:#0A6FE8;--user-bubble:#2C2C2E;--user-fg:#F5F5F7;
   --danger:#FF453A;--code-bg:#111113;--material:#161618;--scrim:rgba(0,0,0,.5);--green:#30D158;
   --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Apple SD Gothic Neo",system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
@@ -15,14 +15,14 @@
 @media (prefers-color-scheme:light){:root{
   --bg:#fff;--bg-elev:#F2F2F7;--bg-elev-2:#E5E5EA;--fill:rgba(120,120,128,.12);
   --label:#1D1D1F;--label-2:rgba(60,60,67,.62);--label-3:rgba(60,60,67,.32);
-  --separator:rgba(60,60,67,.18);--accent:#007AFF;--user-bubble:#E9E9EB;--user-fg:#1D1D1F;
+  --separator:rgba(60,60,67,.18);--accent:#007AFF;--accent-fill:#0071E3;--user-bubble:#E9E9EB;--user-fg:#1D1D1F;
   --header-bg:#F6F6F7;--title-solid:#1D1D1F;--subtitle-solid:#6E6E73;--danger:#FF3B30;--code-bg:#F6F6F8;--material:#FFFFFF;--scrim:rgba(0,0,0,.25);--green:#34C759}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--label);font:17px/1.55 var(--font);
   -webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none}
 .i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.i-sm{width:18px;height:18px}.i-xs{width:16px;height:16px;stroke-width:2}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-user-select:none;
-  transition:transform var(--d-fast) var(--ease-spring),background-color var(--d-fast),opacity var(--d-fast)}
+  transition:transform var(--d-2) var(--ease-spring),background-color var(--d-1) var(--ease-out),opacity var(--d-2) var(--ease-out)}   /* every property carries its own duration + easing token (no default `ease`) */
 button:active{transform:scale(.96);transition-duration:var(--d-instant)}
 #app{position:fixed;inset:0;height:var(--vvh);display:flex;overflow:hidden}
 #main{position:relative;flex:1;min-width:0;height:100%}
@@ -83,7 +83,7 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 .actions{display:flex;align-items:center;gap:2px;margin-top:var(--s2);margin-left:-8px;animation:fadeIn var(--d-base) var(--ease-out)}
 .actions button{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--label-2)}
 .actions button:active{background:var(--fill)}
-.usage{font-size:11px;color:var(--label-3);margin-left:6px;font-variant-numeric:tabular-nums}
+.usage{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--label-3);margin-left:6px;font-variant-numeric:tabular-nums}   /* the stats line stays on one line (ellipsis if the row is too narrow), light + dark */
 /* error */
 .msg.error .bubble{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:rgba(255,69,58,.08);border-radius:var(--r-md);padding:12px 14px;font-size:15px;color:var(--label-2)}
 .msg.error svg{color:var(--danger);width:20px;height:20px}
@@ -158,7 +158,7 @@ dialog::backdrop{background:var(--scrim);animation:fade var(--d-base) var(--ease
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:999px;background:var(--fill);position:relative;flex:none;margin:0;transition:background var(--d-fast)}
 input[type=checkbox]::before{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform var(--d-base) var(--ease-spring)}
 input[type=checkbox]:checked{background:var(--green)}input[type=checkbox]:checked::before{transform:translateX(20px)}
-.primary{width:100%;height:50px;border-radius:12px;background:var(--accent);color:#fff;font-weight:600;margin-top:12px}
+.primary{width:100%;height:50px;border-radius:12px;background:var(--accent-fill);color:#fff;font-weight:600;margin-top:12px}
 @media (min-width:761px){dialog{margin:auto;width:480px;border-radius:16px}.grabber{display:none}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:var(--d-2)!important;animation-iteration-count:1!important;transition-duration:var(--d-2)!important;transition-property:opacity!important}
   @keyframes msgIn{from{opacity:0}}@keyframes msgSend{from{opacity:0}}@keyframes sheetIn{from{opacity:0}}@keyframes sheetUp{from{opacity:0}}@keyframes rowIn{from{opacity:0}}@keyframes cc-in{from{opacity:0}to{opacity:1}}
@@ -628,7 +628,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .cc-more{color:var(--accent);font-size:15px;min-height:44px}
 .cc-actions{display:flex;gap:8px}
 .cc-actions button{flex:1;min-height:44px;border-radius:10px;font-size:15px;font-weight:600;background:var(--fill);color:var(--label)}
-.cc-actions .cc-primary{background:var(--accent);color:#fff}
+.cc-actions .cc-primary{background:var(--accent-fill);color:#fff}
 .cc-actions .cc-primary.cc-danger{background:var(--danger)}
 .cc-actions button:disabled{opacity:.5}
 .cc-actions button.loading::after{content:"";display:inline-block;width:14px;height:14px;margin-left:6px;vertical-align:-2px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
@@ -711,7 +711,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-intro-list{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:16px}
 .mem-intro-list li{display:flex;gap:12px;align-items:flex-start;font-size:1.0625rem;line-height:1.375rem;color:var(--label)}
 .mem-intro-list svg{flex:none;width:28px;height:28px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
+.mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent-fill);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
 .mem-intro-alt{min-height:44px;color:var(--accent);font-size:17px;margin-top:4px}
 @media (prefers-reduced-motion:reduce){.mem-intro{transform:none;opacity:0;transition:opacity .2s}.mem-intro.show{opacity:1}.mem-intro-scrim{transition:opacity .2s}.mem-intro-icon{transform:none;transition:opacity .2s}}
 /* 1.2.1 — no horizontal scroll from long sources/links/tables/code (design 2deb88d SOURCES-SPEC.md) */
@@ -806,7 +806,7 @@ sup.cite{line-height:0;margin-left:1px;vertical-align:super}
 sup.cite a{position:relative;display:inline-block;min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-size:11px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;box-sizing:border-box}
 sup.cite a::before{content:"";position:absolute;inset:-14px -6px}
 .sources{margin-top:2px;padding-top:0;border-top:0;min-width:0}
-.sources.fresh{animation:srcFade 120ms ease-out both}
+.sources.fresh{animation:srcFade var(--d-1) var(--ease-out) both}
 @keyframes srcFade{from{opacity:0}to{opacity:1}}
 .fav{width:20px;height:20px;border-radius:50%;box-shadow:0 0 0 2px var(--src-bg);background:var(--fill);overflow:hidden;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--label);flex:none}
 .fav img{width:100%;height:100%;object-fit:cover;display:block}
@@ -926,10 +926,10 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 }
 @media (prefers-color-scheme:light){:root{--sub:rgba(60,60,67,.78);--pend:#B25000;--tx:var(--label);--me:var(--label)}}
 #messages{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
-.ev,.rail-now,.cc-stack,.day-sep,.unread-sep{max-width:560px;margin-left:auto;margin-right:auto;
-  background:linear-gradient(var(--rail),var(--rail)) no-repeat 51px 0/1px 100%}   /* the rail: a 1px column drawn by each row, so it continues through day separators and cards */
-:is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep):not(:has(~ :is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep))){background-image:linear-gradient(var(--rail),var(--rail) 88%,transparent)}
-:is(.ev,.rail-now):not(:is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep) ~ *){background-position:51px 6px;background-size:1px calc(100% - 6px)}
+.ev,.rail-now,.day-sep,.unread-sep{max-width:560px;margin-left:auto;margin-right:auto;
+  background:linear-gradient(var(--rail),var(--rail)) no-repeat 51px 0/1px 100%}   /* the rail: a 1px column drawn by each row, so it continues through day separators; the confirm card (.cc-stack) sits inside .ev and draws no rail of its own */
+:is(.ev,.rail-now,.day-sep,.unread-sep):not(:has(~ :is(.ev,.rail-now,.day-sep,.unread-sep))){background-image:linear-gradient(var(--rail),var(--rail) 88%,transparent)}
+:is(.ev,.rail-now):not(:is(.ev,.rail-now,.day-sep,.unread-sep) ~ *){background-position:51px 6px;background-size:1px calc(100% - 6px)}
 .ev,.rail-now{position:relative;padding:0 0 18px 70px;margin-top:0;margin-bottom:0;min-width:0;align-items:stretch}
 .msg.ev+.msg.ev,.msg.user+.msg.user,.msg.assistant+.msg.assistant{margin-top:0}
 .msg.ev.enter,.msg.user.ev.enter{animation:msgIn var(--d-3) var(--ease-out) both}
@@ -956,15 +956,14 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .day-sep{margin-top:0;margin-bottom:0;padding:6px 0 8px 70px;text-align:left;font:var(--b-day);letter-spacing:.2px;color:var(--sub)}
 .unread-sep{padding-left:70px;margin-top:0;margin-bottom:0;padding-bottom:12px}
 /* confirm card sits in the event body (§8.2); the stack carries the rail */
-.msg.ev:has(+ .cc-stack){padding-bottom:8px}
-.cc-stack{margin-top:0;margin-bottom:0;padding:0 0 18px 70px;gap:12px}
+.ev>.cc-stack{max-width:none;margin:8px 0 0;padding:0;gap:12px}   /* follow-up g: the card is part of the .ev body column, 8px under the text */
 .confirm-card{padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--hair)}
 .cc-title{font:600 15px/20px var(--font)}
 .cc-actions{gap:8px;margin-top:10px}
 .cc-actions button{flex:none;position:relative;min-width:64px;min-height:0;height:32px;padding:0 14px;border-radius:16px;font:600 14px/32px var(--font);background:rgba(255,255,255,.08);color:var(--label)}
 .cc-actions button::before{content:"";position:absolute;inset:-6px 0}   /* 44pt tap target around the 32pt button */
-.cc-actions .cc-primary{background:var(--accent);color:#fff}.cc-actions .cc-primary.cc-danger{background:var(--danger)}
-@media (prefers-color-scheme:light){.cc-actions button{background:var(--fill)}.cc-actions .cc-primary{background:var(--accent)}.cc-actions .cc-primary.cc-danger{background:var(--danger)}}
+.cc-actions .cc-primary{background:var(--accent-fill);color:#fff}.cc-actions .cc-primary.cc-danger{background:var(--danger)}
+@media (prefers-color-scheme:light){.cc-actions button{background:var(--fill)}.cc-actions .cc-primary{background:var(--accent-fill)}.cc-actions .cc-primary.cc-danger{background:var(--danger)}}
 .cc-prov,.cc-result,.cc-meta{color:var(--sub)}
 /* "참고한 기억" chips (§8.1): same capsule as the source chips; only shown when the server sends memory_refs and memory is on */
 .mchips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;min-width:0}
@@ -1001,7 +1000,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 @media (prefers-reduced-motion:reduce){.plus-menu{transform:none;transition:opacity var(--d-2) linear}.msg.ev.enter{animation:fadeIn var(--d-2) linear both}}
 .ev,.rail-now,.ev>*,.cc-stack,.cc-stack>*{min-width:0}
 
-.mchips.fresh{animation:srcFade 120ms ease-out both}
+.mchips.fresh{animation:srcFade var(--d-1) var(--ease-out) both}
 @media (prefers-reduced-motion:reduce){.mchips.fresh{animation:none;opacity:1}}
 .mem-row{position:relative}
 .mem-row.hl::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--fill);pointer-events:none;animation:hlFade 600ms var(--ease-out) both}
@@ -1087,7 +1086,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .wk-n{position:relative;display:grid;place-items:center;width:36px;height:36px;margin-top:2px;border-radius:50%;font:600 17px/22px var(--font);font-variant-numeric:tabular-nums;color:var(--label)}
 .wk-c[aria-disabled=true]{cursor:default}.wk-c[aria-disabled=true] .wk-n{color:var(--label-3);font-weight:500}
 .wk-c.has .wk-n::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--sub)}
-.wk-c.sel .wk-n{background:var(--accent);color:#fff}.wk-c.sel.has .wk-n::after{background:var(--brand)}
+.wk-c.sel .wk-n{background:var(--accent-fill);color:#fff}.wk-c.sel.has .wk-n::after{background:var(--brand)}
 #convList,#archList{margin:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));padding:0;list-style:none}
 #archList{padding-top:0}
 #convList li.group-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:18px 4px 8px;font:var(--b-day);letter-spacing:.2px;color:var(--sub);scroll-margin-top:calc(var(--nav-h) + 72px)}
@@ -1150,7 +1149,7 @@ body.kb-open #tComposer{padding-bottom:8px}
 #tMenu #tWeb.on .i-check{opacity:1}
 /* nav on 오늘/기록: transparent at rest, --material crossfades in (opacity) once the title has scrolled away (§4) */
 #todayView .navbar,#listView .navbar{background:transparent}
-#todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-fast) linear;pointer-events:none}
+#todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-2) var(--ease-out);pointer-events:none}
 #todayView .navbar.collapsed::before,#listView .navbar.collapsed::before{opacity:1}
 @media (min-width:761px){#listView .navbar:not(.collapsed)::before{display:block}}
 #convList li.row:not(.swiped),#archList li.row:not(.swiped){background:var(--layer-1)}
@@ -1168,9 +1167,9 @@ body.kb-open #tComposer{padding-bottom:8px}
 .pend .pd-a{display:flex;gap:8px;margin-top:10px}
 .pend .pd-a button{flex:none;position:relative;min-width:64px;min-height:0;height:32px;padding:0 14px;border-radius:16px;font:600 14px/32px var(--font);background:rgba(255,255,255,.08);color:var(--label)}
 .pend .pd-a button::before{content:"";position:absolute;inset:-6px 0}   /* 44pt tap target around the 32pt button */
-.pend .pd-a .pd-go{background:var(--accent);color:#fff}
+.pend .pd-a .pd-go{background:var(--accent-fill);color:#fff}
 .pend .pd-a button:active{transform:none;opacity:.7}
-@media (prefers-color-scheme:light){.pend .pd-a button{background:var(--fill)}.pend .pd-a .pd-go{background:var(--accent)}}
+@media (prefers-color-scheme:light){.pend .pd-a button{background:var(--fill)}.pend .pd-a .pd-go{background:var(--accent-fill)}}
 
 /* ===== 1.10.0 B3 현황 띠 + 시트 (DIRECTION-B-SPEC §5–§7). Only opacity/transform animate; no blur. ===== */
 :root{--b-stat:600 22px/26px var(--font)}
