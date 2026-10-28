@@ -208,13 +208,23 @@
     const INTRO_SEEN = 'eve.mem.introSeen', ix = $('memIntro'), iScrim = $('memIntroScrim');
     let introTried = false, introPrev = null, introTimer = 0;
     const localSeen = () => { try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch { return false; } };
+    /* "seen" is written to localStorage ONLY after the server accepted PATCH {ui:{memory_intro_seen:true}} (200). A failed PATCH keeps the sheet
+       (좋아요 retries it and, if it still fails, stays open with a toast) and leaves localStorage alone, so the next launch asks again. */
+    let introSaved = false, introSaving = null;
+    function saveSeen() {
+      if (introSaved) return Promise.resolve(true);
+      if (introSaving) return introSaving;
+      return introSaving = api.markIntroSeen().then(() => { try { localStorage.setItem(INTRO_SEEN, '1'); } catch {} introSaved = true; return true; }, () => false).then(ok => { introSaving = null; return ok; });
+    }
     function intro() {
-      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'today') return;
+      if (introTried || !ix || !h.isServer() || !h.route || h.route() !== 'today') return;
       introTried = true;
       clearTimeout(introTimer);
       introTimer = setTimeout(async () => {
         let s; try { s = await api.getSettings(); } catch { return; }   // unreadable/offline: skip this launch, no seen
-        if (!s.available || !s.enabled || s.introSeen || localSeen()) return;            // memory_available=false → no seen either
+        if (!s.available || !s.enabled) return;                          // memory_available=false → no seen either
+        if (s.introSeen) return;
+        if (localSeen()) { saveSeen(); return; }                         // local says seen but the server flag is empty: retry the PATCH silently, once per load
         if (!h.isServer() || h.route() !== 'today' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
         showIntro();
       }, 600);
@@ -223,8 +233,7 @@
     function showIntro() {
       introPrev = document.activeElement;
       iScrim.hidden = false; ix.hidden = false; void ix.offsetWidth; ix.classList.add('show'); iScrim.classList.add('show');
-      try { localStorage.setItem(INTRO_SEEN, '1'); } catch {}
-      api.markIntroSeen().catch(() => {});                                      // 400 (key not in contract yet) or anything else: ignore
+      saveSeen();                                                               // fire at show; failure is handled when 좋아요 is tapped
       $('memIntroTitle').focus();
     }
     function closeIntro(after) {
@@ -235,7 +244,14 @@
       matchMedia('(prefers-reduced-motion: reduce)').matches ? setTimeout(done, 200) : setTimeout(done, 380);
     }
     if (ix) {
-      $('memIntroOk').onclick = () => closeIntro();
+      const ok = $('memIntroOk');
+      ok.onclick = async () => {
+        if (!introSaved) {                                                       // not on the server yet: try again now; keep the sheet if it still fails
+          const er = $('memIntroErr'); er.hidden = true; ok.disabled = true; const saved = await saveSeen(); ok.disabled = false;
+          if (!saved) { er.hidden = false; ok.focus(); return; }                // error line inside the sheet (the app toast sits under the sheet's scrim)
+        }
+        closeIntro();
+      };
       iScrim.onclick = () => closeIntro();
       $('memIntroSettings').onclick = () => closeIntro(() => {                   // open Settings › 메모리, focus the toggle; never turns memory off
         h.openSettings && h.openSettings();
