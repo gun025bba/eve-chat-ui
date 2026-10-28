@@ -535,7 +535,13 @@
       if (items.length && items.every(i => i.created)) items.sort((a, b) => a.created - b.created);   // oldest first (server order otherwise)
       return items;
     }
-    return { pendingList, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
+    /* 오늘 일정 cell (B3 §7): GET /v1/settings `briefing.enabled`. false → the briefing is switched off → the cell is hidden; no `briefing` key / no boolean → unknown (null) → the saved briefing message decides. */
+    async function briefingEnabled() {
+      if (!h.isServer() || !h.online()) return null;
+      const s = await api.getSettings(), b = s && s.briefing;
+      return b && typeof b === 'object' && typeof b.enabled === 'boolean' ? b.enabled : null;
+    }
+    return { pendingList, briefingEnabled, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
   }
   self.EveProactive = { init, renderConfirmCard, setCardState, ULID, when };
 })();
