@@ -8,7 +8,7 @@ with sync_playwright() as p:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True, color_scheme=scheme); pg = ctx.new_page()
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.screenshot(path=f'{out}/list-{scheme}.png')
-        pg.click('#newChat'); pg.wait_for_timeout(900); pg.screenshot(path=f'{out}/empty-{scheme}.png')
+        pg.evaluate("__app.newChat()"); pg.wait_for_timeout(900); pg.screenshot(path=f'{out}/empty-{scheme}.png')
         pg.fill('#input', '이번 주 서울 날씨 정리해 줘'); pg.wait_for_timeout(200); pg.screenshot(path=f'{out}/composer-input-{scheme}.png')
         pg.click('#sendBtn'); pg.wait_for_timeout(3000); pg.screenshot(path=f'{out}/chat-{scheme}.png')
         extra = os.environ.get('SHOT_EXTRA')

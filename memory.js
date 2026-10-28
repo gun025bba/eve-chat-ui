@@ -209,13 +209,13 @@
     let introTried = false, introPrev = null, introTimer = 0;
     const localSeen = () => { try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch { return false; } };
     function intro() {
-      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'list') return;
+      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'today') return;
       introTried = true;
       clearTimeout(introTimer);
       introTimer = setTimeout(async () => {
         let s; try { s = await api.getSettings(); } catch { return; }   // unreadable/offline: skip this launch, no seen
         if (!s.available || !s.enabled || s.introSeen || localSeen()) return;            // memory_available=false → no seen either
-        if (!h.isServer() || h.route() !== 'list' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
+        if (!h.isServer() || h.route() !== 'today' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
         showIntro();
       }, 600);
     }

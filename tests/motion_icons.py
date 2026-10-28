@@ -29,7 +29,7 @@ with sync_playwright() as p:
       await new Promise(r=>setTimeout(r,250)); return [v0,mid,s.getPropertyValue('--vvh'),s.getPropertyValue('--kb')]}""")
     check('M1: --vvh unchanged mid-resize, committed after 150ms, --kb reset', r[0] == r[1] and r[3] == '0px', r)
     # M9: rendered thread has no .enter; new message gets .enter only on the last
-    pg.click('#newChat'); pg.wait_for_timeout(400); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
+    pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
     n = pg.evaluate("[document.querySelectorAll('#messages .msg.enter').length, [...document.querySelectorAll('#messages .msg')].pop().classList.contains('enter')]")
     check('M9: enter class only on the newly appended last message', n == [1, True], n)
     pg.reload(); pg.wait_for_timeout(1500)

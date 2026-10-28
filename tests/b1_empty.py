@@ -9,7 +9,7 @@ with sync_playwright() as p:
     for scheme in ['dark', 'light']:
         ctx = new_ctx(b, scheme=scheme); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
-        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.click('#newChat'); pg.wait_for_timeout(600)
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(600)
         t = scheme + ': '
         r = pg.evaluate("""(()=>{const m=document.getElementById('messages'),n=m.querySelector('.rail-now');return {kids:m.children.length,now:!!n,who:n?.querySelector('.who-n')?.textContent,hint:n?.querySelector('.tx')?.textContent,tm:n?.querySelector('.tm')?.textContent,
           msgs:m.querySelectorAll('.msg').length,forbid:m.querySelectorAll('.empty,.mark,.mark-tile,.chip,.chips,h1,img').length,text:m.innerText,body:document.body.innerText}})()""")

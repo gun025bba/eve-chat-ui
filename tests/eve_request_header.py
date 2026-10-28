@@ -25,7 +25,7 @@ with sync_playwright() as p:
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     # message send (POST /v1/chat/completions)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(300)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
     pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
     # feedback PUT/DELETE, thread PATCH/DELETE, import POST via the outbox/api path
     pg.evaluate("""localStorage.setItem('llmchat.outbox', JSON.stringify([

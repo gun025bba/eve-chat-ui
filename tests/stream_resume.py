@@ -14,7 +14,7 @@ SHOW="Object.defineProperty(document,'hidden',{configurable:true,get:()=>false})
 req('PUT','/auth/on'); req('PUT','/persist/on'); req('PUT','/db/reset'); req('PUT','/fail/clear'); req('PUT','/pro/set',{'snapOnly':False})
 errs=[]
 def newchat(pg):
-    pg.goto(BASE+'#/'); pg.wait_for_timeout(700); pg.click('#newChat'); pg.wait_for_timeout(300)
+    pg.goto(BASE+'#/'); pg.wait_for_timeout(700); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
 def last_asst(pg): return pg.locator('.msg.assistant').last
 with sync_playwright() as p:
     b=p.chromium.launch(); c=b.new_context(viewport={'width':393,'height':852}, is_mobile=True, has_touch=True)
@@ -68,6 +68,7 @@ with sync_playwright() as p:
     req('PUT','/pro/set',{'resume404':False})
     def reload_thread(tid):
         pg.goto(BASE+'#/'); pg.wait_for_timeout(400); pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(1500)
+        pg.click('#openLog'); pg.wait_for_timeout(500)
         pg.click(f'#convList li.row[data-id="{tid}"]'); pg.wait_for_timeout(1200)
     def nres(): return len(db()['state'].get('resumes', []))
     # 8) stop with a mid → POST .../cancel (CSRF header, no body) → 중지됨; server row failed/cancelled

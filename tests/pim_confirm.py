@@ -23,7 +23,7 @@ with sync_playwright() as p:
     def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .ws-status')].pop()||{}).textContent||''")
     def ask(text, aid, wait=2300):
         put('/pro/reset'); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
-        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.click('#newChat'); pg.wait_for_timeout(400)
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         pg.fill('#input', text); pg.click('#sendBtn'); pg.wait_for_timeout(350)
         st = status(); pg.wait_for_timeout(wait)
         return pg.locator(f'.confirm-card[data-aid="{PFX}{aid}"]'), st

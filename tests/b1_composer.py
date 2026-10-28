@@ -9,24 +9,24 @@ with sync_playwright() as p:
     for scheme in ['dark', 'light']:
         ctx = new_ctx(b, scheme=scheme); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
-        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.click('#newChat'); pg.wait_for_timeout(500)
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
         ev = pg.evaluate; t = scheme + ': '
         check(t + 'placeholder "지금 일을 남겨요", 17px input, --label-3 placeholder', pg.get_attribute('#input', 'placeholder') == '지금 일을 남겨요' and ev("getComputedStyle(document.getElementById('input')).fontSize") == '17px')
-        f = ev("""(()=>{const f=document.querySelector('.field'),r=f.getBoundingClientRect(),s=getComputedStyle(f),c=document.getElementById('composer').getBoundingClientRect(),pl=document.getElementById('plusBtn').getBoundingClientRect(),sb=document.getElementById('sendBtn');
+        f = ev("""(()=>{const f=document.querySelector('#composer .field'),r=f.getBoundingClientRect(),s=getComputedStyle(f),c=document.getElementById('composer').getBoundingClientRect(),pl=document.getElementById('plusBtn').getBoundingClientRect(),sb=document.getElementById('sendBtn');
           return {h:r.height,rad:s.borderTopLeftRadius,l:r.left,rr:innerWidth-r.right,pb:innerHeight-r.bottom,plw:pl.width,plh:pl.height,pll:pl.left-r.left,so:getComputedStyle(sb).opacity,sp:getComputedStyle(sb).pointerEvents,bf:s.backdropFilter,mat:s.backgroundColor,sh:s.boxShadow}})()""")
         check(t + 'capsule: 44px, radius 22, 12px side margins, ≥10px from the bottom', abs(f['h'] - 44) < 1 and f['rad'] == '22px' and abs(f['l'] - 12) < 1 and abs(f['rr'] - 12) < 1 and f['pb'] >= 10, f)
         check(t + '+ is 36x36 inside the capsule (6px padding); no blur (opaque material)', f['plw'] == 36 and f['plh'] == 36 and abs(f['pll'] - 6) < 1 and f['bf'] in ('none', '') and f['mat'].startswith('rgb('), f)
         check(t + 'send is hidden and not tappable while empty', f['so'] == '0' and f['sp'] == 'none', f)
         pg.fill('#input', '안녕'); pg.wait_for_timeout(300)
-        s = ev("(()=>{const b=document.getElementById('sendBtn'),r=b.getBoundingClientRect(),c=getComputedStyle(b);return {o:c.opacity,pe:c.pointerEvents,w:r.width,h:r.height,bg:c.backgroundColor,fh:document.querySelector('.field').getBoundingClientRect().height}})()")
+        s = ev("(()=>{const b=document.getElementById('sendBtn'),r=b.getBoundingClientRect(),c=getComputedStyle(b);return {o:c.opacity,pe:c.pointerEvents,w:r.width,h:r.height,bg:c.backgroundColor,fh:document.querySelector('#composer .field').getBoundingClientRect().height}})()")
         check(t + 'send appears on input: 36px accent circle', s['o'] == '1' and s['pe'] != 'none' and s['w'] == 36 and s['h'] == 36, s)
         pg.fill('#input', 'a\nb\nc'); pg.wait_for_timeout(200)
-        h5 = ev("document.querySelector('.field').getBoundingClientRect().height"); rad = ev("getComputedStyle(document.querySelector('.field')).borderTopLeftRadius")
+        h5 = ev("document.querySelector('#composer .field').getBoundingClientRect().height"); rad = ev("getComputedStyle(document.querySelector('#composer .field')).borderTopLeftRadius")
         pg.fill('#input', '\n'.join(str(i) for i in range(30))); pg.wait_for_timeout(200)
-        h30 = ev("document.querySelector('.field').getBoundingClientRect().height")
+        h30 = ev("document.querySelector('#composer .field').getBoundingClientRect().height")
         check(t + 'multi-line grows up (radius stays 22), capped at 120px', 44 < h5 < 120 and rad == '22px' and h30 <= 120.5, [h5, rad, h30])
         # buttons stay at the bottom edge while the field grows
-        pb = ev("(()=>{const f=document.querySelector('.field').getBoundingClientRect(),p=document.getElementById('plusBtn').getBoundingClientRect();return Math.abs((f.bottom-p.bottom)-4)<1.5})()")
+        pb = ev("(()=>{const f=document.querySelector('#composer .field').getBoundingClientRect(),p=document.getElementById('plusBtn').getBoundingClientRect();return Math.abs((f.bottom-p.bottom)-4)<1.5})()")
         check(t + '+ and send stay anchored to the bottom while it grows', pb)
         pg.fill('#input', '')
         # + menu
@@ -42,7 +42,7 @@ with sync_playwright() as p:
         w = ev("(()=>{const b=document.getElementById('plusBtn'),s=getComputedStyle(b),g=b.querySelector('.i-globe'),pl=b.querySelector('.i-plus');return {on:b.classList.contains('web-on'),bg:s.backgroundColor,gd:getComputedStyle(g).display,pd:getComputedStyle(pl).display,ls:localStorage.getItem('llmchat.webSearch'),ac:document.getElementById('webBtn').getAttribute('aria-checked'),lab:b.getAttribute('aria-label')}})()")
         check(t + 'web on: + turns into a globe (accent) on rgba(10,132,255,.16); menu closes; check set; persisted', w['on'] and w['gd'] != 'none' and w['pd'] == 'none' and w['bg'] == 'rgba(10, 132, 255, 0.16)' and w['ac'] == 'true' and w['ls'] in ('1', 'true') and pg.is_hidden('#plusMenu'), w)
         pg.reload(); pg.wait_for_timeout(1200)
-        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.click('#newChat'); pg.wait_for_timeout(500)
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
         check(t + 'web-on state survives a reload', pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')"))
         pg.click('#plusBtn'); pg.wait_for_timeout(300); pg.click('#webBtn'); pg.wait_for_timeout(300)
         check(t + 'toggling off restores the plus', not pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')") and pg.evaluate("localStorage.getItem('llmchat.webSearch')") not in ('1', 'true'))

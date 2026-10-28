@@ -218,21 +218,30 @@ if (typeof document !== 'undefined') (function () {
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
   /* web search toggle (persisted; on => web_search:'auto') */
-  const webBtn = $('#webBtn'), plusBtn = $('#plusBtn'), plusMenu = $('#plusMenu'), LS_WEB = 'llmchat.webSearch';
+  const LS_WEB = 'llmchat.webSearch';
   const webOn = () => localStorage.getItem(LS_WEB) === '1';
-  function setWebOn(on) { if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB); webBtn.setAttribute('aria-checked', String(on)); webBtn.classList.toggle('on', on); plusBtn.classList.toggle('web-on', on); plusBtn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); plusBtn.title = on ? '웹 검색 켜짐' : ''; }
-  setWebOn(webOn());
-  /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur */
-  function setPlusMenu(open) {
-    if (open === !plusMenu.hidden) return;
-    plusBtn.setAttribute('aria-expanded', String(open));
-    if (open) { plusMenu.hidden = false; plusMenu.classList.remove('show'); void plusMenu.offsetWidth; plusMenu.classList.add('show'); webBtn.focus({ preventScroll: true }); }
-    else { plusMenu.classList.remove('show'); const done = () => { if (!plusMenu.classList.contains('show')) plusMenu.hidden = true; }; if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else setTimeout(done, 160); }
+  /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur.
+     B2: the same menu exists on the chat composer and on the 오늘 composer; they share one persisted setting. */
+  const PLUS = [['#plusBtn', '#plusMenu', '#webBtn'], ['#tPlus', '#tMenu', '#tWeb']].map(([p, m, w]) => ({ btn: $(p), menu: $(m), web: $(w), sel: `${m}, ${p}` }));
+  const plusBtn = PLUS[0].btn, plusMenu = PLUS[0].menu, webBtn = PLUS[0].web;
+  function setWebOn(on) {
+    if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB);
+    PLUS.forEach(({ btn, web }) => { web.setAttribute('aria-checked', String(on)); web.classList.toggle('on', on); btn.classList.toggle('web-on', on); btn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); btn.title = on ? '웹 검색 켜짐' : ''; });
   }
-  plusBtn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(plusMenu.hidden); });
-  document.addEventListener('pointerdown', e => { if (!plusMenu.hidden && !e.target.closest('#plusMenu, #plusBtn')) setPlusMenu(false); }, true);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !plusMenu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false); plusBtn.focus({ preventScroll: true }); } }, true);
-  webBtn.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+  setWebOn(webOn());
+  function setPlusMenu(open, P = PLUS[0]) {
+    const { btn, menu, web } = P;
+    if (open === !menu.hidden) return;
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; menu.classList.add('show'); web.focus({ preventScroll: true }); }
+    else { menu.classList.remove('show'); const done = () => { if (!menu.classList.contains('show')) menu.hidden = true; }; if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else setTimeout(done, 160); }
+  }
+  PLUS.forEach(P => {
+    P.btn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(P.menu.hidden, P); });
+    document.addEventListener('pointerdown', e => { if (!P.menu.hidden && !e.target.closest(P.sel)) setPlusMenu(false, P); }, true);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !P.menu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false, P); P.btn.focus({ preventScroll: true }); } }, true);
+    P.web.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false, P); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+  });
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
@@ -270,6 +279,7 @@ if (typeof document !== 'undefined') (function () {
   document.documentElement.classList.toggle('standalone', isStandalone());
   document.documentElement.classList.toggle('ios', isIOS);
   const buzz = n => { if (self.EveShell?.haptic(n <= 10 ? 'light' : n <= 20 ? 'medium' : 'heavy')) return; if (!isIOS && navigator.vibrate) try { navigator.vibrate(n); } catch {} };   // 1.7.0: iOS shell haptics when bridged
+  let chatFrom = 'today';
   const wide = matchMedia('(min-width: 761px)');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -336,8 +346,11 @@ if (typeof document !== 'undefined') (function () {
       preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
+  let listLoading = true, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false, msgsPending = 0, coldStart = false;   // 오늘 / 기록 loading state (declared before first use)
+  const logSkel = () => coldStart && listLoading && Date.now() - loadT0 >= 250;
   let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
+    listLoading = true; loadT0 = Date.now(); coldStart = !convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
       const prev = mode === 'server' ? convs : [];
@@ -348,15 +361,16 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); MEM?.intro?.();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
         if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
+      if (!persistOff) listError = true;
       renderSync();
-    }
+    } finally { const wasCold = coldStart && listLoading; listLoading = false; todayDirty(); if (wasCold) renderList(); }
   }
   async function loadMoreThreads() {
     if (mode !== 'server' || !nextCursor || threadsLoading || listQuery()) return;
@@ -393,7 +407,7 @@ if (typeof document !== 'undefined') (function () {
   function adoptThreadId(c, id) {
     if (!id || c.id === id) { if (c) c.fresh = false; return; }
     const old = c.id; c.id = id; c.fresh = false; c.srv = true;
-    if (currentId === old) { currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id }, '', '#/c/' + id); }
+    if (currentId === old) { currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id, from: chatFrom }, '', '#/t/' + id); }
     if (genId === old) genId = id;
     const d = localStorage.getItem(LS.draft + old); if (d) { localStorage.setItem(LS.draft + id, d); localStorage.removeItem(LS.draft + old); }
     persist();
@@ -464,8 +478,7 @@ if (typeof document !== 'undefined') (function () {
     const c = blankConv();
     convs.unshift(c); currentId = c.id; persist(); input.value = ''; grow(); renderAll(); go('chat'); if (!isTouch) input.focus();
   }
-  function openConv(id, from) {
-    chatFrom = from || 'list';
+  function openConv(id) {
     if (id !== currentId) { saveDraft(); currentId = id; persist(); renderAll(); loadDraft(); }
     else renderMessages();
     ensureMessages(cur());
@@ -545,44 +558,94 @@ if (typeof document !== 'undefined') (function () {
   const safeSnippet = s => escapeHtml(String(s || '')).replace(/&lt;(\/?)mark&gt;/g, '<$1mark>');
   const listQuery = () => ($('#search').value || '').trim();
   let searchHits = null, searchT = 0, searchSeq = 0;
-  function rowEl(c, cls = '') {
+  const MARK = '<svg class="r-eve" viewBox="0 0 100 100" aria-hidden="true"><path d="M14 54V36a16 16 0 0 1 16-16h40a16 16 0 0 1 16 16v28a16 16 0 0 1-16 16H34" fill="none" stroke="currentColor" stroke-width="9"/><rect x="32" y="37" width="10" height="26" rx="5" fill="var(--brand)"/></svg>';
+  const hasPro = c => (c.unread || 0) > 0 || (c.messages || []).some(m => m.origin === 'proactive');
+  /* 1.10.0 B2 (DIRECTION-B §9.2): a row is  time(36px) · title + preview · [pill] [Eve mark]; rows of one day share a group card */
+  function rowEl(c, cls = '', opts = {}) {
     const li = document.createElement('li'); li.className = 'row' + cls + (c.id === currentId ? ' active' : ''); li.dataset.id = c.id;
     const arch = cls.includes('archived');
     li.innerHTML = `<div class="row-actions">${arch ? '<button type="button" class="ra-restore" tabindex="-1">복원</button>' + (mode === 'local' ? '<button type="button" class="ra-del" tabindex="-1">삭제</button>' : '') : '<button type="button" class="ra-rename" tabindex="-1">이름 변경</button><button type="button" class="ra-archive" tabindex="-1">보관</button>'}</div>
-      <div class="row-main"><div class="row-top"><span class="row-title"></span><time></time>${CHEV_R}</div><div class="row-sub"></div></div>`;
+      <div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub"></div></div></div>`;
     li.querySelector('.row-title').textContent = (c.pinned ? '📌 ' : '') + c.title;
-    li.querySelector('time').textContent = fmtTime(c.updated || Date.now());
+    const tm = li.querySelector('time'), ts = c.updated || Date.now(); tm.textContent = opts.day && kstDay(ts) !== kstDay(Date.now()) ? shortDate(ts) : hhmm(ts); tm.dateTime = new Date(ts).toISOString();
     const sub = li.querySelector('.row-sub');
     PRO?.decorateRow(li, c);
-    if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = preview(c);
+    if (hasPro(c)) li.querySelector('.row-top').insertAdjacentHTML('beforeend', MARK);
+    if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = opts.date ? daySepText(ts).replace(/ · .*/, '') + ' · ' + preview(c) : preview(c);
     return li;
+  }
+  const shortDate = t => { const [, m, d] = kstDay(t).split('-').map(Number); return `${m}.${d}`; };
+  let wkDay = null;   // the day whose week the strip shows (= the date header at the top of the list)
+  function renderWk() {
+    const el = $('#wk'), T = kstDay(Date.now()), have = new Set(convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));
+    const base = wkDay || T, [y, m, d] = base.split('-').map(Number), start = new Date(Date.UTC(y, m - 1, d)); start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const key = kstDay(start.getTime() + 12 * 36e5) + '|' + [...have].filter(x => x >= kstDay(start.getTime() + 12 * 36e5)).length;
+    const mo = $('#logMonth'); mo.textContent = `${y}년 ${m}월`;
+    const week = [...Array(7)].map((_, i) => { const t = new Date(start); t.setUTCDate(start.getUTCDate() + i); return t.toISOString().slice(0, 10); });
+    const sig = week.join() + '|' + week.map(x => have.has(x) ? 1 : 0).join('');
+    if (el.dataset.sig !== sig) {
+      const changedWeek = el.dataset.week && el.dataset.week !== week[0];
+      el.dataset.sig = sig; el.dataset.week = week[0]; el.replaceChildren();
+      week.forEach((ymd, i) => {
+        const fut = ymd > T, has = have.has(ymd), b = document.createElement('button'); b.type = 'button'; b.className = 'wk-c'; b.dataset.day = ymd;
+        if (fut || !has) b.setAttribute('aria-disabled', 'true'); if (fut) b.classList.add('fut'); if (has) b.classList.add('has');
+        const [, mm, dd] = ymd.split('-').map(Number); b.setAttribute('aria-label', `${mm}월 ${dd}일 ${WEEKDAY[i]}요일${has ? ', 기록 있음' : ''}`);
+        b.innerHTML = '<span class="wk-w"></span><span class="wk-n"></span>'; b.querySelector('.wk-w').textContent = WEEKDAY[i]; b.querySelector('.wk-n').textContent = String(dd);
+        el.appendChild(b);
+      });
+      if (changedWeek && !reduce.matches) { el.classList.remove('sw'); void el.offsetWidth; el.classList.add('sw'); }
+    }
+    el.querySelectorAll('.wk-c').forEach(b => { const on = b.dataset.day === base; b.classList.toggle('sel', on); if (on) b.setAttribute('aria-current', 'date'); else b.removeAttribute('aria-current'); });
+  }
+  $('#wk').addEventListener('click', e => {
+    const b = e.target.closest('.wk-c'); if (!b || b.getAttribute('aria-disabled') === 'true') return;
+    const lab = $('#convList').querySelector(`.group-label[data-day="${b.dataset.day}"]`); if (!lab) return;
+    wkDay = b.dataset.day; wkLock = Date.now() + 1000; renderWk(); lab.scrollIntoView({ block: 'start', behavior: reduce.matches ? 'auto' : 'smooth' });
+  });
+  let wkT = 0, wkLock = 0;
+  function trackWk() {
+    clearTimeout(wkT); wkT = setTimeout(() => {
+      if (Date.now() < wkLock) return;
+      const top = scroller.getBoundingClientRect().top + (parseFloat(getComputedStyle(listView).getPropertyValue('--nav-h')) || 44) + ($('#wk').offsetHeight || 0) + 2;
+      const labs = [...$('#convList').querySelectorAll('.group-label[data-day]')]; if (!labs.length) return;
+      let cur = labs[0]; for (const l of labs) if (l.getBoundingClientRect().top <= top + 8) cur = l; else break;
+      if (cur.dataset.day !== wkDay) { wkDay = cur.dataset.day; renderWk(); }
+    }, 100);
   }
   function renderList() {
     const ul = $('#convList'); if (ul.querySelector('.row.editing')) return; ul.innerHTML = '';
-    const q = listQuery().toLowerCase();
+    const searching = listView.classList.contains('searching'), q = listQuery().toLowerCase(), flatMode = searching || !!q;
     const live = convs.filter(c => !c.archived);
     live.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updated - a.updated);
     const list = live.filter(c => !q || c.title.toLowerCase().includes(q) || c.messages.some(m => (m.content || '').toLowerCase().includes(q)) || (c.preview || '').toLowerCase().includes(q));
-    $('#listEmpty').hidden = !!live.length || threadsLoading || !!q;
-    let lastG = null;
-    list.forEach(c => {
-      const g = c.pinned ? '고정됨' : groupLabel(c.updated || 0);
-      if (g !== lastG && !q) { const h = document.createElement('li'); h.className = 'group-label'; h.textContent = g; ul.appendChild(h); lastG = g; }
-      ul.appendChild(rowEl(c));
-    });
+    $('#listEmpty').hidden = !!live.length || threadsLoading || listLoading || flatMode;
+    const label = (txt, n, day) => { const h = document.createElement('li'); h.className = 'group-label'; if (day) h.dataset.day = day; h.innerHTML = '<span class="gl-n"></span><span class="gl-c"></span>'; h.querySelector('.gl-n').textContent = txt; h.querySelector('.gl-c').textContent = n ? `대화 ${n}` : ''; ul.appendChild(h); };
+    if (!flatMode) {
+      const cnt = new Map(); list.forEach(c => { const k = c.pinned ? 'pin' : kstDay(c.updated || 0); cnt.set(k, (cnt.get(k) || 0) + 1); });
+      let lastG = null;
+      list.forEach(c => {
+        const g = c.pinned ? 'pin' : kstDay(c.updated || 0);
+        if (g !== lastG) { label(g === 'pin' ? '고정됨' : daySepText(c.updated || 0), cnt.get(g), g === 'pin' ? '' : g); lastG = g; }
+        ul.appendChild(rowEl(c, '', { day: g === 'pin' }));
+      });
+    } else list.forEach(c => ul.appendChild(rowEl(c, '', { date: true })));
     if (q && searchHits) {   // server results (title + content), deduped against local rows
       const hits = searchHits.filter(h => h.match === 'content' || !list.some(c => c.id === h.thread_id));
-      if (hits.length) { const h = document.createElement('li'); h.className = 'group-label'; h.textContent = '메시지'; ul.appendChild(h); }
       hits.forEach(hit => {
         const li = document.createElement('li'); li.className = 'hit'; li.dataset.tid = hit.thread_id; if (hit.message_id) li.dataset.mid = hit.message_id;
-        li.innerHTML = `<div class="row-main"><div class="row-top"><span class="row-title"></span><time></time></div><div class="row-sub snippet">${safeSnippet(hit.snippet)}</div></div>`;
-        li.querySelector('.row-title').textContent = hit.thread_title || '대화'; li.querySelector('time').textContent = fmtTime(toMs(hit.created_at));
+        li.innerHTML = `<div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub snippet">${safeSnippet(hit.snippet)}</div></div></div>`;
+        li.querySelector('.row-title').textContent = hit.thread_title || '대화'; li.querySelector('time').textContent = hhmm(toMs(hit.created_at));
         ul.appendChild(li);
       });
       if (!list.length && !hits.length) ul.innerHTML = '<li class="no-results">결과 없음</li>';
     } else if (q && !list.length && !(mode === 'server' && searchT)) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    if (threadsLoading && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
-    const ar = $('#archivedRow'); if (ar) { ar.hidden = !!q; const n = mode === 'local' ? convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    if ((threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
+    // one group card per run of rows: round the first and last row
+    let run = [];
+    const flush = () => { if (run.length) { run[0].classList.add('g1'); run[run.length - 1].classList.add('g9'); } run = []; };
+    [...ul.children].forEach(li => { if (li.classList.contains('group-label') || li.classList.contains('no-results')) flush(); else run.push(li); }); flush();
+    const ar = $('#archivedRow'); if (ar) { ar.hidden = flatMode; const n = mode === 'local' ? convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    renderWk(); todayDirty();
   }
   function onSearch() {
     renderList(); clearTimeout(searchT); searchT = 0; searchHits = null;
@@ -597,14 +660,14 @@ if (typeof document !== 'undefined') (function () {
   }
   $('#search').addEventListener('input', onSearch);
   $('#search').addEventListener('search', onSearch);
-  async function openHit(tid, mid) {
+  async function openHit(tid, mid, block = 'center') {
     let c = convs.find(x => x.id === tid) || archivedList.find(x => x.id === tid);
     if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? archivedList : convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
     openConv(c.id);
     if (!mid) return;
     for (let i = 0; i < 40 && !(c.loaded && !c.loading); i++) await new Promise(r => setTimeout(r, 50));
     for (let n = 0; n < 10 && !c.messages.some(m => m.id === mid) && c.hasMore; n++) await loadOlder();
-    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
+    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
   }
   const convOf = el => { const id = el.closest('.row')?.dataset.id; return convs.find(c => c.id === id) || archivedList.find(c => c.id === id); };
   $('#convList').addEventListener('click', e => {
@@ -618,7 +681,6 @@ if (typeof document !== 'undefined') (function () {
   });
 
   /* ---------- archive screen (#/archive) ---------- */
-  let chatFrom = 'list';
   async function loadArchive() {
     if (mode === 'local') { archivedList = convs.filter(c => c.archived); return renderArchive(); }
     $('#archList').innerHTML = '<li class="skel"><i></i><i></i></li>';
@@ -630,6 +692,7 @@ if (typeof document !== 'undefined') (function () {
     const list = mode === 'local' ? convs.filter(c => c.archived) : archivedList;
     if (mode === 'local') archivedList = list;
     list.sort((a, b) => b.updated - a.updated).forEach(c => ul.appendChild(rowEl(c, ' archived')));
+    ul.firstElementChild?.classList.add('g1'); ul.lastElementChild?.classList.add('g9');
     $('#archEmpty').hidden = !!list.length;
   }
   $('#archList').addEventListener('click', e => {
@@ -638,13 +701,13 @@ if (typeof document !== 'undefined') (function () {
     if (e.target.closest('.ra-restore')) return restoreConv(c);
     if (e.target.closest('.ra-del')) return confirmDelete(c);
     if (openRow) return closeSwipe();
-    openConv(c.id, 'archive');
+    openConv(c.id);
   });
   function confirmDelete(c) {
     closeSwipe();
     showMenu(null, [{ label: '대화 영구 삭제', danger: true, act: () => deleteConv(c) }, { label: '취소', act: () => {} }], { sheet: true, title: '대화를 영구 삭제할까요? 이 작업은 되돌릴 수 없어요.' });
   }
-  $('#archivedRow').onclick = () => { history.pushState({ route: 'archive' }, '', '#/archive'); loadArchive(); animateTo('archive', 'push'); };
+  $('#archivedRow').onclick = () => { loadArchive(); go('archive'); };
   $('#archBack').onclick = () => back();
 
   /* ---------- messages ---------- */
@@ -914,7 +977,6 @@ if (typeof document !== 'undefined') (function () {
     return `입력 ${u.prompt_tokens ?? '?'} · 출력 ${ct ?? '?'} tok${rate}`;
   }
 
-  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only (moves to the settings header in B2)
   /* 1.10.0 B1: an empty conversation is just the timeline's "지금" event (DIRECTION-B §4): no logo, headline, subtitle or suggestion cards. */
   function renderEmpty() {
     const t = Date.now(), ev = document.createElement('div'); ev.className = 'rail-now'; ev.setAttribute('role', 'listitem'); ev.setAttribute('aria-label', `${hhmm(t)} 지금`);
@@ -926,7 +988,7 @@ if (typeof document !== 'undefined') (function () {
     box.innerHTML = '';
     const c = cur();
     $('#title').textContent = c ? c.title : '새 대화';
-    $('#modelName').textContent = SUBTITLE; const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
+    const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
     chatView.classList.toggle('archived', !!c?.archived);
     if (c?.loading && !c.messages.length) { box.innerHTML = '<div class="older loading"><span class="spin"></span></div>'; return; }
     if (!c || !c.messages.length) return renderEmpty();
@@ -950,7 +1012,8 @@ if (typeof document !== 'undefined') (function () {
     sendBtn.classList.toggle('stop', b);
     sendBtn.disabled = b ? false : !input.value.trim();
     sendBtn.setAttribute('aria-label', b ? '생성 중지' : '전송'); sendBtn.title = b ? '생성 중지 (Esc)' : '';
-    if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || wide.matches) renderList(); maybeA2HS(); }
+    tSend.classList.toggle('stop', b); tSend.disabled = b ? false : !tInput.value.trim(); tSend.setAttribute('aria-label', b ? '생성 중지' : '전송');
+    if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || app.dataset.route === 'today' || wide.matches) renderList(); maybeA2HS(); }
   }
 
   /* ---------- errors (gateway contract) ---------- */
@@ -1274,14 +1337,85 @@ if (typeof document !== 'undefined') (function () {
   }
   sendBtn.addEventListener('click', e => { e.preventDefault(); submitComposer(); });
 
+  /* ---------- 오늘 (DIRECTION-B §4, B2): the root. A timeline of what Eve sent first and what you asked today, a "지금" line, one composer. ---------- */
+  const tInput = $('#tInput'), tSend = $('#tSend');
+  const todaySeenKey = 'eve.b2.todaySeen';
+  // skeleton only on a cold start (no cached list) and only when 250ms have passed; `ready` = list loaded and today's threads' messages in (the stagger waits for it)
+  const needMsgs = M => M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
+  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(self.EveToday.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
+  const TODAY = self.EveToday?.init({
+    convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
+    retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
+    pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p),
+    open: (c, mid) => (mid ? openHit(c.id, mid) : openConv(c.id)),
+    stagger: () => { if (reduce.matches) return false; try { if (sessionStorage.getItem(todaySeenKey)) return false; sessionStorage.setItem(todaySeenKey, '1'); } catch { if (tSeen) return false; tSeen = true; } return true; },
+  });
+  /* 확인 대기 card (§4-4, §6): the oldest pending confirmation not put off with "나중에". Read-only: [검토하기] opens its thread, approval stays on the card in the thread.
+     No endpoint / error / offline / cross-origin → the card is simply not drawn. */
+  let pendItems = [], pendAt = 0, pendBusy = false;
+  const SNZ = 'eve.b2.snooze';
+  const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === self.EveToday.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
+  function pendFirst() { const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
+  function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: self.EveToday.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
+  async function pendRefresh(force) {
+    if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
+    pendBusy = true; pendAt = Date.now();
+    try { const l = await PRO.pendingList(); pendItems = l || []; } catch { pendItems = []; } finally { pendBusy = false; }
+    todayDirty();
+  }
+  function openPend(p) { openHit(p.threadId, p.messageId || undefined, 'start'); }
+  function todayRender() {
+    if (!TODAY) return;
+    $('#todayDate').textContent = self.EveToday.dateLine();
+    const M = TODAY.render();
+    // pro messages live inside threads: load the messages of today's threads (and the 이어서 candidates) once, then draw again
+    const need = needMsgs(M);
+    if (need.length && mode === 'server') { need.forEach(c => { c._tTried = true; }); msgsPending += need.length; Promise.allSettled(need.map(c => ensureMessages(c).finally(() => { msgsPending--; }))).then(() => todayDirty()); }
+  }
+  function todayDirty() {
+    if (!TODAY || tDirtyT) return;
+    tDirtyT = requestAnimationFrame(() => { tDirtyT = 0; if (app.dataset.route === 'today' || wide.matches) todayRender(); });
+  }
+  function todayShow() { todayRender(); tGrow(); pendRefresh(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); } });
+  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
+  function tGrow() {
+    if (!tInput.value) tInput.style.height = ''; else { tInput.style.height = 'auto'; tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px'; }
+    tSend.disabled = controller ? false : !tInput.value.trim();
+  }
+  tInput.addEventListener('input', tGrow);
+  let tDraftT = 0; tInput.addEventListener('input', () => { clearTimeout(tDraftT); tDraftT = setTimeout(() => { const v = tInput.value; if (v) localStorage.setItem(LS.draft + 'today', v); else localStorage.removeItem(LS.draft + 'today'); }, 300); });
+  tInput.value = localStorage.getItem(LS.draft + 'today') || '';
+  function todaySubmit() {
+    if (controller) return stopGeneration();
+    const t = tInput.value.trim(); if (!t) return;
+    saveDraft();
+    const c0 = cur();
+    if (!(c0 && !c0.messages.length && !c0.archived)) { const c = blankConv(); convs.unshift(c); currentId = c.id; persist(); }
+    tInput.value = ''; localStorage.removeItem(LS.draft + 'today'); tGrow();
+    input.value = t; grow(); renderAll(); go('chat'); submitComposer();
+  }
+  tInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); todaySubmit(); } });
+  tSend.addEventListener('click', e => { e.preventDefault(); todaySubmit(); });
+
   /* ---------- navigation stack (NATIVE §1, §4) ---------- */
-  const app = $('#app'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
+  const app = $('#app'), todayView = $('#todayView'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
+  const VIEW = { today: todayView, list: listView, archive: archView, chat: chatView };
+  const RANK = { today: 0, list: 1, archive: 2, chat: 3 };
   let navTimer = 0;
+  /* 1.10.0 B2 (DIRECTION-B §1): a stack  오늘 ▸ 기록 (#/log) ▸ 보관함 (#/archive)  and chat (#/t/<id>) pushed over whichever it was opened from.
+     ≥761px the sidebar is always 기록; the right pane is 오늘 or the chat. */
   function syncInert() {
     const r = app.dataset.route, both = wide.matches;
-    listView.inert = !both && r !== 'list'; chatView.inert = !both && r !== 'chat'; archView.inert = r !== 'archive';
+    todayView.inert = both ? r === 'chat' : r !== 'today'; listView.inert = both ? r === 'archive' : r !== 'list';
+    chatView.inert = r !== 'chat'; archView.inert = r !== 'archive';
   }
-  function setRoute(r) { app.dataset.route = r; save(LS.route, r); syncInert(); if (r === 'list') { renderList(); if (serverReady) MEM?.intro?.(); } }
+  function setRoute(r) {
+    app.dataset.route = r; app.dataset.from = chatFrom; syncInert();
+    if (r === 'list') renderList();
+    if (r === 'today') { todayShow(); if (serverReady) MEM?.intro?.(); }
+    if (r === 'chat') updateBackLbl();
+  }
   function slide(route, dir, dur) { // CSS fallback (and always used after a swipe)
     clearTimeout(navTimer);
     app.style.setProperty('--nav-d', (dur || (dir === 'push' ? 420 : 380)) + 'ms');
@@ -1289,93 +1423,128 @@ if (typeof document !== 'undefined') (function () {
     navTimer = setTimeout(() => { app.classList.remove('transitioning'); app.style.removeProperty('--nav-d'); }, (dur || 420) + 40);
   }
   function animateTo(route, dir) {
-    if (app.dataset.route === route) return syncInert();
+    const from = app.dataset.route;
+    if (from === route) return syncInert();
     if (wide.matches || !app.classList.contains('ready')) return setRoute(route);
-    if (route === 'archive' || app.dataset.route === 'archive') return slide(route, dir);
-    if (document.startViewTransition && !reduce.matches) {
+    const vtPair = (route === 'chat' && chatFrom === 'list') || (from === 'chat' && route === 'list');   // View Transitions: 기록 ↔ chat only
+    if (vtPair && document.startViewTransition && !reduce.matches) {
       document.documentElement.dataset.dir = dir; app.classList.add('vt');
       (route === 'chat' ? chatView : listView).inert = false; // target screen interactive immediately
       const t = document.startViewTransition(() => setRoute(route));
       t.finished.finally(() => app.classList.remove('vt'));
     } else slide(route, dir);
   }
-  const hashFor = r => r === 'chat' && currentId ? '#/c/' + currentId : '#/';
+  const HASH = { today: '#/', list: '#/log', archive: '#/archive' };
+  const hashFor = r => r === 'chat' && currentId ? '#/t/' + currentId : (HASH[r] || '#/');
+  const stateFor = r => r === 'chat' ? { route: 'chat', id: currentId, from: chatFrom } : { route: r };
   function go(route) {
     if (popping) return void setTimeout(() => go(route), 50);
+    const here = app.dataset.route;
     if (route === 'chat') {
-      if (history.state?.route === 'chat') history.replaceState({ route: 'chat', id: currentId }, '', hashFor('chat'));
-      else history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat'));
+      if (here !== 'chat') chatFrom = here === 'archive' ? 'archive' : here === 'list' && !wide.matches ? 'list' : 'today';
+      app.dataset.from = chatFrom;
+      if (history.state?.route === 'chat') history.replaceState(stateFor('chat'), '', hashFor('chat'));
+      else history.pushState(stateFor('chat'), '', hashFor('chat'));
       animateTo('chat', 'push');
+    } else if (route === 'list' || route === 'archive') {
+      if (here === route) return;
+      history.pushState(stateFor(route), '', hashFor(route)); animateTo(route, 'push');
     } else back();
   }
   let popping = false;
+  const parentOf = r => r === 'chat' ? chatFrom : r === 'archive' ? 'list' : r === 'list' ? 'today' : null;
   function back() {
-    if (app.dataset.route === 'list' || popping) return;                   // already on list / pop in flight (REVIEW M1)
+    const r = app.dataset.route; if (r === 'today' || popping) return;       // already at the root / pop in flight (REVIEW M1)
     if (input === document.activeElement) input.blur();
-    const target = app.dataset.route === 'chat' && chatFrom === 'archive' ? 'archive' : 'list';
-    if (target === 'list') chatFrom = 'list';
-    if (history.state?.route === 'chat' || history.state?.route === 'archive') { popping = true; ignorePop++; history.back(); }   // route changes now; popstate is ignored
-    else history.replaceState({ route: target }, '', target === 'archive' ? '#/archive' : '#/');
+    const target = parentOf(r);
+    if (history.state?.route === r) { popping = true; ignorePop++; history.back(); }   // route changes now; popstate is ignored
+    else history.replaceState(stateFor(target), '', hashFor(target));
     animateTo(target, 'pop');
   }
   let ignorePop = 0;
   window.addEventListener('popstate', e => {
     popping = false;
     if (ignorePop) { ignorePop--; return; }
-    const st = e.state || { route: 'list' };
+    const st = e.state || { route: location.hash === '#/log' ? 'list' : location.hash === '#/archive' ? 'archive' : 'today' };   // a hand-typed hash change has no state: read the route from the hash
+    if (st.route === 'chat' && st.from) chatFrom = st.from;
     if (st.route === 'chat' && st.id && st.id !== currentId && (convs.some(c => c.id === st.id) || archivedList.some(c => c.id === st.id))) { saveDraft(); currentId = st.id; persist(); renderAll(); loadDraft(); ensureMessages(cur()); }
-    const r = st.route === 'chat' ? 'chat' : st.route === 'archive' ? 'archive' : 'list';
+    const r = RANK[st.route] != null ? st.route : 'today';
     if (r === 'archive') loadArchive();
     if (e.hasUAVisualTransition) return setRoute(r);   // Safari already animated its own back/forward (REVIEW M2)
-    animateTo(r, r === 'chat' ? 'push' : 'pop');
+    animateTo(r, RANK[r] > RANK[app.dataset.route] ? 'push' : 'pop');
   });
   wide.addEventListener?.('change', syncInert);
   $('#backBtn').onclick = back;
-  $('#newChat').onclick = newConv; $('#newChat2').onclick = newConv; $('#newChat3').onclick = newConv;
+  function updateBackLbl() { const n = { today: '오늘', list: '기록', archive: '보관함' }[chatFrom] || '오늘'; $('#backLbl').textContent = n; $('#backBtn').setAttribute('aria-label', n + '(으)로 돌아가기'); }
+  $('#openLog').onclick = () => go('list');
+  $('#logBack').onclick = () => { if (app.dataset.route === 'list') back(); else showToday(); };
+  function showToday() { if (app.dataset.route === 'chat') back(); else if (app.dataset.route !== 'today') { history.replaceState({ route: 'today' }, '', '#/'); animateTo('today', 'pop'); } }
+  /* ⋯ in the chat top bar: 새 대화 (the old pencil) */
+  $('#newChat2').onclick = () => showMenu($('#newChat2'), [{ label: '새 대화', icon: 'edit', act: () => newConv() }], { align: 'right' });
+
+  /* 기록: search mode (§9.2). The magnifier swaps the title + week strip for the field; 취소 restores them. */
+  function setSearching(on) {
+    listView.classList.toggle('searching', on);
+    for (const e of [$('#wk'), listView.querySelector('.l-head')]) if (e) e.inert = on;   // faded out → also out of the tab order
+    const f = $('#search');
+    if (on) f.focus({ preventScroll: true });
+    else { f.value = ''; f.blur(); onSearch(); }
+    renderList();
+  }
+  $('#logSearch').onclick = () => setSearching(true);
+  $('#searchCancel').onclick = () => setSearching(false);
+  $('#search').addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); setSearching(false); } });
 
   /* large title collapse (§2) */
   const scroller = $('#listScroller'), lt = $('#listView .large-title'), lnav = $('#listView .navbar');
   if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => lnav.classList.toggle('collapsed', !e.isIntersecting), { root: scroller, rootMargin: '-52px 0px 0px 0px' }).observe(lt);
-  scroller.addEventListener('scroll', () => { if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 400) loadMoreThreads(); }, { passive: true });
+  scroller.addEventListener('scroll', () => { if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 400) loadMoreThreads(); trackWk(); }, { passive: true });
   scroller.addEventListener('scroll', () => requestAnimationFrame(() => { const y = scroller.scrollTop; lt.style.transform = y < 0 ? `scale(${1 + Math.min(-y, 60) / 600})` : ''; }), { passive: true });
+  const tScroller = $('#todayScroller'), tnav = $('#todayView .navbar');
+  if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => tnav.classList.toggle('collapsed', !e.isIntersecting), { root: tScroller, rootMargin: '-52px 0px 0px 0px' }).observe($('#todayTitle'));
 
-  /* ---------- edge swipe-back, standalone only (§5) ---------- */
+  /* ---------- edge swipe-back, standalone only (§5): chat → where it came from, 기록 → 오늘, 보관함 → 기록 ---------- */
   const rubber = (d, lim = 120) => lim * (1 - 1 / (d / lim + 1)); // iOS-like resistance
   let g = null;
   const curX = el => { const m = getComputedStyle(el).transform; return m && m !== 'none' ? new DOMMatrix(m).m41 : 0; };
-  chatView.addEventListener('touchstart', e => {
-    if (!isStandalone() || wide.matches || app.dataset.route !== 'chat' || e.touches.length > 1 || popping || app.classList.contains('vt') || app.classList.contains('transitioning')) return;
-    const t = e.touches[0], edge = 24 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sal')) || 0);
-    if (t.clientX > edge) return;
-    g = { x0: t.clientX, y0: t.clientY, t0: performance.now(), tl: performance.now(), xl: t.clientX, v: 0, lock: null, dx: 0, start: Math.max(0, curX(chatView)) };
-  }, { passive: true });
-  chatView.addEventListener('touchmove', e => {
-    if (!g) return; const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
-    if (!g.lock) {
-      if (Math.hypot(dx, dy) < 8) return;
-      g.lock = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-      if (g.lock === 'x') { app.classList.add('dragging'); clearTimeout(navTimer); app.classList.remove('transitioning'); if (document.activeElement === input) input.blur(); }
-    }
-    if (g.lock !== 'x') return; e.preventDefault();
-    const now = performance.now(); g.v = (t.clientX - g.xl) / Math.max(1, now - g.tl); g.xl = t.clientX; g.tl = now;
-    const raw = g.start + dx; g.dx = raw < 0 ? -rubber(-raw, 40) : raw;
-    const W = innerWidth, p = Math.min(1, Math.max(0, g.dx / W));
-    chatView.style.transform = `translateX(${g.dx}px)`;
-    listView.style.transform = `translateX(${-30 + 30 * p}%)`;
-    listView.style.setProperty('--dim', String(.25 * (1 - p)));
-  }, { passive: false });
-  const endSwipe = () => {
-    if (!g) return; const s = g; g = null; if (s.lock !== 'x') return;
-    const W = innerWidth, dxp = Math.max(0, s.dx);
-    const commit = dxp > W * .5 || s.v > .5;
-    const remain = commit ? 1 - dxp / W : dxp / W;
-    const dur = Math.max(180, 380 * remain);
-    app.classList.remove('dragging');
-    chatView.style.transform = listView.style.transform = ''; listView.style.removeProperty('--dim');
-    if (commit) { buzz(8); slide('list', 'pop', dur); if (!popping && history.state?.route === 'chat') { popping = true; ignorePop++; history.back(); } else if (!popping) history.replaceState({ route: 'list' }, '', '#/'); }
-    else slide('chat', 'push', dur);
-  };
-  chatView.addEventListener('touchend', endSwipe); chatView.addEventListener('touchcancel', endSwipe);
+  const clearUnder = u => { u.style.transform = ''; u.style.removeProperty('--dim'); };
+  function attachSwipe(view, routeName) {
+    view.addEventListener('touchstart', e => {
+      if (!isStandalone() || wide.matches || app.dataset.route !== routeName || e.touches.length > 1 || popping || app.classList.contains('vt') || app.classList.contains('transitioning')) return;
+      const t = e.touches[0], edge = 24 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sal')) || 0);
+      if (t.clientX > edge) return;
+      g = { view, routeName, under: VIEW[parentOf(routeName)], x0: t.clientX, y0: t.clientY, t0: performance.now(), tl: performance.now(), xl: t.clientX, v: 0, lock: null, dx: 0, start: Math.max(0, curX(view)) };
+    }, { passive: true });
+    view.addEventListener('touchmove', e => {
+      if (!g || g.view !== view) return; const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+      if (!g.lock) {
+        if (Math.hypot(dx, dy) < 8) return;
+        g.lock = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        if (g.lock === 'x') { app.classList.add('dragging'); clearTimeout(navTimer); app.classList.remove('transitioning'); if (document.activeElement === input) input.blur(); g.under.style.visibility = 'visible'; }
+      }
+      if (g.lock !== 'x') return; e.preventDefault();
+      const now = performance.now(); g.v = (t.clientX - g.xl) / Math.max(1, now - g.tl); g.xl = t.clientX; g.tl = now;
+      const raw = g.start + dx; g.dx = raw < 0 ? -rubber(-raw, 40) : raw;
+      const W = innerWidth, p = Math.min(1, Math.max(0, g.dx / W));
+      view.style.transform = `translateX(${g.dx}px)`;
+      g.under.style.transform = `translateX(${-30 + 30 * p}%)`;
+      g.under.style.setProperty('--dim', String(.25 * (1 - p)));
+    }, { passive: false });
+    const endSwipe = () => {
+      if (!g || g.view !== view) return; const s = g; g = null; if (s.lock !== 'x') return;
+      const W = innerWidth, dxp = Math.max(0, s.dx);
+      const commit = dxp > W * .5 || s.v > .5;
+      const remain = commit ? 1 - dxp / W : dxp / W;
+      const dur = Math.max(180, 380 * remain);
+      app.classList.remove('dragging');
+      view.style.transform = ''; clearUnder(s.under); s.under.style.visibility = '';
+      const target = parentOf(routeName);
+      if (commit) { buzz(8); slide(target, 'pop', dur); if (!popping && history.state?.route === routeName) { popping = true; ignorePop++; history.back(); } else if (!popping) history.replaceState(stateFor(target), '', hashFor(target)); }
+      else slide(routeName, 'push', dur);
+    };
+    view.addEventListener('touchend', endSwipe); view.addEventListener('touchcancel', endSwipe);
+  }
+  attachSwipe(chatView, 'chat'); attachSwipe(listView, 'list'); attachSwipe(archView, 'archive');
 
   /* ---------- list swipe actions (§3) ---------- */
   let openRow = null, rs = null; const ACT_W = 148;
@@ -1684,7 +1853,7 @@ if (typeof document !== 'undefined') (function () {
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
     renderWho(); loadModels(); $('#sModelInfo').textContent = shortModel() || '—'; PRO?.openSettings(); MEM?.openSettings();
   }
-  $('#openSettings').onclick = openSettings;
+  $('#openSettings').onclick = openSettings; $('#openSettings3').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
   $('#sSyncNow').onclick = () => { outbox.forEach(o => o.nextAt = 0); obFailed = 0; flushOutbox(); initServer(); };
   $('#loadModels').onclick = loadModels;
@@ -1859,16 +2028,15 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- boot ---------- */
   const params = new URLSearchParams(location.search);
-  const hm = location.hash.match(/^#\/c\/(.+)$/);
-  let route = load(LS.route, 'chat');
-  if (hm && convs.some(c => c.id === hm[1])) { currentId = hm[1]; route = 'chat'; } else if (location.hash === '#/' || location.hash === '#/archive') route = 'list';
-  if (route === 'archive') route = 'list';
+  const hm = location.hash.match(/^#\/(?:t|c)\/(.+)$/);
+  let route = 'today', bootTid = null;   // 1.10.0 B2: the app opens on 오늘; only an explicit hash deep-links elsewhere
+  if (hm) { let id = hm[1]; try { id = decodeURIComponent(id); } catch {} if (convs.some(c => c.id === id)) { currentId = id; route = 'chat'; } else bootTid = id; }
+  else if (location.hash === '#/log') route = 'list'; else if (location.hash === '#/archive') route = 'archive';
   if (currentId && !cur()) currentId = convs[0]?.id || null;
   if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
-  if (params.has('new')) route = 'chat';
-  history.replaceState({ route: 'list' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
+  history.replaceState({ route: 'today' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
   if (self.EveProactive) try {
-    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
   // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
@@ -1912,15 +2080,17 @@ if (typeof document !== 'undefined') (function () {
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
-  else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
-  else setRoute('list');
+  else if (route === 'chat') { history.pushState(stateFor('chat'), '', hashFor('chat')); setRoute('chat'); }
+  else if (route === 'list') { history.pushState(stateFor('list'), '', hashFor('list')); setRoute('list'); }
+  else if (route === 'archive') { history.pushState(stateFor('list'), '', hashFor('list')); history.pushState(stateFor('archive'), '', hashFor('archive')); loadArchive(); setRoute('archive'); }
+  else setRoute('today');
   const sc = currentId && load(LS.scroll, {})[currentId];
   if (sc > 0) requestAnimationFrame(() => requestAnimationFrame(() => { box.scrollTop = sc; stick = false; }));
   requestAnimationFrame(() => app.classList.add('ready'));
   grow();
   if (cur()) ensureMessages(cur());
   renderSync();
-  checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
+  checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
   const APP_VERSION = '1.10.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
@@ -1937,5 +2107,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();

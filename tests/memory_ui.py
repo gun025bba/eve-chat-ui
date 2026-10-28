@@ -146,7 +146,7 @@ with sync_playwright() as p:
     check('DELETE /v1/memory → empty state', w['method'] == 'DELETE' and w['path'] == '/v1/memory' and not pro()['memItems'] and pg.is_hidden('#memExport') and '아직 기억한 게 없어요' in pg.text_content('#memState') and "대화 중에 '기억해'라고 하거나 + 로 직접 추가할 수 있어요" in pg.text_content('#memState'))
 
     # 12) in-chat remember card: same §C path — 저장 verb, reissue → approve on press, SSE token ignored
-    put('/pro/set', {'sseToken': True}); home(); pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']; n0 = len(pro()['bodies'])
+    put('/pro/set', {'sseToken': True}); home(); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400); issued = pro()['issued']; n0 = len(pro()['bodies'])
     pg.fill('#input', 'confirmremember 커피'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     c = pg.locator('.confirm-card[data-aid="01JACT0000000000000000000M"]')
     check('remember card: variant + 저장 verb + normalized text', c.count() == 1 and c.get_attribute('data-variant') == 'remember' and c.locator('.cc-primary').inner_text().strip() == '저장' and '커피는 디카페인' in c.inner_text())
@@ -158,7 +158,7 @@ with sync_playwright() as p:
     put('/pro/set', {'sseToken': False})
     # 13) card approve errors: 500/503 legacy bodies, unknown code → invalid
     for st_, code, kind, want in [(500, 'internal_error', 'legacy', '저장하지 못했어요. 잠시 후 다시 시도해 주세요'), (503, 'memory_read_only', 'legacy', '지금은 메모리를 바꿀 수 없어요'), (422, 'weird_new_code', 'ec', '요청 내용이 올바르지 않아 진행하지 않았어요'), (403, 'kill_switch', 'ec', '지금은 이 기능을 쓸 수 없어요'), (403, 'scope_denied', 'reissue', '이 작업은 할 수 있는 권한이 없어요')]:
-        put('/pro/reset'); home(); pg.click('#newChat'); pg.wait_for_timeout(300)
+        put('/pro/reset'); home(); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
         put('/pro/set', {'actCode': {'reissue': [st_, code]}} if kind == 'reissue' else {'approveLegacy' if kind == 'legacy' else 'approveCode': [st_, code]})
         pg.fill('#input', 'confirmremember 커피'); pg.click('#sendBtn'); pg.wait_for_timeout(1800)
         c = pg.locator('.confirm-card[data-aid="01JACT0000000000000000000M"]').last; c.locator('.cc-primary').click(); pg.wait_for_timeout(900)

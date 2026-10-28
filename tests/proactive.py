@@ -29,14 +29,19 @@ with sync_playwright() as p:
     def home():
         pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1300)
         if pg.evaluate("document.getElementById('app').dataset.route") == 'chat': pg.evaluate('history.back()'); pg.wait_for_timeout(400)
+    def to_log():
+        if pg.evaluate("document.getElementById('app').dataset.route") == 'today': pg.click('#openLog'); pg.wait_for_timeout(500)
+    def to_today():
+        if pg.evaluate("document.getElementById('app').dataset.route") != 'today': pg.evaluate("location.hash='#/'"); pg.wait_for_timeout(600)
     def open_thread(tid):
+        to_log()
         pg.locator(f'#convList li.row[data-id="{tid}"] .row-main, #convList li.row[data-id="{tid}"]').first.click(); pg.wait_for_timeout(1300)
     patches = lambda: [x['b'] for x in pro()['bodies'] if x['p'] == '/v1/settings' and x['m'] == 'PATCH']
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
     check('version 1.10.0', pg.evaluate('window.__app && window.__app.version') == '1.10.0', [errs, pg.url, pg.content()[:300]])
-    pg.click('#openSettings'); pg.wait_for_timeout(600)
+    to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')
 
@@ -44,7 +49,7 @@ with sync_playwright() as p:
     long = '오늘 일정은 두 개예요. ' * 80
     s1 = put('/pro/seed', {'title': '아침 브리핑', 'job_name': '아침 브리핑', 'template_kind': 'briefing', 'proactive': [long, '오후에 비가 와요.']})
     s0 = put('/pro/seed', {'title': '하나', 'proactive': ['하나뿐'], 'kind': 'digest'})
-    home()
+    home(); to_log()
     row = pg.locator(f'#convList li.row[data-id="{s1["thread"]}"]')
     check('server-created job thread is a normal row titled job_name', row.count() == 1 and '아침 브리핑' in row.inner_text())
     check('unread dot + pill 2', row.locator('.unread-dot').count() == 1 and row.locator('.unread-pill').inner_text() == '2', row.inner_html()[:200])
@@ -88,7 +93,7 @@ with sync_playwright() as p:
     pg.evaluate('history.back()'); pg.wait_for_timeout(300)
 
     # --- settings
-    pg.click('#openSettings'); pg.wait_for_timeout(700)
+    to_today(); pg.click('#openSettings'); pg.wait_for_timeout(700)
     check('toggle default off', not pg.is_checked('#sProactive') and pg.is_hidden('#proMore'))
     pg.click('label:has(#sProactive)'); pg.wait_for_timeout(500)
     check('toggle → PATCH {proactive:{enabled:true}}', patches() == [{'proactive': {'enabled': True}}], patches())
@@ -100,17 +105,17 @@ with sync_playwright() as p:
     check('완료 → PATCH quiet_hours only', patches()[-1] == {'proactive': {'quiet_hours': {'start': '23:00', 'end': '08:00'}}}, patches()[-1])
     check('system never PATCHed', all('system' not in b for b in patches()))
     put('/pro/set', {'failSettings': True})
-    pg.click('#openSettings'); pg.wait_for_timeout(600); pg.click('label:has(#sProactive)'); pg.wait_for_timeout(700)
+    to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600); pg.click('label:has(#sProactive)'); pg.wait_for_timeout(700)
     check('PATCH failure → rollback + toast', pg.is_checked('#sProactive') and '설정을 저장하지 못했어요' in pg.content())
     put('/pro/set', {'failSettings': False}); pg.click('#cancelSettings'); pg.wait_for_timeout(300)
     put('/pro/set', {'settings': {'proactive': {'enabled': True, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': True}}})
-    pg.click('#openSettings'); pg.wait_for_timeout(600)
+    to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('memory row shown when memory.enabled', pg.is_visible('#proMemRow'))
     pg.click('label:has(#sProMem)'); pg.wait_for_timeout(500)
     check('memory toggle → PATCH memory_read', patches()[-1] == {'proactive': {'memory_read': True}})
     pg.click('#cancelSettings'); pg.wait_for_timeout(300)
     put('/pro/set', {'system': {'proactive_available': False, 'tools_available': True, 'memory_read_only': False}})
-    pg.click('#openSettings'); pg.wait_for_timeout(600)
+    to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('system.proactive_available=false → toggle disabled + note', pg.is_disabled('#sProactive') and '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300)
     put('/pro/set', {'system': {'proactive_available': True, 'tools_available': True, 'memory_read_only': False}})
@@ -254,7 +259,7 @@ with sync_playwright() as p:
     pg.evaluate('history.back()'); pg.wait_for_timeout(300)
 
     # SSE confirmation + denied
-    put('/pro/set', {'sseToken': True}); pg.click('#newChat'); pg.wait_for_timeout(400); issued = pro()['issued']
+    put('/pro/set', {'sseToken': True}); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400); issued = pro()['issued']
     pg.fill('#input', 'confirm 치과'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     cs = card('01JACT0000000000000000000S')
     check('stream card pending', cs.count() == 1 and cs.get_attribute('data-state') == 'pending')

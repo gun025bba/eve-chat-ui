@@ -15,7 +15,7 @@ LABELS = ['정보가 틀려요', '너무 길어요', '질문을 잘못 이해했
 def start(pg):
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(300)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
     pg.fill('#input', 'hello feedback'); pg.click('#sendBtn'); pg.wait_for_timeout(2600)
 with sync_playwright() as p:
     b = p.chromium.launch()
