@@ -63,7 +63,9 @@ with sync_playwright() as p:
     reset(); rich()
     ctx, pg = newpg(b); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900)   # the stagger is once per session: look before any reload
     n1 = pg.locator('#todayList .stg').count(); d = pg.evaluate("[...document.querySelectorAll('#todayList .stg')].map(l=>l.style.animationDelay)")
-    check('first visit: ≤5 items staggered 40ms apart', 1 <= n1 <= 5 and d[:3] == ['0ms', '40ms', '80ms'], [n1, d])
+    sw = pg.evaluate("!document.getElementById('todayStrip').hidden")   # B3: the 현황 띠 is slot 0 of the stagger (§B2 "띠 → 이벤트"), so the events start one slot later when it is shown
+    k = 1 if sw else 0
+    check('first visit: ≤5 items staggered 40ms apart (after the strip, when it is shown)', 1 <= n1 <= 5 and d[:3] == [f'{(k + i) * 40}ms' for i in range(3)], [n1, d, sw])
     pg.reload(); pg.wait_for_timeout(900); check('same session again: no stagger', pg.locator('#todayList .stg').count() == 0); ctx.close()
     ctx = b.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce'); pg = ctx.new_page(); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200)
     check('reduced motion: no stagger', pg.locator('#todayList .stg').count() == 0); ctx.close()

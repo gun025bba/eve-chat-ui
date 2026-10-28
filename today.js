@@ -1,7 +1,7 @@
 /* Eve 1.10.0 B2 (DIRECTION-B-SPEC §4): the "오늘" screen's timeline.
  * model()  — pure: which events to show, from the thread list (no DOM, no network)
  * init()   — renders them into #todayList with the shared .rail/.ev/.dot components
- * 확인 대기 card (§4-4/§6) comes from ctx.pend() (read-only; the app fetches it). The status strip and today's schedule are B3: nothing here reads the briefing sections. */
+ * 확인 대기 card (§4-4/§6) comes from ctx.pend() (read-only; the app fetches it). B3: the status strip (기억·확인 대기·오늘 일정, §5) is drawn here from ctx.strip() = {cells, sub}; this file never fetches or reads briefing sections, the app computes the cells. */
 (function () {
   const MAX_CONV = 5, CONT_DAYS = 7, DAY = 864e5;
   const KST_YMD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -70,8 +70,39 @@
       a.append(go, later); card.appendChild(a); li.appendChild(card); return li;
     }
     function skeleton() { const f = document.createDocumentFragment(); for (let i = 0; i < 2; i++) { const li = document.createElement('li'); li.className = 'ev skel-ev'; li.setAttribute('aria-hidden', 'true'); li.innerHTML = '<i class="s-tm"></i><span class="dot"></span><i class="s-a"></i><i class="s-b"></i>'; f.appendChild(li); } return f; }
+    /* 현황 띠 (§5): 1–3 button cells, --n = visible cells, 0 cells = no strip at all. Number changes cross-fade (opacity), --n changes fade the whole strip. */
+    const stripEl = $('#todayStrip'), strip = stripEl && stripEl.firstElementChild, navSub = $('#todayNavSub');
+    let stripSig = '', stripPrev = {}, stripShown = false;
+    function renderStrip() {
+      if (!strip) return false;
+      const S = ctx.strip() || { cells: [], sub: '' }, sig = JSON.stringify(S);
+      if (sig === stripSig) return stripShown;
+      stripSig = sig;
+      if (navSub) { navSub.textContent = S.sub || ''; navSub.hidden = !S.sub; navSub.parentElement.classList.toggle('has-sub', !!S.sub); }
+      const fk = document.activeElement && document.activeElement.closest && document.activeElement.closest('.stc'), focusK = fk && fk.dataset.k;
+      const n0 = strip.children.length;
+      strip.replaceChildren();
+      S.cells.forEach(c => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'stc' + (c.z ? ' z' : '') + (c.er ? ' er' : ''); b.dataset.k = c.k;
+        b.setAttribute('aria-label', c.aria); if (c.off) b.setAttribute('aria-disabled', 'true');
+        const sn = document.createElement('span'); sn.className = 'sn'; sn.setAttribute('aria-hidden', 'true');
+        if (c.sk) { const k = document.createElement('i'); k.className = 'sk'; sn.appendChild(k); } else sn.textContent = c.n;
+        if (!c.sk && stripPrev[c.k] != null && stripPrev[c.k] !== c.n) sn.classList.add('chg');
+        const sl = document.createElement('span'); sl.className = 'sl'; sl.setAttribute('aria-hidden', 'true'); if (c.icon) sl.appendChild(ic(c.icon));
+        const lt = document.createElement('span'); lt.textContent = c.label; sl.appendChild(lt);
+        b.append(sn, sl); b.addEventListener('click', () => { if (!c.off) ctx.stripTap(c.k, b); }); strip.appendChild(b);
+      });
+      stripPrev = {}; S.cells.forEach(c => { if (!c.sk) stripPrev[c.k] = c.n; });
+      strip.style.setProperty('--n', S.cells.length || 1);
+      const has = S.cells.length > 0; stripEl.hidden = !has;
+      strip.classList.remove('xf');
+      if (has && n0 !== S.cells.length) { void strip.offsetWidth; strip.classList.add('xf'); }   // --n changed (or first draw): whole strip cross-fades, no layout jump
+      if (focusK) { const f = strip.querySelector(`.stc[data-k="${focusK}"]`); if (f) f.focus({ preventScroll: true }); }
+      stripShown = has; return has;
+    }
     function render() {
       const now = Date.now(), M = model(ctx.convs(), now), st = ctx.state(), P = st.error && !ctx.convs().length ? null : ctx.pend();
+      renderStrip();
       // the pending card leaves with a 180ms opacity fade when it was handled elsewhere / expired (§6)
       const curWt = list.querySelector('.ev.wt');
       if (curWt && !curWt.dataset.gone && curWt.dataset.aid !== (P && P.id)) {
@@ -118,12 +149,12 @@
       list.appendChild(frag);
       list.dataset.day = M.today;
       const settled = !st.skeleton && st.ready !== false && !(st.error && !ctx.convs().length);   // the stagger is for real content only, never for a skeleton or an error
-      if (first && settled && ctx.stagger()) { first = false; [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = i * 40 + 'ms'; }); }
+      if (first && settled && ctx.stagger()) { first = false; [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = (i + (stripShown ? 1 : 0)) * 40 + 'ms'; }); }
       else if (settled) first = false;
       return M;
     }
     function tick() { const n = list.querySelector('.rail-now'); if (!n) return; const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); }
-    return { render, tick, model: () => model(ctx.convs()) };
+    return { render, tick, renderStrip, model: () => model(ctx.convs()) };
   }
   self.EveToday = { init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
 })();

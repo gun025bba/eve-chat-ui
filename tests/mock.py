@@ -94,6 +94,8 @@ class H(SimpleHTTPRequestHandler):
         if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
         b = s.body() if method in ('POST', 'PATCH', 'DELETE') else {}
         PRO['bodies'].append({'m': method, 'p': path, 'b': b})
+        if path == '/v1/actions' and method == 'GET' and PRO.get('actDelay'): time.sleep(PRO['actDelay'] / 1000)   # 1.10.0 B3: hold the strip's data (skeleton checks) outside LOCK
+        if path == '/v1/memory' and method == 'GET' and PRO.get('memDelay'): time.sleep(PRO['memDelay'] / 1000)
         with LOCK:
             _ac = PRO.get('actCode') or {}; _kind = m_act.group(2) if m_act else ('revise' if m_rev else None)
             if _kind in _ac: st_, code_ = _ac.pop(_kind); s.j(st_, ec(code_)); return True   # e.g. backend #38: 403 scope_denied for non-browser sessions
@@ -143,6 +145,7 @@ class H(SimpleHTTPRequestHandler):
                     for k, v in extra: s.send_header(k, v)
                     b2 = json.dumps(obj).encode(); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2)
                 ups = max([i['updated_at'] for i in PRO['memItems']] or [None])
+                if method == 'GET' and path == '/v1/memory' and PRO.get('memListFail'): s.j(PRO['memListFail'], err('internal_error', 'server_error', 'x')); return True   # B3
                 if method == 'GET' and path in ('/v1/memory', '/v1/memory/export'):
                     raw(200, {'object': 'memory', 'updated_at': ups, 'items': PRO['memItems']}, [('Content-Disposition', 'attachment; filename="memory.json"')] if 'export' in path else []); return True
                 if method == 'GET': s.j(405, ec('invalid')); return True
@@ -196,6 +199,7 @@ class H(SimpleHTTPRequestHandler):
                 if PRO.get('memMode') in ('off', 'availOff'): out['system'] = dict(out['system'], memory_available=False)
                 if PRO.get('memNoKey'): out.pop('memory', None)   # missing memory key → off
                 s.j(200, out); return True
+            if path == '/v1/actions' and PRO.get('actFail'): s.j(PRO['actFail'], err('internal_error', 'server_error', 'x')); return True   # B3: list failing (503 → strip shows "–")
             if path == '/v1/actions':
                 s.j(200, {'data': [{k: v for k, v in a.items() if k not in ('token',)} for a in PRO['actions'].values() if a['status'] == 'pending' and a.get('thread_id')]}); return True
             if path == '/v1/push/vapid-public-key':

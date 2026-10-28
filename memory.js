@@ -260,7 +260,18 @@
     const active = () => !!(h.isServer() && st.serverOn && st.enabled && !st.kill);
     let okAt = 0;
     async function ensure() { if (!(h.isServer() && st.serverOn && Date.now() - okAt < 60000)) { try { const s = await api.getSettings(); st = Object.assign({}, st, { serverOn: true, enabled: s.enabled, kill: !s.available }); okAt = Date.now(); } catch { st = Object.assign({}, st, { serverOn: false }); } } return active(); }
-    return { openSettings, flag: true, flushDeletes, intro, closeIntro, active, ensure };
+    /* DIRECTION-B §5 기억 칸: item count for the status strip. null = hide the cell (server memory off / kill switch / no `enabled` key /
+       settings unreadable and never known); {n} = shown; {err:true} = shown as "–" (503, network, ... while memory is known to be on). */
+    let wasOn = false;
+    async function countItems() {
+      if (!h.isServer()) return null;
+      try { const s = await api.getSettings(); st = Object.assign({}, st, { serverOn: true, enabled: s.enabled, kill: !s.available }); okAt = Date.now(); }
+      catch (e) { const k = M.errState(e); if (k === 'off' || k === 'kill_switch' || !wasOn) { st = Object.assign({}, st, { serverOn: false }); wasOn = false; return null; } return { err: true }; }
+      if (!active()) { wasOn = false; return null; }
+      try { const l = await api.list(); wasOn = true; return { n: l.length }; }
+      catch (e) { const k = M.errState(e); if (k === 'off' || k === 'kill_switch') { st = Object.assign({}, st, { serverOn: false }); wasOn = false; return null; } wasOn = true; return { err: true }; }
+    }
+    return { openSettings, flag: true, flushDeletes, intro, closeIntro, active, ensure, count: countItems };
   }
   self.EveMemory = { init, FLAG, order };
 })();
