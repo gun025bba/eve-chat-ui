@@ -74,7 +74,8 @@ with sync_playwright() as p:
     # persisted reload
     pg.evaluate("localStorage.removeItem('llmchat.convs')"); pg.reload(); pg.wait_for_timeout(1200)
     if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(1200)
-    pg.screenshot(path='/workspace/llm-chat-ui-shots/v15-websearch.png')
+    import os; shot = os.environ.get('EVE_SHOT_DIR')   # optional review screenshot; skipped when no directory is given
+    if shot: os.makedirs(shot, exist_ok=True); pg.screenshot(path=os.path.join(shot, 'v15-websearch.png'))
     m = [x for x in db()['messages'].values() if x.get('sources')] if isinstance(db()['messages'], dict) else [x for x in db()['messages'] if x.get('sources')]
     check('server stored sources', len(m) >= 1)
     check('thread reload renders sources from API', pg.locator('.msg.assistant .sources li').count() >= 2 and pg.locator('.msg.assistant sup.cite').count() >= 2)
