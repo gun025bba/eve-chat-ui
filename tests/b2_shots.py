@@ -3,6 +3,7 @@
 import json, os
 from playwright.sync_api import sync_playwright
 from b2_common import *
+from datetime import datetime, timedelta, timezone
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'review-shots', '1.10.0', 'b2'); os.makedirs(OUT, exist_ok=True)
 with sync_playwright() as p:
     dev = dict(p.devices['iPhone 14']); dev['device_scale_factor'] = 2; b = p.chromium.launch()
@@ -29,6 +30,11 @@ with sync_playwright() as p:
         reset(); older()
         ctx = mk(); pg = ctx.new_page(); land(pg); shot(pg, '02-today-new-day'); ctx.close()
         reset(); ctx = mk(); pg = ctx.new_page(); land(pg, '#/log'); shot(pg, '06-log-empty'); ctx.close()
+        # --- pending card (확인 대기): a reminder follow-up that expires soon; then a plain tool action with a day to spare
+        reset(); rich(); older(); put('/pro/seed', dict(title='치과 예약', user=['내일 치과 일정 추가해 줘'], proactive=['치과 예약 일정을 추가할까요?'], restore=[dict(ACT, action_id='01JPEND0000000000000000001', tool='proactive.propose_followup', summary='할 일 추가', scopes=['reminders.write'], payload_view={'verb': 'add', 'title': '치과 예약 전화하기', 'display': '10월 29일 (목) 오전 9:00'}, expires_at=(datetime.now(timezone.utc) + timedelta(minutes=6)).strftime('%Y-%m-%dT%H:%M:%SZ'), created_at='2026-10-28T00:00:00Z')]))
+        ctx = mk(); pg = ctx.new_page(); land(pg); pg.evaluate("document.querySelector('#todayList .ev.wt').scrollIntoView({block:'center'})"); pg.wait_for_timeout(400); shot(pg, '10-today-pending-soon'); ctx.close()
+        reset(); older(); put('/pro/seed', dict(title='치과 예약', user=['x'], proactive=[], restore=[dict(ACT, action_id='01JPEND0000000000000000002', summary='일정 추가', payload_view={'verb': 'add', 'title': '치과 · 내일 10시'}, expires_at='2099-01-01T00:00:00Z', created_at='2026-10-28T00:00:00Z')]))
+        ctx = mk(); pg = ctx.new_page(); land(pg); shot(pg, '11-today-new-day-pending'); ctx.close()
         # --- skeleton
         reset(); rich(); put('/delay/6000?GET%20/v1/threads'); ctx = mk(); pg = ctx.new_page(); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1000); shot(pg, '03-today-skeleton')
         pg.goto(B + '/ui/#/log'); pg.reload(); pg.wait_for_timeout(1000); shot(pg, '03b-log-skeleton'); ctx.close(); put('/delay/clear')
