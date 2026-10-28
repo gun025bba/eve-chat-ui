@@ -83,7 +83,7 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 .actions{display:flex;align-items:center;gap:2px;margin-top:var(--s2);margin-left:-8px;animation:fadeIn var(--d-base) var(--ease-out)}
 .actions button{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--label-2)}
 .actions button:active{background:var(--fill)}
-.usage{font-size:11px;color:var(--label-3);margin-left:6px;font-variant-numeric:tabular-nums}
+.usage{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--label-3);margin-left:6px;font-variant-numeric:tabular-nums}   /* the stats line stays on one line (ellipsis if the row is too narrow), light + dark */
 /* error */
 .msg.error .bubble{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:rgba(255,69,58,.08);border-radius:var(--r-md);padding:12px 14px;font-size:15px;color:var(--label-2)}
 .msg.error svg{color:var(--danger);width:20px;height:20px}
