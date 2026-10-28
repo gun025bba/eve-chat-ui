@@ -3,7 +3,7 @@
  * Unknown status / section names / codes degrade to generic copy; the card never throws on a shape it does not know. */
 (function () {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const SUN = '<svg class="i" aria-hidden="true"><use href="#i-sun-horizon"/></svg>';
+  const SUN_HORIZON = '<svg class="i" aria-hidden="true"><use href="#i-sun-horizon"/></svg>';
   const SECTION = { events: '일정', reminders: '리마인더' };                    // names the gateway sends today; anything else is shown as given
   const CODE = { pim_unavailable: '연결하지 못했어요', permission_denied: '접근이 허용되지 않았어요', kill_switch: '지금은 꺼져 있어요', timeout: '응답이 늦어요' };
   const STATUS = { skipped_off: '브리핑이 꺼져 있어요', skipped_empty: '오늘은 보여 드릴 내용이 없어요' };
@@ -47,7 +47,7 @@
   /* x: normalized preview (EveProactiveAPI.FIELDS.briefing) or {fail:'off'|'denied'|'net'|'error', sections?}; opts.onRetry shows 다시 시도 */
   function card(x, opts = {}) {
     const c = el('section', 'brief-card'); c.setAttribute('aria-label', '아침 브리핑');
-    const head = el('div', 'bc-head'); head.insertAdjacentHTML('beforeend', SUN); head.appendChild(el('span', 'bc-title', '아침 브리핑')); head.appendChild(el('span', 'bc-tag', '미리보기')); c.appendChild(head);
+    const head = el('div', 'bc-head'); head.insertAdjacentHTML('beforeend', SUN_HORIZON); head.appendChild(el('span', 'bc-title', '아침 브리핑')); head.appendChild(el('span', 'bc-tag', '미리보기')); c.appendChild(head);
     const sections = Array.isArray(x.sections) ? x.sections : [];
     let state, msg = '', body = null, retry = false;
     if (x.fail) { state = x.fail === 'off' || x.fail === 'denied' ? 'off' : 'error'; msg = own(FAIL, x.fail) ? FAIL[x.fail] : FAIL.error; retry = x.fail === 'net' || x.fail === 'error'; }
@@ -64,6 +64,6 @@
     return c;
   }
   const loading = () => { const c = el('section', 'brief-card'); c.dataset.state = 'loading'; c.setAttribute('aria-busy', 'true'); c.setAttribute('aria-label', '아침 브리핑');
-    const head = el('div', 'bc-head'); head.insertAdjacentHTML('beforeend', SUN); head.appendChild(el('span', 'bc-title', '아침 브리핑')); c.appendChild(head); c.appendChild(el('p', 'bc-msg', '브리핑을 만드는 중이에요…')); return c; };
+    const head = el('div', 'bc-head'); head.insertAdjacentHTML('beforeend', SUN_HORIZON); head.appendChild(el('span', 'bc-title', '아침 브리핑')); c.appendChild(head); c.appendChild(el('p', 'bc-msg', '브리핑을 만드는 중이에요…')); return c; };
   self.EveBriefing = { card, loading, renderText };
 })();

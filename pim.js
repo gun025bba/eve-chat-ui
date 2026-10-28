@@ -60,7 +60,7 @@
   const ICON = {
     cal: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
     rem: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>',
-    sun: '<svg class="i" aria-hidden="true"><use href="#i-sun-horizon"/></svg>',
+    'sun-horizon': '<svg class="i" aria-hidden="true"><use href="#i-sun-horizon"/></svg>',
     warn: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>'
   };
   const FOLD = 10;
@@ -138,7 +138,7 @@
     if (!b || !b.sections.length) return null;
     const c = el('section', 'brief-card pim-card pim-brief'); c.dataset.status = b.status; if (b.source) c.dataset.source = b.source; c.setAttribute('aria-label', '아침 브리핑');
     const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b.date), dl = dm ? fmtDays(`${b.date}T00:00:00+09:00`, `${b.date}T00:00:00+09:00`, now) : '';
-    c.appendChild(head(ICON.sun, '아침 브리핑', dl));
+    c.appendChild(head(ICON['sun-horizon'], '아침 브리핑', dl));
     b.sections.forEach(s => {
       const sec = el('div', 'pc-sec'); sec.dataset.kind = s.kind; const h = el('p', 'bc-h'); h.appendChild(el('span', null, SEC[s.kind].name));
       if (!s.ok) { h.appendChild(el('span', 'bc-note pc-bad', '확인 불가')); sec.appendChild(h); if (s.code) sec.appendChild(el('p', 'pc-why', errText(s.code))); c.appendChild(sec); return; }

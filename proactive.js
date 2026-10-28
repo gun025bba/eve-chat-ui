@@ -11,7 +11,7 @@
   const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;   // Eve sprite (design a197571)
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;          // glyphs not in the sprite
   const IC = {
-    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), sun: icon('sun-horizon'), bell: icon('bell'),
+    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), 'sun-horizon': icon('sun-horizon'), bell: icon('bell'),
     wrench: svg('<path d="M14.7 6.3a4 4 0 0 0 5 5L13 18l-3 3-4-4 3-3 6.7-6.7a4 4 0 0 0-1-1z"/>'),
     brain: icon('memory'), trash: icon('trash'), warn: icon('warning'), check: icon('check'), err: icon('info')
   };
@@ -351,7 +351,7 @@
         const who = wrap.querySelector(':scope > .who');
         if (who) {
           who.querySelector('.who-ic')?.remove();
-          const ic = IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle']; if (ic) who.insertAdjacentHTML('afterbegin', ic.replace('class="i"', 'class="i who-ic"'));
+          const ic = IC[{ briefing: 'sun-horizon', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle']; if (ic) who.insertAdjacentHTML('afterbegin', ic.replace('class="i"', 'class="i who-ic"'));
           who.querySelector('.who-n').textContent = label;
         }
       }
