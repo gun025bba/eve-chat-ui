@@ -27,4 +27,12 @@ def seed(title, messages, **kw): return put('/b1/seed', dict(title=title, messag
 def new_ctx(b, w=390, h=844, scheme='dark', **kw):
     ctx = b.new_context(viewport={'width': w, 'height': h}, has_touch=True, is_mobile=True, device_scale_factor=kw.pop('dsf', 1), color_scheme=scheme, **kw)
     ctx.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);" + SETTINGS + "}")
+    pin_clock(ctx)
     return ctx
+def pin_clock(ctx):
+    """Fixtures place events at fixed KST wall-clock times (00:05, 23:00 ...) and assert past/upcoming relative to "now". Between 23:00 and 00:30 KST
+    that is not satisfiable with the real clock, so in that window the page clock starts at 12:00 KST of the same KST date and then runs normally.
+    EVE_TEST_PIN=1 forces it (to test the window at any time of day), EVE_TEST_PIN=0 disables it."""
+    f = os.environ.get('EVE_TEST_PIN'); n = datetime.now(KST); mins = n.hour * 60 + n.minute
+    if f == '0' or (f != '1' and not (mins >= 23 * 60 or mins < 30)): return
+    ctx.clock.set_system_time(n.replace(hour=12, minute=0, second=0, microsecond=0))

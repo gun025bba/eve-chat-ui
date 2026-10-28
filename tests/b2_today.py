@@ -79,11 +79,17 @@ with sync_playwright() as p:
     reset(); rich(); ctx, pg = newpg(b); goto_today(pg)
     check('Today composer: placeholder 지금 일을 남겨요, send hidden while empty', pg.get_attribute('#tInput', 'placeholder') == '지금 일을 남겨요' and pg.evaluate("getComputedStyle(document.getElementById('tSend')).opacity") == '0')
     n0 = pg.locator('#todayList .ev.conv').count()
+    more_n = lambda: int(re.search(r'(\d+)개', pg.text_content('#todayList .ev.more') or '0개').group(1)) if pg.locator('#todayList .ev.more').count() else 0
+    m0 = more_n()
     pg.fill('#tInput', '오늘 할 일 정리해줘'); pg.wait_for_timeout(250); check('send appears once there is text', pg.evaluate("getComputedStyle(document.getElementById('tSend')).opacity") == '1')
     pg.click('#tSend'); pg.wait_for_timeout(2600)
     check('send → chat route, hash #/t/, the message is the first turn, composer on Today cleared', rt(pg) == 'chat' and pg.evaluate('location.hash').startswith('#/t/') and '오늘 할 일 정리해줘' in pg.text_content('#messages') and pg.input_value('#tInput') == '')
     pg.click('#backBtn'); pg.wait_for_timeout(900)
-    check('back → Today shows the new conversation as the newest 나 item', rt(pg) == 'today' and '오늘 할 일 정리해줘' in pg.text_content('#todayList'))
+    # the fixtures' seven conversations sit at 08:12–11:45 KST, so the new one is the newest (and listed) only when the clock is past 11:45; earlier in the day
+    # it is older than the latest five and is counted in the 기록에서 더 보기 row instead
+    late = (kst_now().hour, kst_now().minute) > (11, 45)
+    check('back → Today shows the new conversation as the newest 나 item' if late else 'back → Today counts the new conversation (older than the latest five at this hour) in the 더 보기 row',
+          rt(pg) == 'today' and (('오늘 할 일 정리해줘' in pg.text_content('#todayList')) if late else more_n() == m0 + 1), (late, m0, more_n()))
     pg.locator('#tPlus').click(); pg.wait_for_timeout(300); check('Today + menu has 웹 검색', pg.is_visible('#tMenu') and '웹 검색' in pg.text_content('#tMenu'))
     pg.keyboard.press('Escape'); ctx.close()
     # ---- 9) forbidden elements (§1/§13): centered logo, "무엇을 도와드릴까요?", suggestion cards — nowhere
