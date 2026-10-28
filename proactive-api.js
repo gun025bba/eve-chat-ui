@@ -39,6 +39,7 @@
         templateKind: ['briefing', 'watch', 'followup'].includes(m.template_kind) ? m.template_kind : null,   // top-level only (backend answer)   // unknown kind → null
         briefing: self.EvePim ? self.EvePim.cleanBriefing(m.briefing) : null };   // eve-serving #66 §11.3: validated (schema 1 only, known section kinds, ≤10 items); anything else → null (content only)
     },
+    memoryRefs: m => Array.isArray(m && m.memory_refs) ? m.memory_refs.filter(r => r && typeof r.id === 'string' && typeof r.text === 'string' && r.text.trim()).slice(0, 20).map(r => ({ id: r.id, text: r.text })) : [],   // DIRECTION-B §8.1 (field not confirmed server-side: absent → [] → chip hidden)
     unread: t => +(t && t.unread_count) || 0,           // CT Q2
     action(a) {                                         // CT Q10–Q14 (SSE confirmation / pending_actions / GET /v1/actions)
       const pv = a.provenance || {}, v = a.payload_view && typeof a.payload_view === 'object' ? a.payload_view : {};

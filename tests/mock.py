@@ -660,6 +660,16 @@ class H(SimpleHTTPRequestHandler):
                     m = add_msg(th['id'], 'assistant', a.pop('_text', '이 작업을 할까요?'))
                     m['pending_actions'] = [a]; out.setdefault('amsgs', []).append(m['id'])
             return s.j(200, out)
+        if p == '/b1/seed':   # 1.10.0 B1 fixtures: {title, messages:[{role, content, created_at?, ...any server field (sources, memory_refs, pending_actions…)}], actions:[{...}], memory:bool}
+            b = s.body(); out = {}
+            with LOCK:
+                th = new_thread(b.get('title', '대화')); out['thread'] = th['id']; out['msgs'] = []
+                for a in b.get('actions', []): PRO['actions'][a['action_id']] = dict(a, status=a.get('status', 'pending'), token=None, thread_id=th['id'])
+                for m in b.get('messages', []):
+                    m = dict(m); role = m.pop('role'); c = m.pop('content', ''); out['msgs'].append(add_msg(th['id'], role, c, **m)['id'])
+                if b.get('memory'): PRO['settings']['memory'] = {'enabled': True}
+                th['updated_at'] = now()
+            return s.j(200, out)
         if p == '/seed':
             b = s.body(); out = []
             with LOCK:
