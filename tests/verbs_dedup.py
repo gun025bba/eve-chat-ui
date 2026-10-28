@@ -17,7 +17,7 @@ try:
             ctx = b.new_context(viewport={'width': 390, 'height': 844}); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
             pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
             pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200)
-            if pg.is_visible('#newChat') and not pg.is_visible('#input'): pg.click('#newChat'); pg.wait_for_timeout(300)
+            if pg.is_visible('#tInput') and not pg.is_visible('#input'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
             pg.fill('#input', 'hello'); pg.keyboard.press('Enter'); pg.wait_for_timeout(3500)
             q = 'dup409 ' + shape
             pg.fill('#input', q); pg.keyboard.press('Enter'); pg.wait_for_timeout(1500)

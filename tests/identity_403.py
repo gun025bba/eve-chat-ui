@@ -15,9 +15,9 @@ with sync_playwright() as p:
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500); return ctx, pg
     vis = lambda pg: pg.is_visible('#authNotice')
     def send(pg):
-        pg.click('#newChat'); pg.wait_for_timeout(400)
+        pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         pg.fill('#input', 'hi'); pg.click('#sendBtn'); pg.wait_for_timeout(1200)
-    ctx, pg = page({}); check('version 1.9.0', pg.evaluate('__app.version') == '1.9.0'); check('baseline: no auth notice', not vis(pg)); ctx.close()
+    ctx, pg = page({}); check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0'); check('baseline: no auth notice', not vis(pg)); ctx.close()
     for sh, mk in SHAPES.items():
         ctx, pg = page({r'/whoami$': (403, mk('identity_not_allowed'))}); check(f'[{sh}] whoami 403 identity_not_allowed → auth notice', vis(pg)); ctx.close()
         ctx, pg = page({r'/v1/threads\?': (403, mk('identity_not_allowed'))}); check(f'[{sh}] api() threads 403 identity_not_allowed → auth notice', vis(pg)); ctx.close()

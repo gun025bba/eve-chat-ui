@@ -21,7 +21,7 @@ with sync_playwright() as p:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True, color_scheme=scheme); pg = ctx.new_page(); errs = []
         pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
-        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.click('#newChat'); pg.wait_for_timeout(400)
+        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         pg.evaluate("document.querySelector('#messages .empty')?.remove()")
         for k, v in CASES.items(): pg.evaluate(JS, [k, v])
         pg.wait_for_timeout(200)

@@ -13,11 +13,12 @@ errs = []
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark').new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500)
-    check('version 1.9.0', pg.evaluate('__app.version') == '1.9.0')
+    check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
     a = pg.evaluate("(()=>{const i=document.getElementById('input');return [i.tagName,i.name,i.getAttribute('autocomplete'),i.getAttribute('autocorrect'),i.getAttribute('autocapitalize'),i.getAttribute('enterkeyhint')]})()")
     check('composer: textarea, non-sensitive name, meaningless autocomplete token, autocorrect/autocapitalize off (1.7.0 QuickType), enterkeyhint', a == ['TEXTAREA', 'eve-composer', 'eve-composer', 'off', 'off', 'send'] and not re.search(r'name|contact|tel|email', a[1]), a)
-    s = pg.evaluate("(()=>[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n);return [c.backgroundColor,c.backdropFilter||c.webkitBackdropFilter||'none']}))()")
-    check('1.3.2: every header opaque, no backdrop-filter', s and all(not bg.startswith('rgba') and bg != 'transparent' and bf == 'none' for bg, bf in s), s)
+    s = pg.evaluate("(()=>[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n),b=getComputedStyle(n,'::before');return [c.backgroundColor,c.backdropFilter||c.webkitBackdropFilter||'none',b.content==='none'?'':b.backgroundColor,b.backdropFilter||'none']}))()")
+    # 1.10.0 B2 (spec §2): the navbar is transparent at rest; its ::before carries the opaque --material that fades in on scroll. Never a blur, never a translucent fill.
+    check('1.3.2: every header opaque (own fill, or opaque ::before material), no backdrop-filter', s and all(bf == 'none' and bf2 == 'none' and ((not bg.startswith('rgba') and bg != 'transparent') or (bg.startswith('rgba(0, 0, 0, 0)') and bb.startswith('rgb(')))for bg, bf, bb, bf2 in s), s)
     pg.evaluate("""(()=>{const m=document.getElementById('messages');const d=document.createElement('div');d.className='msg assistant';
       const long='https://example.com/'+'a'.repeat(400);
       d.innerHTML='<div class="bubble"><div class="md"><p>'+long+'</p><table><tr>'+'<td>wide-cell-content</td>'.repeat(30)+'</tr></table><div class="codeblock"><pre><code>'+'const x = 1; '.repeat(80)+'</code></pre></div></div><div class="sources"><h4>출처</h4><ol><li><a href="#"><span class="sn">1</span><span class="st">'+'아주긴제목'.repeat(100)+'</span><span class="sd">'+'x'.repeat(200)+'.com</span></a></li></ol></div></div>';

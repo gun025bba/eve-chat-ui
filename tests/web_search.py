@@ -21,8 +21,9 @@ with sync_playwright() as p:
     pg.on('request', lambda r: reqs.append(r.url))
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(400)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     btn = pg.locator('#webBtn')
+    def menu(): pg.click('#plusBtn'); pg.wait_for_timeout(300)   # 1.10.0 B1: the web toggle is the "웹 검색" row of the + menu
     af = pg.evaluate(r"""(()=>{const bad=/name|address|contact|e-?mail|phone|tel|street|city|zip|postal|이름|주소|연락|전화/i;
       const out={}; for (const sel of ['#input','#search','#titleEdit','#sSystem']) { const e=document.querySelector(sel);
         const words=[e.id,e.name,e.placeholder,e.getAttribute('aria-label'),e.className].join(' ');
@@ -31,19 +32,21 @@ with sync_playwright() as p:
       out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='off'&&t.getAttribute('autocorrect')==='off'&&t.spellcheck===false&&!t.form&&!t.closest('form')&&f.tagName!=='FORM'};
       return out;})()""")
     for k, v in af.items(): check('no contact AutoFill hints: ' + k, v['ok'], v)
-    check('toggle visible in composer', pg.evaluate("!!document.querySelector('#composer .field #webBtn')") and btn.is_visible())
-    check('toggle default off (aria-pressed=false)', btn.get_attribute('aria-pressed') == 'false')
-    hit = pg.evaluate("(()=>{const b=document.querySelector('#webBtn'),r=b.getBoundingClientRect(),s=getComputedStyle(b,'::before');return {w:r.width-2*parseFloat(s.left),h:r.height-2*parseFloat(s.top)}})()")
+    menu()
+    check('toggle visible in the composer + menu', pg.evaluate("!!document.querySelector('#composer .field #plusMenu #webBtn')") and btn.is_visible())
+    check('toggle default off (aria-checked=false)', btn.get_attribute('aria-checked') == 'false')
+    hit = pg.evaluate("(()=>{const b=document.querySelector('#webBtn'),r=b.getBoundingClientRect();return {w:r.width,h:r.height}})()")
     check('toggle hit area >= 44', hit['w'] >= 44 and hit['h'] >= 44, hit)
+    pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
     # off -> request has no web_search
     pg.fill('#input', 'hello off'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
     check('off: web_search omitted', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
-    btn.click(); pg.wait_for_timeout(200)
-    check('toggle on: aria-pressed=true + .on', btn.get_attribute('aria-pressed') == 'true' and 'on' in btn.get_attribute('class'))
+    menu(); btn.click(); pg.wait_for_timeout(300)
+    check('toggle on: aria-checked=true + .on + globe', btn.get_attribute('aria-checked') == 'true' and 'on' in btn.get_attribute('class') and pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')"))
     check('persisted in localStorage', pg.evaluate("localStorage.getItem('llmchat.webSearch')") == '1')
     pg.reload(); pg.wait_for_timeout(800)
     if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(600)
-    check('toggle survives reload', pg.locator('#webBtn').get_attribute('aria-pressed') == 'true')
+    check('toggle survives reload', pg.locator('#webBtn').get_attribute('aria-checked') == 'true')
     # streaming auto
     pg.fill('#input', 'ws 질문'); pg.click('#sendBtn'); pg.wait_for_timeout(500)
     st = pg.locator('.msg.assistant .ws-status').last
@@ -82,11 +85,11 @@ with sync_playwright() as p:
     # disabled on server -> auto-off + retry
     put('/webdisabled/on')
     pg.fill('#input', 'hello disabled'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
-    check('web_search_disabled: toggle turned off', pg.locator('#webBtn').get_attribute('aria-pressed') == 'false')
+    check('web_search_disabled: toggle turned off', pg.locator('#webBtn').get_attribute('aria-checked') == 'false')
     check('web_search_disabled: retried without field', 'web_search' not in db()['state']['lastBody'] and 'Hello' in pg.locator('.msg.assistant').last.inner_text())
     put('/webdisabled/off')
     # local (no persistence) mode also renders
-    put('/persist/off'); pg.locator('#webBtn').click()
+    put('/persist/off'); menu(); pg.locator('#webBtn').click()
     check('CSP: no violations', not (pg.evaluate("window.__csp || []")), pg.evaluate("window.__csp || []"))
     check('no page errors', not errs, errs)
     b.close()

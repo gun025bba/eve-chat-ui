@@ -34,7 +34,7 @@ with sync_playwright() as p:
 
     # 1) flag off → nothing
     setup(); ctx, pg = launch(flag=False)
-    check('version 1.9.0', pg.evaluate('__app.version') == '1.9.0' and 'v1.9.0' in pg.text_content('#appVersion'))
+    check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0' and 'v1.10.0' in pg.text_content('#appVersion'))
     check('flag off → no sheet, no seen', not shown(pg) and seenLocal(pg) is None and not uiPatches()); ctx.close()
 
     # 2) memory.enabled false → no sheet, no seen
@@ -75,7 +75,7 @@ with sync_playwright() as p:
     setup(system={k: v for k, v in SYS.items() if k != 'memory_available'}); ctx, pg = launch(wait=0)
     pg.wait_for_function("window.__app && __app.state().mode==='server'"); t0 = pg.evaluate('performance.now()')
     pg.wait_for_selector('#memIntro', state='visible', timeout=4000); dt = pg.evaluate('performance.now()') - t0
-    check('appears ≥600ms after the thread list (server) renders, on the list route', dt >= 550 and pg.evaluate("document.getElementById('app').dataset.route") == 'list', round(dt))
+    check('appears ≥600ms after the thread list (server) renders, on Today (the home route)', dt >= 550 and pg.evaluate("document.getElementById('app').dataset.route") == 'today', round(dt))
     pg.wait_for_timeout(500)
     check('copy verbatim', pg.text_content('#memIntroTitle') == TITLE and pg.text_content('#memIntroBody') == SUB and [pg.locator('.mem-intro-list li').nth(i).inner_text().strip() for i in range(3)] == BUL and pg.text_content('#memIntroOk') == '좋아요' and pg.text_content('#memIntroSettings') == '설정에서 끄기')
     a = pg.evaluate("(()=>{const e=document.getElementById('memIntro');return [e.getAttribute('role'),e.getAttribute('aria-modal'),e.getAttribute('aria-labelledby'),e.getAttribute('aria-describedby'),document.querySelector('.mem-intro-list').getAttribute('role'),[...e.querySelectorAll('svg')].every(s=>s.getAttribute('aria-hidden')==='true')]})()")
@@ -85,7 +85,7 @@ with sync_playwright() as p:
     check('seen saved on show: PATCH /v1/settings {ui:{memory_intro_seen:true}} (CSRF gate passed)', uiPatches() == [{'ui': {'memory_intro_seen': True}}], uiPatches())
     check('PATCH 400 ignored: sheet stays, no toast, no error', shown(pg) and pg.evaluate("!document.getElementById('toast').classList.contains('show')") and not errs)
     g = pg.evaluate("(()=>{const r=id=>document.getElementById(id).getBoundingClientRect();const s=getComputedStyle(document.getElementById('memIntro'));return [r('memIntroOk').height,r('memIntroSettings').height,Math.round(r('memIntro').height),s.paddingBottom,getComputedStyle(document.getElementById('memIntroOk')).backgroundColor]})()")
-    check('buttons ≥44pt (좋아요 50), medium height, bottom padding ≥16, filled accent', g[0] >= 50 and g[1] >= 44 and 0.5 * 844 <= g[2] <= 0.9 * 844 and float(g[3][:-2]) >= 16 and g[4] == 'rgb(10, 132, 255)', g)
+    check('buttons ≥44pt (좋아요 50), medium height, bottom padding ≥16, filled --accent-fill', g[0] >= 50 and g[1] >= 44 and 0.5 * 844 <= g[2] <= 0.9 * 844 and float(g[3][:-2]) >= 16 and g[4] == 'rgb(10, 111, 232)', g)
     ids = []
     for _ in range(4): pg.keyboard.press('Tab'); ids.append(pg.evaluate('document.activeElement.id'))
     pg.keyboard.press('Shift+Tab'); ids.append(pg.evaluate('document.activeElement.id'))
@@ -98,9 +98,9 @@ with sync_playwright() as p:
 
     # 9) Escape closes + restores previous focus; server-side seen respected with server key accepted
     setup(uiKey=True); ctx, pg = launch(wait=0); pg.wait_for_function("window.__app && __app.state().mode==='server'")
-    pg.focus('#newChat'); pg.wait_for_selector('#memIntro', state='visible', timeout=4000); pg.wait_for_timeout(400)
+    pg.focus('#openLog'); pg.wait_for_selector('#memIntro', state='visible', timeout=4000); pg.wait_for_timeout(400)
     pg.keyboard.press('Escape'); pg.wait_for_timeout(600)
-    check('Escape → closes, focus back to previous element', not shown(pg) and pg.evaluate('document.activeElement.id') == 'newChat' and not memPatches())
+    check('Escape → closes, focus back to previous element', not shown(pg) and pg.evaluate('document.activeElement.id') == 'openLog' and not memPatches())
     check('server key stored when accepted', pro()['settings'].get('ui') == {'memory_intro_seen': True})
     ctx.close(); ctx, pg = launch()
     check('other device (fresh localStorage) + server seen → not shown', not shown(pg) and seenLocal(pg) is None); ctx.close()

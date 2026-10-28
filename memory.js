@@ -209,13 +209,13 @@
     let introTried = false, introPrev = null, introTimer = 0;
     const localSeen = () => { try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch { return false; } };
     function intro() {
-      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'list') return;
+      if (introTried || !ix || localSeen() || !h.isServer() || !h.route || h.route() !== 'today') return;
       introTried = true;
       clearTimeout(introTimer);
       introTimer = setTimeout(async () => {
         let s; try { s = await api.getSettings(); } catch { return; }   // unreadable/offline: skip this launch, no seen
         if (!s.available || !s.enabled || s.introSeen || localSeen()) return;            // memory_available=false → no seen either
-        if (!h.isServer() || h.route() !== 'list' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
+        if (!h.isServer() || h.route() !== 'today' || (h.busy && h.busy())) return;   // another sheet/card up: skip this launch
         showIntro();
       }, 600);
     }
@@ -256,7 +256,22 @@
       const end = e => { if (y0 == null) return; const dy = e.clientY - y0; y0 = null; ix.style.transform = ''; if (dy > 80) closeIntro(); };
       ix.addEventListener('pointerup', end); ix.addEventListener('pointercancel', () => { y0 = null; ix.style.transform = ''; });
     }
-    return { openSettings, flag: true, flushDeletes, intro, closeIntro };
+    /* DIRECTION-B §5/§8.1: "참고한 기억" chip is shown only while memory is effectively on (memory_available AND memory.enabled); unknown → off */
+    const active = () => !!(h.isServer() && st.serverOn && st.enabled && !st.kill);
+    let okAt = 0;
+    async function ensure() { if (!(h.isServer() && st.serverOn && Date.now() - okAt < 60000)) { try { const s = await api.getSettings(); st = Object.assign({}, st, { serverOn: true, enabled: s.enabled, kill: !s.available }); okAt = Date.now(); } catch { st = Object.assign({}, st, { serverOn: false }); } } return active(); }
+    /* DIRECTION-B §5 기억 칸: item count for the status strip. null = hide the cell (server memory off / kill switch / no `enabled` key /
+       settings unreadable and never known); {n} = shown; {err:true} = shown as "–" (503, network, ... while memory is known to be on). */
+    let wasOn = false;
+    async function countItems() {
+      if (!h.isServer()) return null;
+      try { const s = await api.getSettings(); st = Object.assign({}, st, { serverOn: true, enabled: s.enabled, kill: !s.available }); okAt = Date.now(); }
+      catch (e) { const k = M.errState(e); if (k === 'off' || k === 'kill_switch' || !wasOn) { st = Object.assign({}, st, { serverOn: false }); wasOn = false; return null; } return { err: true }; }
+      if (!active()) { wasOn = false; return null; }
+      try { const l = await api.list(); wasOn = true; return { n: l.length }; }
+      catch (e) { const k = M.errState(e); if (k === 'off' || k === 'kill_switch') { st = Object.assign({}, st, { serverOn: false }); wasOn = false; return null; } wasOn = true; return { err: true }; }
+    }
+    return { openSettings, flag: true, flushDeletes, intro, closeIntro, active, ensure, count: countItems };
   }
   self.EveMemory = { init, FLAG, order };
 })();

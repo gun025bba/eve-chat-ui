@@ -14,7 +14,7 @@ with sync_playwright() as p:
     pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(400)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     pg.evaluate("""(()=>{window.__st={removedStable:0,anim:0,msgAnim:0,scrollJumps:0};
       const box=document.querySelector('#messages');
       new MutationObserver(ms=>{for(const m of ms){if(m.target.classList&&m.target.classList.contains('stable'))window.__st.removedStable+=m.removedNodes.length;}}).observe(box,{childList:true,subtree:true});

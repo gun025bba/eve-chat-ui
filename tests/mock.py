@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
 UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'calls': []}
+STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'delay': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
 def pro_reset(): PRO.clear(); PRO.update(supported=True, settings={'proactive': {'enabled': False, 'quiet_hours': {'start': '22:00', 'end': '08:00'}, 'memory_read': False}, 'memory': {'enabled': False}}, system={'proactive_available': True, 'tools_available': True, 'memory_read_only': False, 'memory_available': True}, actions={}, subs=[], reads=[], bodies=[], origins=[], issued=0, memDeletes=[], memWrites=[], memItems=[
@@ -88,12 +88,14 @@ class H(SimpleHTTPRequestHandler):
         """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
         import re as _re
         m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
-        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev or path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
+        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions', '/v1/briefing/preview') or m_read or m_act or m_tread or m_rev or path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
         if not s.auth(): return True
         if not PRO['supported']: s.j(404, ec('not_found')); return True
         if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
         b = s.body() if method in ('POST', 'PATCH', 'DELETE') else {}
         PRO['bodies'].append({'m': method, 'p': path, 'b': b})
+        if path == '/v1/actions' and method == 'GET' and PRO.get('actDelay'): time.sleep(PRO['actDelay'] / 1000)   # 1.10.0 B3: hold the strip's data (skeleton checks) outside LOCK
+        if path == '/v1/memory' and method == 'GET' and PRO.get('memDelay'): time.sleep(PRO['memDelay'] / 1000)
         with LOCK:
             _ac = PRO.get('actCode') or {}; _kind = m_act.group(2) if m_act else ('revise' if m_rev else None)
             if _kind in _ac: st_, code_ = _ac.pop(_kind); s.j(st_, ec(code_)); return True   # e.g. backend #38: 403 scope_denied for non-browser sessions
@@ -143,6 +145,7 @@ class H(SimpleHTTPRequestHandler):
                     for k, v in extra: s.send_header(k, v)
                     b2 = json.dumps(obj).encode(); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2)
                 ups = max([i['updated_at'] for i in PRO['memItems']] or [None])
+                if method == 'GET' and path == '/v1/memory' and PRO.get('memListFail'): s.j(PRO['memListFail'], err('internal_error', 'server_error', 'x')); return True   # B3
                 if method == 'GET' and path in ('/v1/memory', '/v1/memory/export'):
                     raw(200, {'object': 'memory', 'updated_at': ups, 'items': PRO['memItems']}, [('Content-Disposition', 'attachment; filename="memory.json"')] if 'export' in path else []); return True
                 if method == 'GET': s.j(405, ec('invalid')); return True
@@ -173,6 +176,12 @@ class H(SimpleHTTPRequestHandler):
                     if 'text' in b and (not isinstance(b['text'], str) or not b['text'] or len(b['text']) > 300): s.j(400, ec('invalid')); return True
                     cur.update({k: v for k, v in b.items() if k != 'if_updated_at'}, updated_at=ts); s.j(200, cur); return True
                 s.j(405, ec('invalid')); return True
+            if path == '/v1/briefing/preview':   # eve-serving #77: 200 {status,text,sections} | 502 {status,sections} | 404 off | 403 scope_denied
+                PRO['previews'] = PRO.get('previews', 0) + 1
+                if PRO.get('briefingDelay'): time.sleep(PRO['briefingDelay'])
+                if PRO.get('briefingDrop'): s.close_connection = True; s.connection.shutdown(2); return True
+                st_, body_ = PRO.get('briefing') or (200, {'status': 'ok', 'text': '오늘 2026-10-27(화) 브리핑\n일정 2건\n- 09:30 팀 스탠드업\n- 종일 출장\n리마인더 1건\n- (기한 지남) 10/25 세금 납부', 'sections': [{'name': 'events', 'count': 2}, {'name': 'reminders', 'count': 1}]})
+                s.j(st_, body_); return True
             if path == '/v1/settings':
                 if PRO.get('settingsDrop'): s.close_connection = True; s.connection.shutdown(2); return True
                 if method == 'PATCH':
@@ -190,6 +199,7 @@ class H(SimpleHTTPRequestHandler):
                 if PRO.get('memMode') in ('off', 'availOff'): out['system'] = dict(out['system'], memory_available=False)
                 if PRO.get('memNoKey'): out.pop('memory', None)   # missing memory key → off
                 s.j(200, out); return True
+            if path == '/v1/actions' and PRO.get('actFail'): s.j(PRO['actFail'], err('internal_error', 'server_error', 'x')); return True   # B3: list failing (503 → strip shows "–")
             if path == '/v1/actions':
                 s.j(200, {'data': [{k: v for k, v in a.items() if k not in ('token',)} for a in PRO['actions'].values() if a['status'] == 'pending' and a.get('thread_id')]}); return True
             if path == '/v1/push/vapid-public-key':
@@ -207,6 +217,7 @@ class H(SimpleHTTPRequestHandler):
                 PRO['issued'] += 1; a['token'] = f'tok{PRO["issued"]}'; s.j(200, {'confirm_token': a['token'], 'token_expires_at': now(PRO.get('tokenTtl', 120))}); return True
             if op == 'reject':
                 a['status'] = 'rejected'; s.j(200, {'status': 'rejected'}); return True
+            if PRO.get('approveRaw'): st, body_ = PRO.pop('approveRaw'); s.j(st, body_); return True   # 1.10.0: #78 502 bodies {status, action_id, error_code, outcome_unknown}
             if PRO.get('approveCode'): st, code = PRO.pop('approveCode'); s.j(st, ec(code)); return True
             if PRO.get('approveLegacy'): st, code = PRO.pop('approveLegacy'); s.j(st, err(code, 'server_error', code)); return True   # 500/503: legacy {error:{code}} body (§3.9.8)
             if not b.get('confirm_token'): s.j(400, ec('invalid')); return True
@@ -223,6 +234,8 @@ class H(SimpleHTTPRequestHandler):
         if not s.auth(): return True
         STATE['calls'].append(f'{method} {s.path}')
         if not STATE['persist']: s.j(503, err('persistence_disabled', 'server_error', 'conversation storage is disabled')); return True
+        for pat, ms in STATE['delay'].items():   # 1.10.0 B2: /delay/<ms>?<regex> holds matching calls (skeleton tests)
+            if re.search(pat, f'{method} {path}'): time.sleep(ms / 1000)
         for pat, code in STATE['fail'].items():
             if re.search(pat, f'{method} {path}'): s.j(code, err('mock_failure', 'server_error')); return True
         with LOCK:
@@ -421,9 +434,81 @@ class H(SimpleHTTPRequestHandler):
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return
+        if last.startswith('pim'):   # eve-serving #66 §11: PIM tool events (stream-only cards) — 'pim<scenario> …'
+            import datetime as _dt
+            KST = _dt.timezone(_dt.timedelta(hours=9)); n0 = _dt.datetime.now(KST); Y = n0.year
+            iso = lambda y, mo, d, h=0, mi=0: _dt.datetime(y, mo, d, h, mi, tzinfo=KST).isoformat()
+            scen = last.split()[0]; PRO['pimPrompts'] = PRO.get('pimPrompts', 0) + 1
+            def tr(tool, **k): return dict({"object": "chat.completion.tool_result", "id": "pc_1", "tool": tool}, **k)
+            def tc(tool, args): return {"object": "chat.completion.tool_call", "id": "pc_1", "tool": tool, "args": args, "round": 1}
+            evs = []; text = "확인했어요."
+            EV = [{"id": "evt_a1", "title": "팀 스탠드업 <img src=x onerror=alert(1)>", "start": iso(Y, 10, 28, 9, 30), "end": iso(Y, 10, 28, 10, 0), "all_day": False, "calendar": "회사", "calendar_id": "cal_1"},
+                  {"id": "evt_a2", "title": "기념일", "start": iso(Y, 10, 28), "end": iso(Y, 10, 29), "all_day": True, "calendar": "개인", "calendar_id": "cal_2"},
+                  {"id": "evt_a3", "title": "야간 배포", "start": iso(Y, 10, 28, 23, 0), "end": iso(Y, 10, 29, 1, 0), "all_day": False, "calendar": "회사", "calendar_id": "cal_1"},
+                  {"id": "evt_a4", "title": "제주 여행", "start": iso(Y, 10, 30), "end": iso(Y, 11, 2), "all_day": True, "calendar": "개인", "calendar_id": "cal_2"},
+                  {"id": "evt_a5", "title": "내년 일정", "start": iso(Y + 1, 1, 5, 9, 0), "end": iso(Y + 1, 1, 5, 10, 0), "all_day": False, "calendar": "개인", "calendar_id": "cal_2"}]
+            RNG = {"from": iso(Y, 10, 28), "to": iso(Y, 10, 29)}
+            if scen == 'pimcal':
+                evs = [tc("calendar_list_events", {"from": RNG['from'], "to": RNG['to']}), tr("calendar_list_events", status="ok", count=5, truncated=False, card={"kind": "calendar_events", "v": 1, "range": {"from": iso(Y, 10, 28), "to": iso(Y, 11, 3)}, "items": EV})]
+            elif scen == 'pimcal0':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=0, truncated=False, card={"kind": "calendar_events", "v": 1, "range": RNG, "items": []})]
+            elif scen == 'pimrem':
+                items = [{"id": f"rem_{i}", "title": f"할 일 {i}", "due": iso(Y, 10, 28, 18, 0) if i % 3 else None, "list": "장보기", "done": i == 2} for i in range(12)]
+                evs = [tc("reminders_list", {"due_before": RNG['to'], "include_done": True}), tr("reminders_list", status="ok", count=100, truncated=True, card={"kind": "reminders", "v": 1, "due_before": RNG['to'], "items": items})]
+            elif scen == 'pimerr':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="denied", error_code="permission_denied", card={"kind": "error", "v": 1, "error_code": "permission_denied"})]; text = "캘린더를 확인하지 못했어요."
+            elif scen == 'pimerrto':
+                evs = [tc("reminders_list", {}), tr("reminders_list", status="timeout", error_code="timeout", card={"kind": "error", "v": 1, "error_code": "timeout"})]; text = "리마인더를 확인하지 못했어요."
+            elif scen == 'pimerrunk':
+                evs = [tc("reminders_list", {}), tr("reminders_list", status="error", error_code="brand_new_code", card={"kind": "error", "v": 1, "error_code": "brand_new_code"})]
+            elif scen == 'pimkind':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=1, truncated=False, card={"kind": "heatmap", "v": 1, "items": [{"title": "x"}]})]
+            elif scen == 'pimv2':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=1, truncated=False, card={"kind": "calendar_events", "v": 2, "range": RNG, "items": EV[:1]})]
+            elif scen in ('pimadd', 'pimremadd', 'pimremdone', 'pimaddall', 'pimaddnull'):
+                tool = 'calendar_add_event' if scen.startswith('pimadd') else ('reminders_complete' if scen == 'pimremdone' else 'reminders_add')
+                aid = '01JBX0000000000000000000' + {'pimadd': 'C1', 'pimaddall': 'C2', 'pimaddnull': 'C3', 'pimremadd': 'A1', 'pimremdone': 'D1'}[scen]
+                if tool == 'calendar_add_event':
+                    pv = {"verb": "add", "title": "치과", "start": iso(Y, 10, 28, 15, 0), "end": iso(Y, 10, 28, 16, 0), "all_day": False, "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 15:00–16:00", "location": "역삼동 치과", "notes": None, "calendar_id": "cal_1", "calendar": "개인"}
+                    if scen == 'pimaddall': pv = dict(pv, title="가족 모임", all_day=True, display="10/30 (금) – 11/1 (일) 종일", location=None, notes="케이크 챙기기", start=iso(Y, 10, 30), end=iso(Y, 11, 2))
+                    if scen == 'pimaddnull': pv = dict(pv, calendar_id=None, calendar="기본 캘린더", location=None)
+                    summ, scopes = "일정 추가", ["calendar.write"]
+                elif tool == 'reminders_add':
+                    pv = {"verb": "add", "title": "우유 사기", "due": iso(Y, 10, 28, 18, 0), "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 18:00", "list": None}; summ, scopes = "리마인더 추가", ["reminders.write"]
+                else:
+                    pv = {"verb": "update", "id": "rem_b1", "title": "우유 사기", "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 18:00", "list": "장보기"}; summ, scopes = "리마인더 완료 처리", ["reminders.write"]
+                act = {"action_id": aid, "thread_id": th['id'] if th else None, "message_id": None, "tool": tool, "tool_version": "1", "scopes": scopes, "payload_hash": "sha256:pim", "provenance": {"actor": "user", "job_id": None, "job_name": None},
+                       "tainted": False, "status": "pending", "expires_at": now(900), "created_at": now(0), "summary": summ, "payload_view": pv}
+                PRO['actions'][aid] = dict(act, status='pending', token=None)
+                evs = [tc(tool, {}), tr(tool, status="pending_confirmation", action_id=aid), dict(act, object="chat.completion.confirmation")]; text = "추가할까요?"
+            elif scen == 'pimwritedeny':
+                evs = [tc("calendar_add_event", {}), tr("calendar_add_event", status="denied", error_code="secret_detected", card={"kind": "error", "v": 1, "error_code": "secret_detected"})]; text = "추가하지 못했어요."
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                for e in evs:
+                    if e.get('object') == 'chat.completion.tool_result': time.sleep(PRO.get('pimGap', 0.7))
+                    s.ev(e)
+                time.sleep(PRO.get('pimGap', 0.7))
+                s.ev({"id": "p-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": "stop"}]})
+                if th:
+                    am = s.save_asst(th, rep, text, '')
+                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if last.startswith('confirm'):
             act = {"action_id": "01JACT0000000000000000000S", "tool": "calendar_create_event", "tool_version": "1.0.0", "summary": "10/28 15:00 치과 일정 추가",
                    "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+            if last.startswith('confirmreminder') or last.startswith('confirmcomplete'):   # eve-serving #78 reminders_add / reminders_complete, exact Confirmation fields
+                base = {"tool_version": "1.0.0", "scopes": ["reminders.write"], "payload_hash": "sha256:rem", "provenance": {"actor": "user"}, "tainted": False, "status": "pending",
+                        "expires_at": now(900), "created_at": now(0)}
+                if last.startswith('confirmcomplete'):
+                    act = dict(base, action_id="01JACT0000000000000000000C", tool="reminders_complete", summary="리마인더 완료 처리", payload_view={"verb": "update", "method": "reminders.complete", "title": "세금 납부", "list": "개인"})
+                elif last.startswith('confirmreminder0'):
+                    act = dict(base, action_id="01JACT0000000000000000000Z", tool="reminders_add", summary="리마인더 추가", payload_view={"verb": "add", "method": "reminders.add", "title": "우유 사기"})
+                else:
+                    act = dict(base, action_id="01JACT0000000000000000000R", tool="reminders_add", summary="리마인더 추가", payload_view={"verb": "add", "method": "reminders.add", "title": "엄마께 전화 <b>드리기</b>", "due": "2026-10-28T18:00:00+09:00", "list": "개인"})
             if last.startswith('confirmdeny'):
                 act = {"action_id": "01JACT0000000000000000000D", "tool": "memory.propose", "status": "denied", "error_code": "secret_detected", "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
             if last.startswith('confirmremember'):
@@ -548,11 +633,15 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/webdisabled/'): STATE['webdisabled'] = p.endswith('/on')
         if p == '/reset': STATE['authHeader'] = False; STATE['n429'] = 0  # one-shot q429 must re-arm per run
         if p == '/db/reset':
-            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
+            DB.update(threads={}, messages={}, seq=0, imports={}); STATE.update(mut=[], fail={}, delay={}, calls=[], importfix=False, rejectReasons=False, rejectComment=False, fbBodies=[])
         if p.startswith('/fail/'):   # /fail/<code>?<regex>
             code, _, pat = p[6:].partition('?'); 
             if code == 'clear': STATE['fail'] = {}
             else: STATE['fail'][__import__('urllib.parse').parse.unquote(pat)] = int(code)
+        if p.startswith('/delay/'):
+            ms, _, pat = p[7:].partition('?')
+            if ms == 'clear': STATE['delay'] = {}
+            else: STATE['delay'][__import__('urllib.parse').parse.unquote(pat)] = int(ms)
         if p == '/importfix': STATE['importfix'] = True
         if p.startswith('/whoamifalse/'): STATE['whoamiFalse'] = p.endswith('/on')
         if p == '/pro/reset': pro_reset()
@@ -575,11 +664,31 @@ class H(SimpleHTTPRequestHandler):
                 for t in b.get('user', []): add_msg(th['id'], 'user', t)
                 out['msgs'] = [add_msg(th['id'], 'assistant', t, origin='proactive', job_id='01JJOB0000000000000000000A', provenance={'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': b.get('job_name')}, kind=b.get('kind'), template_kind=b.get('template_kind'), read_at=None)['id'] for t in b.get('proactive', [])]
                 for a in b.get('restore', []):
+                    a = dict(a); mi = a.pop('_mi', None)   # _mi: index into the proactive messages just created → message_id
+                    if mi is not None: a['message_id'] = out['msgs'][mi]
                     PRO['actions'][a['action_id']] = dict(a, status='pending', token=None, thread_id=th['id'])
                 for a in b.get('actions', []):
                     a = dict(a); PRO['actions'][a['action_id']] = dict(a, status='pending', token=None)
                     m = add_msg(th['id'], 'assistant', a.pop('_text', '이 작업을 할까요?'))
                     m['pending_actions'] = [a]; out.setdefault('amsgs', []).append(m['id'])
+            return s.j(200, out)
+        if p == '/b1/seed':   # 1.10.0 B1 fixtures: {title, messages:[{role, content, created_at?, ...any server field (sources, memory_refs, pending_actions…)}], actions:[{...}], memory:bool}
+            b = s.body(); out = {}
+            with LOCK:
+                th = new_thread(b.get('title', '대화')); out['thread'] = th['id']; out['msgs'] = []
+                for a in b.get('actions', []): PRO['actions'][a['action_id']] = dict(a, status=a.get('status', 'pending'), token=None, thread_id=th['id'])
+                for m in b.get('messages', []):
+                    m = dict(m); role = m.pop('role'); c = m.pop('content', ''); out['msgs'].append(add_msg(th['id'], role, c, **m)['id'])
+                if b.get('memory'): PRO['settings']['memory'] = {'enabled': True}
+                th['updated_at'] = now()
+            return s.j(200, out)
+        if p == '/b2/seed':   # 1.10.0 B2 fixtures: {title, created?, updated?, archived?, messages:[{role, content, created_at?, origin?, provenance?, kind?, template_kind?, read_at?, …}]}
+            b = s.body(); out = {}
+            with LOCK:
+                th = new_thread(b.get('title', '대화'), b.get('created'), archived=bool(b.get('archived'))); out['thread'] = th['id']; out['msgs'] = []
+                for m in b.get('messages', []):
+                    m = dict(m); role = m.pop('role'); c = m.pop('content', ''); out['msgs'].append(add_msg(th['id'], role, c, **m)['id'])
+                th['updated_at'] = b.get('updated') or b.get('created') or now()
             return s.j(200, out)
         if p == '/seed':
             b = s.body(); out = []

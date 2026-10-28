@@ -17,20 +17,22 @@ with sync_playwright() as p:
     for touch in [False, True]:
         ctx = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=touch, is_mobile=touch); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
-        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.click('#newChat'); pg.wait_for_timeout(400)
+        pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         if not touch:
-            check('version 1.9.0', pg.evaluate('__app.version') == '1.9.0')
+            check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
             a = pg.evaluate("""(()=>{const i=document.getElementById('input');const txt=[i.placeholder,i.getAttribute('aria-label'),i.id,i.name||''].join(' ');
               return {form:!!i.form, inForm:!!i.closest('form'), forms:document.querySelectorAll('#chatView form').length, name:i.getAttribute('name'), txt, btn:document.getElementById('sendBtn').type}})()""")
             check('composer textarea has no form owner / no <form> in chat view', not a['form'] and not a['inForm'] and a['forms'] == 0, a)
             check('textarea name is the non-sensitive token (1.9.0 QuickType)', a['name'] == 'eve-composer', a)
             check('no contact words in placeholder/label/id', not re.search(r'name|이름|email|이메일|phone|전화|연락처|contact|address|주소|tel', a['txt'], re.I), a['txt'])
             check('send button is type=button', a['btn'] == 'button', a)
-            hb = pg.evaluate("[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n);return [c.backgroundColor,c.backdropFilter||'none']})")
-            check('headers opaque at rest', all(not bg.startswith('rgba') and bf == 'none' for bg, bf in hb), hb)
+            hb = pg.evaluate("[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n),b=getComputedStyle(n,'::before');return [c.backgroundColor,c.backdropFilter||'none',b.content==='none'?'':b.backgroundColor,b.backdropFilter||'none']})")
+            # 1.10.0 B2: Today/log navbars are transparent at rest (spec §2) with an opaque --material ::before that fades in once collapsed; never a blur
+            check('headers opaque at rest (own fill or opaque ::before), no blur', all(bf == 'none' and bf2 == 'none' and ((not bg.startswith('rgba')) or (bg.startswith('rgba(0, 0, 0, 0)') and bb.startswith('rgb('))) for bg, bf, bb, bf2 in hb), hb)
             pg.evaluate("document.querySelector('#listView .navbar')?.classList.add('collapsed')")
-            hb2 = pg.evaluate("(()=>{const c=getComputedStyle(document.querySelector('#listView .navbar'));return [c.backgroundColor,c.backdropFilter||'none']})()")
-            check('collapsed list navbar stays opaque, no blur', not hb2[0].startswith('rgba') and hb2[1] == 'none', hb2)
+            pg.wait_for_timeout(300)
+            hb2 = pg.evaluate("(()=>{const n=document.querySelector('#listView .navbar'),c=getComputedStyle(n),b=getComputedStyle(n,'::before');return [c.backgroundColor,c.backdropFilter||'none',b.backgroundColor,b.opacity,b.backdropFilter||'none']})()")
+            check('collapsed log navbar is opaque (::before material at opacity 1), no blur', hb2[2].startswith('rgb(') and hb2[3] == '1' and hb2[1] == 'none' and hb2[4] == 'none', hb2)
             ac = pg.evaluate("[document.getElementById('input').getAttribute('autocorrect'),document.getElementById('input').getAttribute('spellcheck')]")
             check('1.9.0: autocorrect off, spellcheck false (PM: QuickType contacts)', ac == ['off', 'false'], ac)
             # IME: Enter while composing must not send (Korean)

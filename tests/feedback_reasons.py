@@ -15,7 +15,7 @@ LABELS = ['정보가 틀려요', '너무 길어요', '질문을 잘못 이해했
 def start(pg):
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
-    if pg.is_visible('#newChat'): pg.click('#newChat'); pg.wait_for_timeout(300)
+    if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
     pg.fill('#input', 'hello feedback'); pg.click('#sendBtn'); pg.wait_for_timeout(2600)
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -134,7 +134,7 @@ with sync_playwright() as p:
     ctx.set_offline(False); pg.evaluate("dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
     check('online: outbox flushed to server', last_fb().get('rating') == 'up' and last_fb().get('reasons') == ['helpful'] and last_fb().get('comment') == '오프라인 메모', last_fb())
     check('no CSP violations', not pg.evaluate("window.__csp||[]"), pg.evaluate("window.__csp||[]"))
-    check('version 1.9.0', pg.evaluate("__app.version") == '1.9.0')
+    check('version 1.10.0', pg.evaluate("__app.version") == '1.10.0')
     check('no page errors', not errs, errs)
     ctx.close()
     # light mode + reduced motion

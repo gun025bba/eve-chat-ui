@@ -33,7 +33,7 @@ with sync_playwright() as p:
     ctx.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);" + SETTINGS + "}")
     pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(M + '/ui/#/'); pg.wait_for_timeout(1500)
-    pg.click('#newChat'); pg.wait_for_timeout(300); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(3500)   # POST /v1/chat/completions
+    pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300); pg.fill('#input', 'hello'); pg.click('#sendBtn'); pg.wait_for_timeout(3500)   # POST /v1/chat/completions
     pg.locator('.msg.assistant .fb.up').last.click(); pg.wait_for_timeout(1200)                                                       # PUT feedback (outbox)
     tid = pg.evaluate('__app.state().currentId')
     ctx.set_offline(True); pg.evaluate("window.dispatchEvent(new Event('offline'))")
@@ -46,7 +46,7 @@ with sync_playwright() as p:
     def home():
         pg.goto(M + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1300)
         if pg.evaluate("document.getElementById('app').dataset.route") == 'chat': pg.evaluate('history.back()'); pg.wait_for_timeout(400)
-    home(); pg.click('#newChat'); pg.wait_for_timeout(300); pg.fill('#input', 'confirm 치과'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
+    home(); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300); pg.fill('#input', 'confirm 치과'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
     pg.locator('.confirm-card .cc-primary').last.click(); pg.wait_for_timeout(1200)                                  # POST approve
     home()
     pg.click('#openSettings'); pg.wait_for_timeout(700); pg.click('label:has(#sProactive)'); pg.wait_for_timeout(800)  # PATCH settings
@@ -74,18 +74,18 @@ with sync_playwright() as p:
     x2.route(FOREIGN + '/**', foreign)
     q = x2.new_page(); q.on('pageerror', lambda e: errs.append(str(e)))
     put('/pro/reset'); sx = put('/pro/seed', {'title': '다른 서버', 'actions': [{'action_id': '01JACT0000000000000000000X', 'tool': 'calendar_create_event', 'summary': '일정', 'scopes': ['calendar.write'], 'payload_view': {'제목': 'x'}, 'payload_hash': 'sha256:x', 'expires_at': '2099-01-01T00:00:00Z', 'provenance': {'actor': 'user'}}]})
-    q.goto(M + '/ui/#/'); q.reload(); q.wait_for_timeout(1500)
+    q.goto(M + '/ui/#/log'); q.reload(); q.wait_for_timeout(1500)
     if q.evaluate("document.getElementById('app').dataset.route") == 'chat': q.evaluate('history.back()'); q.wait_for_timeout(400)
     q.locator(f'#convList li.row[data-id="{sx["thread"]}"]').first.click(); q.wait_for_timeout(1500)
     cx = q.locator('.confirm-card[data-aid="01JACT0000000000000000000X"]')
     check('cross-origin base: card shown', cx.count() == 1, q.evaluate('__app.state()'))
     check('cross-origin base: approve + reject disabled', cx.locator('.cc-primary').is_disabled() and cx.locator('.cc-secondary').is_disabled())
     check('cross-origin base: clear message', '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요' in cx.inner_text(), cx.inner_text())
-    q.evaluate("history.back()"); q.wait_for_timeout(400); q.click('#openSettings'); q.wait_for_timeout(700)
+    q.click("#backBtn"); q.wait_for_timeout(600); q.click("#logBack"); q.wait_for_timeout(600); q.click("#openSettings"); q.wait_for_timeout(700)
     check('settings: cross-origin base warning shown', q.is_visible('#sBaseWarn') and '이 앱과 다른 서버를 쓰고 있어요' in q.inner_text('#sBaseWarn'))
     q.fill('#sBase', ''); q.wait_for_timeout(100); check('warning hides for same server', not q.is_visible('#sBaseWarn'))
     q.fill('#sBase', FOREIGN); q.keyboard.press('Escape'); q.wait_for_timeout(400)
-    q.locator(f'#convList li.row[data-id="{sx["thread"]}"]').first.click(); q.wait_for_timeout(1200)
+    q.click('#openLog'); q.wait_for_timeout(500); q.locator(f'#convList li.row[data-id="{sx["thread"]}"]').first.click(); q.wait_for_timeout(1200)
     cx.locator('.cc-primary').click(force=True); q.wait_for_timeout(800)
     check('cross-origin base: no reissue/approve/actions call', not any(k in u for _, u in sent for k in ('/reissue', '/approve', '/reject', '/v1/actions')), [u for _, u in sent if '/v1/actions' in u])
     x2.close()

@@ -218,11 +218,31 @@ if (typeof document !== 'undefined') (function () {
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
   /* web search toggle (persisted; on => web_search:'auto') */
-  const webBtn = $('#webBtn'), LS_WEB = 'llmchat.webSearch';
+  const LS_WEB = 'llmchat.webSearch';
   const webOn = () => localStorage.getItem(LS_WEB) === '1';
-  function setWebOn(on) { if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB); webBtn.setAttribute('aria-pressed', String(on)); webBtn.classList.toggle('on', on); webBtn.title = on ? '웹 검색 켜짐' : '웹 검색 꺼짐'; }
+  /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur.
+     B2: the same menu exists on the chat composer and on the 오늘 composer; they share one persisted setting. */
+  const PLUS = [['#plusBtn', '#plusMenu', '#webBtn'], ['#tPlus', '#tMenu', '#tWeb']].map(([p, m, w]) => ({ btn: $(p), menu: $(m), web: $(w), sel: `${m}, ${p}` }));
+  const plusBtn = PLUS[0].btn, plusMenu = PLUS[0].menu, webBtn = PLUS[0].web;
+  function setWebOn(on) {
+    if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB);
+    PLUS.forEach(({ btn, web }) => { web.setAttribute('aria-checked', String(on)); web.classList.toggle('on', on); btn.classList.toggle('web-on', on); btn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); btn.title = on ? '웹 검색 켜짐' : ''; });
+  }
   setWebOn(webOn());
-  webBtn.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+  function setPlusMenu(open, P = PLUS[0]) {
+    const { btn, menu, web } = P;
+    if (open === menu.classList.contains('show')) return;   // logical state: a tap during the close transition re-opens
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) { if (menu.hidden) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; } menu.classList.add('show');   /* re-opening mid-close just adds .show back: no reset to 0, no one-frame jump */ web.focus({ preventScroll: true }); }
+    else { menu.classList.remove('show'); let fin = false, t = 0; const done = () => { if (fin) return; fin = true; clearTimeout(t); menu.removeEventListener('transitionend', onEnd); if (!menu.classList.contains('show')) menu.hidden = true; }; const onEnd = e => { if (e.target === menu) done(); };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else { menu.addEventListener('transitionend', onEnd); t = setTimeout(done, 200); } }   /* hidden once the close transition ends, or after 200ms (--d-2) if it never fires */
+  }
+  PLUS.forEach(P => {
+    P.btn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(!P.menu.classList.contains('show'), P); });
+    document.addEventListener('pointerdown', e => { if (!P.menu.hidden && !e.target.closest(P.sel)) setPlusMenu(false, P); }, true);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !P.menu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false, P); P.btn.focus({ preventScroll: true }); } }, true);
+    P.web.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false, P); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+  });
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
@@ -260,6 +280,7 @@ if (typeof document !== 'undefined') (function () {
   document.documentElement.classList.toggle('standalone', isStandalone());
   document.documentElement.classList.toggle('ios', isIOS);
   const buzz = n => { if (self.EveShell?.haptic(n <= 10 ? 'light' : n <= 20 ? 'medium' : 'heavy')) return; if (!isIOS && navigator.vibrate) try { navigator.vibrate(n); } catch {} };   // 1.7.0: iOS shell haptics when bridged
+  let chatFrom = 'today';
   const wide = matchMedia('(min-width: 761px)');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -294,7 +315,8 @@ if (typeof document !== 'undefined') (function () {
     if (!r.ok) {
       const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
       if (isAuthFail(r.status, code)) { clearCards(); showAuthNotice(null, code); }
-      throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code });
+      // body: parsed error JSON (502 outcome_unknown / briefing preview carry fields beside error_code); outcomeUnknown: eve-serving #78 approve 502
+      throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code, body: j && typeof j === 'object' ? j : null, outcomeUnknown: typeof j?.outcome_unknown === 'boolean' ? j.outcome_unknown : undefined });
     }
     return j;
   }
@@ -313,6 +335,7 @@ if (typeof document !== 'undefined') (function () {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
+    { const r = self.EveProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
@@ -324,8 +347,11 @@ if (typeof document !== 'undefined') (function () {
       preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
+  let listLoading = true, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false, msgsPending = 0, coldStart = false;   // 오늘 / 기록 loading state (declared before first use)
+  const logSkel = () => coldStart && listLoading && Date.now() - loadT0 >= 250;
   let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
+    listLoading = true; loadT0 = Date.now(); coldStart = !convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
       const prev = mode === 'server' ? convs : [];
@@ -336,15 +362,16 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); MEM?.intro?.();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); memRefresh(true); briefRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
         if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
+      if (!persistOff) listError = true;
       renderSync();
-    }
+    } finally { const wasCold = coldStart && listLoading; listLoading = false; todayDirty(); if (wasCold) renderList(); }
   }
   async function loadMoreThreads() {
     if (mode !== 'server' || !nextCursor || threadsLoading || listQuery()) return;
@@ -381,7 +408,7 @@ if (typeof document !== 'undefined') (function () {
   function adoptThreadId(c, id) {
     if (!id || c.id === id) { if (c) c.fresh = false; return; }
     const old = c.id; c.id = id; c.fresh = false; c.srv = true;
-    if (currentId === old) { currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id }, '', '#/c/' + id); }
+    if (currentId === old) { currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id, from: chatFrom }, '', '#/t/' + id); }
     if (genId === old) genId = id;
     const d = localStorage.getItem(LS.draft + old); if (d) { localStorage.setItem(LS.draft + id, d); localStorage.removeItem(LS.draft + old); }
     persist();
@@ -452,15 +479,14 @@ if (typeof document !== 'undefined') (function () {
     const c = blankConv();
     convs.unshift(c); currentId = c.id; persist(); input.value = ''; grow(); renderAll(); go('chat'); if (!isTouch) input.focus();
   }
-  function openConv(id, from) {
-    chatFrom = from || 'list';
+  function openConv(id) {
     if (id !== currentId) { saveDraft(); currentId = id; persist(); renderAll(); loadDraft(); }
     else renderMessages();
     ensureMessages(cur());
     go('chat');
   }
   function updateThread(c, patch) {
-    const before = { title: c.title }; Object.assign(c, patch); persist(); renderList(); if (c === cur()) $('#title').textContent = c.title;
+    const before = { title: c.title }; Object.assign(c, patch); persist(); renderList(); if (c === cur()) setConvTitle(c.title);
     if (mode === 'server' && !c.fresh) write('patch', 'patch:' + c.id, { id: c.id, patch }, () => { Object.assign(c, before); persist(); renderAll(); }, '이름을 저장하지 못했어요');
   }
   function startRename(row, c) {
@@ -533,44 +559,94 @@ if (typeof document !== 'undefined') (function () {
   const safeSnippet = s => escapeHtml(String(s || '')).replace(/&lt;(\/?)mark&gt;/g, '<$1mark>');
   const listQuery = () => ($('#search').value || '').trim();
   let searchHits = null, searchT = 0, searchSeq = 0;
-  function rowEl(c, cls = '') {
+  const MARK = '<svg class="r-eve" viewBox="0 0 100 100" aria-hidden="true"><path d="M14 54V36a16 16 0 0 1 16-16h40a16 16 0 0 1 16 16v28a16 16 0 0 1-16 16H34" fill="none" stroke="currentColor" stroke-width="9"/><rect x="32" y="37" width="10" height="26" rx="5" fill="var(--brand)"/></svg>';
+  const hasPro = c => (c.unread || 0) > 0 || (c.messages || []).some(m => m.origin === 'proactive');
+  /* 1.10.0 B2 (DIRECTION-B §9.2): a row is  time(36px) · title + preview · [pill] [Eve mark]; rows of one day share a group card */
+  function rowEl(c, cls = '', opts = {}) {
     const li = document.createElement('li'); li.className = 'row' + cls + (c.id === currentId ? ' active' : ''); li.dataset.id = c.id;
     const arch = cls.includes('archived');
     li.innerHTML = `<div class="row-actions">${arch ? '<button type="button" class="ra-restore" tabindex="-1">복원</button>' + (mode === 'local' ? '<button type="button" class="ra-del" tabindex="-1">삭제</button>' : '') : '<button type="button" class="ra-rename" tabindex="-1">이름 변경</button><button type="button" class="ra-archive" tabindex="-1">보관</button>'}</div>
-      <div class="row-main"><div class="row-top"><span class="row-title"></span><time></time>${CHEV_R}</div><div class="row-sub"></div></div>`;
+      <div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub"></div></div></div>`;
     li.querySelector('.row-title').textContent = (c.pinned ? '📌 ' : '') + c.title;
-    li.querySelector('time').textContent = fmtTime(c.updated || Date.now());
+    const tm = li.querySelector('time'), ts = c.updated || Date.now(); tm.textContent = opts.day && kstDay(ts) !== kstDay(Date.now()) ? shortDate(ts) : hhmm(ts); tm.dateTime = new Date(ts).toISOString();
     const sub = li.querySelector('.row-sub');
     PRO?.decorateRow(li, c);
-    if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = preview(c);
+    if (hasPro(c)) li.querySelector('.row-top').insertAdjacentHTML('beforeend', MARK);
+    if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = opts.date ? daySepText(ts).replace(/ · .*/, '') + ' · ' + preview(c) : preview(c);
     return li;
+  }
+  const shortDate = t => { const [, m, d] = kstDay(t).split('-').map(Number); return `${m}.${d}`; };
+  let wkDay = null;   // the day whose week the strip shows (= the date header at the top of the list)
+  function renderWk() {
+    const el = $('#wk'), T = kstDay(Date.now()), have = new Set(convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));
+    const base = wkDay || T, [y, m, d] = base.split('-').map(Number), start = new Date(Date.UTC(y, m - 1, d)); start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const key = kstDay(start.getTime() + 12 * 36e5) + '|' + [...have].filter(x => x >= kstDay(start.getTime() + 12 * 36e5)).length;
+    const mo = $('#logMonth'); mo.textContent = `${y}년 ${m}월`;
+    const week = [...Array(7)].map((_, i) => { const t = new Date(start); t.setUTCDate(start.getUTCDate() + i); return t.toISOString().slice(0, 10); });
+    const sig = week.join() + '|' + week.map(x => have.has(x) ? 1 : 0).join('');
+    if (el.dataset.sig !== sig) {
+      const changedWeek = el.dataset.week && el.dataset.week !== week[0];
+      el.dataset.sig = sig; el.dataset.week = week[0]; el.replaceChildren();
+      week.forEach((ymd, i) => {
+        const fut = ymd > T, has = have.has(ymd), b = document.createElement('button'); b.type = 'button'; b.className = 'wk-c'; b.dataset.day = ymd;
+        if (fut || !has) b.setAttribute('aria-disabled', 'true'); if (fut) b.classList.add('fut'); if (has) b.classList.add('has');
+        const [, mm, dd] = ymd.split('-').map(Number); b.setAttribute('aria-label', `${mm}월 ${dd}일 ${WEEKDAY[i]}요일${has ? ', 기록 있음' : ''}`);
+        b.innerHTML = '<span class="wk-w"></span><span class="wk-n"></span>'; b.querySelector('.wk-w').textContent = WEEKDAY[i]; b.querySelector('.wk-n').textContent = String(dd);
+        el.appendChild(b);
+      });
+      if (changedWeek && !reduce.matches) { el.classList.remove('sw'); void el.offsetWidth; el.classList.add('sw'); }
+    }
+    el.querySelectorAll('.wk-c').forEach(b => { const on = b.dataset.day === base; b.classList.toggle('sel', on); if (on) b.setAttribute('aria-current', 'date'); else b.removeAttribute('aria-current'); });
+  }
+  $('#wk').addEventListener('click', e => {
+    const b = e.target.closest('.wk-c'); if (!b || b.getAttribute('aria-disabled') === 'true') return;
+    const lab = $('#convList').querySelector(`.group-label[data-day="${b.dataset.day}"]`); if (!lab) return;
+    wkDay = b.dataset.day; wkLock = Date.now() + 1000; renderWk(); lab.scrollIntoView({ block: 'start', behavior: reduce.matches ? 'auto' : 'smooth' });
+  });
+  let wkT = 0, wkLock = 0;
+  function trackWk() {
+    clearTimeout(wkT); wkT = setTimeout(() => {
+      if (Date.now() < wkLock) return;
+      const top = scroller.getBoundingClientRect().top + (parseFloat(getComputedStyle(listView).getPropertyValue('--nav-h')) || 44) + ($('#wk').offsetHeight || 0) + 2;
+      const labs = [...$('#convList').querySelectorAll('.group-label[data-day]')]; if (!labs.length) return;
+      let cur = labs[0]; for (const l of labs) if (l.getBoundingClientRect().top <= top + 8) cur = l; else break;
+      if (cur.dataset.day !== wkDay) { wkDay = cur.dataset.day; renderWk(); }
+    }, 100);
   }
   function renderList() {
     const ul = $('#convList'); if (ul.querySelector('.row.editing')) return; ul.innerHTML = '';
-    const q = listQuery().toLowerCase();
+    const searching = listView.classList.contains('searching'), q = listQuery().toLowerCase(), flatMode = searching || !!q;
     const live = convs.filter(c => !c.archived);
     live.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updated - a.updated);
     const list = live.filter(c => !q || c.title.toLowerCase().includes(q) || c.messages.some(m => (m.content || '').toLowerCase().includes(q)) || (c.preview || '').toLowerCase().includes(q));
-    $('#listEmpty').hidden = !!live.length || threadsLoading || !!q;
-    let lastG = null;
-    list.forEach(c => {
-      const g = c.pinned ? '고정됨' : groupLabel(c.updated || 0);
-      if (g !== lastG && !q) { const h = document.createElement('li'); h.className = 'group-label'; h.textContent = g; ul.appendChild(h); lastG = g; }
-      ul.appendChild(rowEl(c));
-    });
+    $('#listEmpty').hidden = !!live.length || threadsLoading || listLoading || flatMode;
+    const label = (txt, n, day) => { const h = document.createElement('li'); h.className = 'group-label'; if (day) h.dataset.day = day; h.innerHTML = '<span class="gl-n"></span><span class="gl-c"></span>'; h.querySelector('.gl-n').textContent = txt; h.querySelector('.gl-c').textContent = n ? `대화 ${n}` : ''; ul.appendChild(h); };
+    if (!flatMode) {
+      const cnt = new Map(); list.forEach(c => { const k = c.pinned ? 'pin' : kstDay(c.updated || 0); cnt.set(k, (cnt.get(k) || 0) + 1); });
+      let lastG = null;
+      list.forEach(c => {
+        const g = c.pinned ? 'pin' : kstDay(c.updated || 0);
+        if (g !== lastG) { label(g === 'pin' ? '고정됨' : daySepText(c.updated || 0), cnt.get(g), g === 'pin' ? '' : g); lastG = g; }
+        ul.appendChild(rowEl(c, '', { day: g === 'pin' }));
+      });
+    } else list.forEach(c => ul.appendChild(rowEl(c, '', { date: true })));
     if (q && searchHits) {   // server results (title + content), deduped against local rows
       const hits = searchHits.filter(h => h.match === 'content' || !list.some(c => c.id === h.thread_id));
-      if (hits.length) { const h = document.createElement('li'); h.className = 'group-label'; h.textContent = '메시지'; ul.appendChild(h); }
       hits.forEach(hit => {
         const li = document.createElement('li'); li.className = 'hit'; li.dataset.tid = hit.thread_id; if (hit.message_id) li.dataset.mid = hit.message_id;
-        li.innerHTML = `<div class="row-main"><div class="row-top"><span class="row-title"></span><time></time></div><div class="row-sub snippet">${safeSnippet(hit.snippet)}</div></div>`;
-        li.querySelector('.row-title').textContent = hit.thread_title || '대화'; li.querySelector('time').textContent = fmtTime(toMs(hit.created_at));
+        li.innerHTML = `<div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub snippet">${safeSnippet(hit.snippet)}</div></div></div>`;
+        li.querySelector('.row-title').textContent = hit.thread_title || '대화'; li.querySelector('time').textContent = hhmm(toMs(hit.created_at));
         ul.appendChild(li);
       });
       if (!list.length && !hits.length) ul.innerHTML = '<li class="no-results">결과 없음</li>';
     } else if (q && !list.length && !(mode === 'server' && searchT)) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    if (threadsLoading && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
-    const ar = $('#archivedRow'); if (ar) { ar.hidden = !!q; const n = mode === 'local' ? convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    if ((threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
+    // one group card per run of rows: round the first and last row
+    let run = [];
+    const flush = () => { if (run.length) { run[0].classList.add('g1'); run[run.length - 1].classList.add('g9'); } run = []; };
+    [...ul.children].forEach(li => { if (li.classList.contains('group-label') || li.classList.contains('no-results')) flush(); else run.push(li); }); flush();
+    const ar = $('#archivedRow'); if (ar) { ar.hidden = flatMode; const n = mode === 'local' ? convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    renderWk(); todayDirty();
   }
   function onSearch() {
     renderList(); clearTimeout(searchT); searchT = 0; searchHits = null;
@@ -585,14 +661,14 @@ if (typeof document !== 'undefined') (function () {
   }
   $('#search').addEventListener('input', onSearch);
   $('#search').addEventListener('search', onSearch);
-  async function openHit(tid, mid) {
+  async function openHit(tid, mid, block = 'center') {
     let c = convs.find(x => x.id === tid) || archivedList.find(x => x.id === tid);
     if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? archivedList : convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
     openConv(c.id);
     if (!mid) return;
     for (let i = 0; i < 40 && !(c.loaded && !c.loading); i++) await new Promise(r => setTimeout(r, 50));
     for (let n = 0; n < 10 && !c.messages.some(m => m.id === mid) && c.hasMore; n++) await loadOlder();
-    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
+    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
   }
   const convOf = el => { const id = el.closest('.row')?.dataset.id; return convs.find(c => c.id === id) || archivedList.find(c => c.id === id); };
   $('#convList').addEventListener('click', e => {
@@ -606,7 +682,6 @@ if (typeof document !== 'undefined') (function () {
   });
 
   /* ---------- archive screen (#/archive) ---------- */
-  let chatFrom = 'list';
   async function loadArchive() {
     if (mode === 'local') { archivedList = convs.filter(c => c.archived); return renderArchive(); }
     $('#archList').innerHTML = '<li class="skel"><i></i><i></i></li>';
@@ -618,6 +693,7 @@ if (typeof document !== 'undefined') (function () {
     const list = mode === 'local' ? convs.filter(c => c.archived) : archivedList;
     if (mode === 'local') archivedList = list;
     list.sort((a, b) => b.updated - a.updated).forEach(c => ul.appendChild(rowEl(c, ' archived')));
+    ul.firstElementChild?.classList.add('g1'); ul.lastElementChild?.classList.add('g9');
     $('#archEmpty').hidden = !!list.length;
   }
   $('#archList').addEventListener('click', e => {
@@ -626,20 +702,42 @@ if (typeof document !== 'undefined') (function () {
     if (e.target.closest('.ra-restore')) return restoreConv(c);
     if (e.target.closest('.ra-del')) return confirmDelete(c);
     if (openRow) return closeSwipe();
-    openConv(c.id, 'archive');
+    openConv(c.id);
   });
   function confirmDelete(c) {
     closeSwipe();
     showMenu(null, [{ label: '대화 영구 삭제', danger: true, act: () => deleteConv(c) }, { label: '취소', act: () => {} }], { sheet: true, title: '대화를 영구 삭제할까요? 이 작업은 되돌릴 수 없어요.' });
   }
-  $('#archivedRow').onclick = () => { history.pushState({ route: 'archive' }, '', '#/archive'); loadArchive(); animateTo('archive', 'push'); };
+  $('#archivedRow').onclick = () => { loadArchive(); go('archive'); };
   $('#archBack').onclick = () => back();
 
   /* ---------- messages ---------- */
+  /* 1.10.0 B1 (DIRECTION-B §3): a message is one timeline event: time (KST, 24h) · dot · who · body. No bubbles. */
+  const KST_HM = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const KST_YMD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const hhmm = t => { try { return KST_HM.format(new Date(t)); } catch { return ''; } };
+  const kstDay = t => { try { return KST_YMD.format(new Date(t)); } catch { return ''; } };
+  const WEEKDAY = '일월화수목금토';
+  function daySepText(t, now = Date.now()) {
+    const d = kstDay(t), today = kstDay(now), [y, mo, da] = d.split('-').map(Number), wd = WEEKDAY[new Date(Date.UTC(y, mo - 1, da)).getUTCDay()];
+    if (d === today) return `오늘 · ${wd}`; if (d === kstDay(now - 864e5)) return `어제 · ${wd}`;
+    return (String(y) !== today.slice(0, 4) ? `${y}년 ` : '') + `${mo}월 ${da}일 · ${wd}`;
+  }
+  const USER_NAME = '나';   // the signed-in display name has no settings field yet (DIRECTION-B §14): never hard-code a person
   function addMsgEl(role, content, m) {
-    const wrap = document.createElement('div'); wrap.className = 'msg ' + role; if (m?.id) wrap.dataset.mid = m.id;
-    const b = document.createElement('div'); b.className = 'bubble'; wrap.appendChild(b);
+    const t = m?.created > 0 ? m.created : Date.now(), who = role === 'user' ? USER_NAME : 'Eve';
+    const wrap = document.createElement('div'); wrap.className = 'msg ev ' + role + (role === 'user' ? ' me' : role === 'assistant' ? ' e' : ''); wrap.dataset.t = String(t); if (m?.id) wrap.dataset.mid = m.id;
+    wrap.setAttribute('role', 'listitem'); wrap.setAttribute('aria-label', `${hhmm(t)} ${who}`);
+    const tm = document.createElement('time'); tm.className = 'tm'; tm.dateTime = new Date(t).toISOString(); tm.textContent = hhmm(t);
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.setAttribute('aria-hidden', 'true');
+    const wh = document.createElement('div'); wh.className = 'who'; const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; wh.appendChild(wn);
+    const b = document.createElement('div'); b.className = 'bubble tx'; wrap.append(tm, dot, wh, b);
     if (role === 'user') b.textContent = content;
+    if (role !== 'error') {   // a new date starts a day-sep (rail continues through it)
+      const prev = box._lastMsg && box.contains(box._lastMsg) ? box._lastMsg : [...box.querySelectorAll(':scope > .msg:not(.error)')].pop();
+      if (prev ? prev.dataset.t && kstDay(+prev.dataset.t) !== kstDay(t) : kstDay(t) !== kstDay(Date.now())) { const sep = document.createElement('div'); sep.className = 'day-sep'; sep.textContent = daySepText(t); box.appendChild(sep); }
+      box._lastMsg = wrap;
+    }
     if (!box.classList.contains('no-anim')) { box.querySelectorAll(':scope > .msg.enter').forEach(x => x.classList.remove('enter')); wrap.classList.add('enter'); }   // M9: only the newly appended last one
     box.appendChild(wrap); return b;
   }
@@ -679,6 +777,13 @@ if (typeof document !== 'undefined') (function () {
     if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
+  /* "참고한 기억" chips (DIRECTION-B §8.1): only when the message carries memory_refs and memory is on; text via escapeHtml only */
+  function renderMemRefs(m) {
+    const refs = m?.memoryRefs; if (!refs?.length || !MEM?.active?.()) return '';
+    const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
+    return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
+  }
+  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });   // memory chip → settings sheet #memoryView (openMemoryView, B3)
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
@@ -698,13 +803,13 @@ if (typeof document !== 'undefined') (function () {
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}`;
+    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}${renderMemRefs(opts.msg)}`;
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     bubble.innerHTML = html;
     if (wasLive && !live) bubble._freshAt = performance.now();
-    { const sec = !live && bubble._freshAt && bubble.querySelector('.sources'), el = sec ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill
-      if (sec && el < 120) { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; } }
+    { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
+      if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
@@ -862,21 +967,19 @@ if (typeof document !== 'undefined') (function () {
     return `입력 ${u.prompt_tokens ?? '?'} · 출력 ${ct ?? '?'} tok${rate}`;
   }
 
-  const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘', 'source'], ['요약', '긴 글을 핵심 3줄로 정리해줘', 'sparkle'], ['번역', '자연스러운 영어 문장으로 바꿔줘', 'globe'], ['아이디어', '주말에 할 사이드 프로젝트 추천', 'think']];
-  // 1.4.0 (REFRESH-SPEC §1.1/§1.7): no model name on screen; it lives in 설정 > 정보
-  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only
-  const EMPTY_SUB = 'Eve는 이 기기 가까이에서 실행돼요'; // REFRESH-SPEC §1.7
+  /* 1.10.0 B1: an empty conversation is just the timeline's "지금" event (DIRECTION-B §4): no logo, headline, subtitle or suggestion cards. */
   function renderEmpty() {
-    box.innerHTML = `<div class="empty"><div class="mark-tile"><div class="mark"></div></div><h1>무엇을 도와드릴까요?</h1><small>${EMPTY_SUB}</small>
-      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}">${icon(c[2], 'i-sm chip-ic')}<b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
-    box.querySelectorAll('.empty .mark-tile,.empty h1,.empty>small,.chip').forEach((b, i) => { b.style.animationDelay = (i * 40) + 'ms'; });
-    box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });
+    const t = Date.now(), ev = document.createElement('div'); ev.className = 'rail-now'; ev.setAttribute('role', 'listitem'); ev.setAttribute('aria-label', `${hhmm(t)} 지금`);
+    ev.innerHTML = '<time class="tm"></time><span class="dot" aria-hidden="true"></span><div class="who"><span class="who-n">지금</span></div><div class="tx d">아래에 한 줄로 남기면 오늘 기록에 쌓여요.</div>';
+    ev.querySelector('.tm').textContent = hhmm(t); box.innerHTML = ''; box.appendChild(ev);
   }
+  setInterval(() => { const n = box.querySelector('.rail-now'); if (n && !document.hidden) { const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); } }, 60000);
+  function setConvTitle(t) { $('#title').textContent = t; box.setAttribute('aria-label', t || '대화'); }   /* the message list is named after the thread (screen readers: "<title>, list") */
   function renderMessages(keep) {
     box.innerHTML = '';
     const c = cur();
-    $('#title').textContent = c ? c.title : '새 대화';
-    $('#modelName').textContent = SUBTITLE; const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
+    setConvTitle(c ? c.title : '새 대화');
+    const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
     chatView.classList.toggle('archived', !!c?.archived);
     if (c?.loading && !c.messages.length) { box.innerHTML = '<div class="older loading"><span class="spin"></span></div>'; return; }
     if (!c || !c.messages.length) return renderEmpty();
@@ -889,6 +992,7 @@ if (typeof document !== 'undefined') (function () {
       PRO?.decorateMsg([...box.querySelectorAll(':scope > .msg')].pop() || null, m, i, c.messages);
     });
     PRO?.afterRender(c);
+    if (MEM?.ensure && !MEM.active() && c.messages.some(m => m.memoryRefs?.length)) MEM.ensure().then(on => { if (on && cur() === c && !controller) renderMessages(true); });
     // 1.1.3: thread ends with a user turn and no reply (and nothing running) → visible retry
     if (!c.archived && c.messages.at(-1)?.role === 'user' && !c.loading && !(controller && genId === c.id)) addError('답변을 받지 못했어요', () => generate(c));
     requestAnimationFrame(() => { box.classList.remove('no-anim'); if (!keep) { stick = true; scrollBottom(); } });
@@ -899,7 +1003,8 @@ if (typeof document !== 'undefined') (function () {
     sendBtn.classList.toggle('stop', b);
     sendBtn.disabled = b ? false : !input.value.trim();
     sendBtn.setAttribute('aria-label', b ? '생성 중지' : '전송'); sendBtn.title = b ? '생성 중지 (Esc)' : '';
-    if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || wide.matches) renderList(); maybeA2HS(); }
+    tSend.classList.toggle('stop', b); tSend.disabled = b ? false : !tInput.value.trim(); tSend.setAttribute('aria-label', b ? '생성 중지' : '전송');
+    if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || app.dataset.route === 'today' || wide.matches) renderList(); maybeA2HS(); }
   }
 
   /* ---------- errors (gateway contract) ---------- */
@@ -947,7 +1052,7 @@ if (typeof document !== 'undefined') (function () {
   async function send(text) {
     let c = cur();
     if (!c || c.archived) { c = blankConv(); convs.unshift(c); currentId = c.id; }
-    if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); $('#title').textContent = c.title; }
+    if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); setConvTitle(c.title); }
     clearErrors(); closeAllFbPanels();
     box.querySelectorAll('.actions .r').forEach(r => r.remove());
     c.messages.push({ role: 'user', content: text, created: Date.now() });
@@ -1044,10 +1149,16 @@ if (typeof document !== 'undefined') (function () {
       if (j.error) { streamErr = j.error; return; }   // after admission: error event (+ retry_after)
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
+        if (self.EvePim?.isTool(j.tool)) { setWs(EvePim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
         const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
         setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
       }
       if (j.object === 'chat.completion.tool_result') {
+        if (self.EvePim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
+          setWs(EvePim.resultText(j)); let n = null; try { n = EvePim.resultCard(j); } catch {}
+          if (n) EvePim.mount(n, bubble.parentElement);
+          return;
+        }
         if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
         setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
       }
@@ -1203,7 +1314,7 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- composer ---------- */
   let growH = -1;
-  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
+  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 120); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); submitComposer(); }
@@ -1217,14 +1328,191 @@ if (typeof document !== 'undefined') (function () {
   }
   sendBtn.addEventListener('click', e => { e.preventDefault(); submitComposer(); });
 
+  /* ---------- 오늘 (DIRECTION-B §4, B2): the root. A timeline of what Eve sent first and what you asked today, a "지금" line, one composer. ---------- */
+  const tInput = $('#tInput'), tSend = $('#tSend');
+  const todaySeenKey = 'eve.b2.todaySeen';
+  // skeleton only on a cold start (no cached list) and only when 250ms have passed; `ready` = list loaded and today's threads' messages in (the stagger waits for it)
+  const needMsgs = M => M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
+  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(self.EveToday.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
+  const TODAY = self.EveToday?.init({
+    convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
+    retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
+    pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p), strip: () => stripModel(), stripTap: (k, el) => stripTap(k, el),
+    open: (c, mid) => (mid ? openHit(c.id, mid) : openConv(c.id)),
+    stagger: () => { if (reduce.matches) return false; try { if (sessionStorage.getItem(todaySeenKey)) return false; sessionStorage.setItem(todaySeenKey, '1'); } catch { if (tSeen) return false; tSeen = true; } return true; },
+  });
+  /* 확인 대기 card (§4-4, §6): the oldest pending confirmation not put off with "나중에". Read-only: [검토하기] opens its thread, approval stays on the card in the thread.
+     No endpoint / error / offline / cross-origin → the card is simply not drawn. */
+  let pendItems = [], pendAt = 0, pendBusy = false, pendState = 'init', pendT0 = 0;   // pendState: init | ok | err | absent (no endpoint / cross-origin → the strip cell is not drawn)
+  const SNZ = 'eve.b2.snooze';
+  const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === self.EveToday.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
+  const pendOpen = () => { const z = snoozed(); return pendItems.filter(i => !z.includes(i.id)); };   // follow-up i: items put off with "나중에" are out of the strip count, the sheet and the direct jump too
+  function pendFirst() { if (pendState !== 'ok') return null; const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
+  function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: self.EveToday.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
+  async function pendRefresh(force) {
+    if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
+    pendBusy = true; pendAt = Date.now(); if (pendState === 'init' && !pendT0) { pendT0 = Date.now(); setTimeout(todayDirty, 270); }
+    try { const l = await PRO.pendingList(); if (l) { pendItems = l; pendState = 'ok'; } else { pendItems = []; pendState = 'absent'; } }
+    catch (e) { pendItems = []; pendState = e && (e.code === 'cross_origin' || e.http === 404 || e.http === 405 || e.http === 501) ? 'absent' : 'err'; } finally { pendBusy = false; }
+    todayDirty();
+  }
+  function openPend(p) { openHit(p.threadId, p.messageId || undefined, 'start'); }
+
+  /* 현황 띠 (DIRECTION-B §5–§7, B3): 기억 · 확인 대기 · 오늘 일정. A cell with no data source is simply not drawn (§14); errors show "–" and are not tappable. */
+  let memS = { st: 'init', n: 0, at: 0, busy: false, t0: 0 };   // st: init | ok | err | hidden
+  async function memRefresh(force) {
+    if (!MEM?.count || mode !== 'server' || memS.busy || navigator.onLine === false || (!force && Date.now() - memS.at < 30000)) return;
+    memS.busy = true; memS.at = Date.now(); if (memS.st === 'init' && !memS.t0) { memS.t0 = Date.now(); setTimeout(todayDirty, 270); }
+    try { const r = await MEM.count(); if (r === null) { memS.st = 'hidden'; memS.n = 0; } else if (r.err) memS.st = 'err'; else { memS.st = 'ok'; memS.n = r.n; } }
+    catch { memS.st = memS.st === 'ok' ? 'err' : 'hidden'; } finally { memS.busy = false; }
+    todayDirty(); memChipsSync();
+  }
+  /* 오늘 일정 follows `briefing.enabled` from GET /v1/settings when the server sends it (only an explicit false hides the cell); absent → no opinion (TODO(architect): confirm the gateway sends briefing.enabled=false rather than dropping the key when briefing is off) */
+  let briefS = { off: false, at: 0, busy: false };
+  async function briefRefresh(force) {
+    if (!PRO?.briefingEnabled || mode !== 'server' || briefS.busy || navigator.onLine === false || (!force && Date.now() - briefS.at < 30000)) return;
+    briefS.busy = true; briefS.at = Date.now();
+    try { const r = await PRO.briefingEnabled(); if (r !== null) briefS.off = r === false; } catch {} finally { briefS.busy = false; }
+    todayDirty();
+  }
+  // the "참고한 기억" chips follow the memory cell (§8.1): when the cell appears or goes away the open thread's chips are redrawn
+  let memShownPrev = null;
+  function memChipsSync() { const on = !!(MEM?.active?.()); if (memShownPrev !== null && memShownPrev !== on && app.dataset.route === 'chat' && !controller) renderMessages(true); memShownPrev = on; }
+  const HM = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const kstHM = t => { const p = HM.formatToParts(new Date(t)), g = k => (p.find(x => x.type === k) || {}).value || '00'; return `${g('hour')}:${g('minute')}`; };
+  /* 오늘 일정 (§7): today's briefing message (template_kind 'briefing', briefing.date == today KST), events section. null = no data source → cell hidden. */
+  function schedData(now = Date.now()) {
+    if (briefS.off) return null;   // briefing.enabled === false on the server (k)
+    const T = self.EveToday.kstDay(now); let best = null;
+    for (const c of convs) { if (c.archived) continue; for (const m of c.messages || []) if (m.origin === 'proactive' && m.templateKind === 'briefing' && m.briefing && m.briefing.date === T && (!best || m.created > best.m.created)) best = { c, m }; }
+    if (!best) return null;
+    const sec = (best.m.briefing.sections || []).find(x => x.kind === 'events');
+    if (!sec || !sec.ok || !(sec.count > 0)) return null;
+    const end = x => Date.parse(x.end || x.start || '') || 0, past = x => !x.allDay && end(x) > 0 && end(x) < now;
+    const rest = Math.max(0, sec.count - sec.items.length), trunc = sec.truncated || rest > 0;
+    const left = sec.items.filter(x => !past(x)).length + rest;
+    return { items: sec.items, past, left, trunc, at: best.m.created };
+  }
+  function stripModel() {
+    if (mode !== 'server') return { cells: [], sub: '' };
+    const now = Date.now(), cells = [], subs = [], skOK = t0 => t0 && now - t0 >= 250;
+    if (MEM?.count && memS.st !== 'hidden') {
+      if (memS.st === 'ok') { cells.push({ k: 'mem', n: String(memS.n), z: !memS.n, label: '기억', icon: 'memory', aria: `기억 ${memS.n}개` }); subs.push(`기억 ${memS.n}`); }
+      else if (memS.st === 'err') cells.push({ k: 'mem', n: '–', er: true, off: true, label: '기억', icon: 'memory', aria: '기억, 불러오지 못했어요' });
+      else if (skOK(memS.t0)) cells.push({ k: 'mem', sk: true, off: true, label: '기억', icon: 'memory', aria: '기억, 불러오는 중' });
+    }
+    if (PRO?.pendingList && pendState !== 'absent') {
+      const n = pendOpen().length;
+      if (pendState === 'ok') { cells.push({ k: 'pend', n: String(n), z: !n, off: !n, label: '확인 대기', icon: 'bell', aria: `확인 대기 ${n}건` }); subs.push(`대기 ${n}`); }
+      else if (pendState === 'err') cells.push({ k: 'pend', n: '–', er: true, off: true, label: '확인 대기', icon: 'bell', aria: '확인 대기, 불러오지 못했어요' });
+      else if (skOK(pendT0)) cells.push({ k: 'pend', sk: true, off: true, label: '확인 대기', icon: 'bell', aria: '확인 대기, 불러오는 중' });
+    }
+    const sd = todayState().ready ? schedData(now) : null;
+    if (sd) { const n = (sd.trunc ? sd.left + '+' : String(sd.left)); cells.push({ k: 'sch', n, z: !sd.left, off: !sd.left, label: '오늘 일정', aria: `오늘 일정 ${n.replace('+', '개 이상')}${sd.trunc ? '' : '개'}, 오늘 아침 기준` }); }
+    return { cells, sub: subs.join(' · ') };
+  }
+  /* medium sheet (shared by 확인 대기 / 오늘 일정): all text via textContent, read-only */
+  const SS = $('#stripSheet'); let ssFrom = null;
+  function ssClose() { if (SS.hidden) return; closeMini(SS); document.removeEventListener('keydown', ssKey, true); const f = ssFrom; ssFrom = null; setTimeout(() => { try { f && f.isConnected && f.focus({ preventScroll: true }); } catch {} }, 0); }
+  function ssKey(e) { if (e.key === 'Escape') { e.stopPropagation(); ssClose(); } }
+  function ssOpen(title, sub, rows, foot, from) {
+    $('#ssTitle').textContent = title; const sb = $('#ssSub'); sb.textContent = sub || ''; sb.hidden = !sub;
+    $('#ssList').replaceChildren(...rows); $('#ssFoot').hidden = !foot; SS.scrollTop = 0; ssFrom = from || null;
+    openMini(SS, { onDismiss: ssClose }); document.addEventListener('keydown', ssKey, true); setTimeout(() => $('#ssTitle').focus({ preventScroll: true }), 60);
+  }
+  sheetDrag(SS, null, ssClose);
+  const mkEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  function pendSheet(from) {
+    const list = pendOpen(), rows = list.map(p => {
+      const li = document.createElement('li'), b = mkEl('button', 'ss-row'); b.type = 'button'; const soon = self.EveToday.soonOf(p, Date.now());
+      const t = mkEl('span', 'ss-b'); t.append(mkEl('span', 'ss-t', p.title || '확인이 필요한 일'));
+      const m = mkEl('span', 'ss-m', p.verbLabel || '실행'); if (soon) { m.append(' · '); m.append(mkEl('span', 'ss-x', '곧 만료')); } t.append(m);
+      const ch = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); ch.setAttribute('class', 'i'); ch.setAttribute('viewBox', '0 0 24 24'); ch.setAttribute('aria-hidden', 'true');
+      const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#i-chevron-right'); ch.appendChild(u);
+      b.setAttribute('aria-label', `${p.title || '확인이 필요한 일'}, ${p.verbLabel || '실행'}${soon ? ', 곧 만료' : ''}`);
+      b.append(t, ch); b.addEventListener('click', () => { ssFrom = null; ssClose(); openPend(p); }); li.appendChild(b); return li;
+    });
+    ssOpen(`확인 대기 ${list.length}건`, '', rows, false, from);
+  }
+  function schedSheet(from) {
+    const sd = schedData(); if (!sd || !sd.left) return;
+    const rows = sd.items.map(x => {
+      const li = mkEl('li', 'ss-ev' + (sd.past(x) ? ' past' : '')), fmt = x.allDay ? '종일' : (x.start ? kstHM(x.start) + (x.end ? '–' + kstHM(x.end) : '') : '');
+      const b = mkEl('div', 'ss-b'); b.append(mkEl('span', 'ss-t', x.title || '(제목 없음)')); if (x.cal) b.append(mkEl('span', 'ss-m', x.cal));
+      li.append(mkEl('time', 'ss-tm', fmt), b); return li;
+    });
+    ssOpen('오늘 일정', `오늘 아침 기준 · ${kstHM(sd.at)}`, rows, sd.trunc, from);
+  }
+  $('#settings')?.addEventListener('close', () => { memRefresh(true); pendRefresh(true); briefRefresh(true); });   // memory switched / items deleted in settings → the strip follows
+  function stripTap(k, el) {
+    if (k === 'mem') openMemoryView(null);
+    else if (k === 'pend') { const l = pendOpen(); if (l.length === 1) openPend(l[0]); else if (l.length > 1) pendSheet(el); }
+    else if (k === 'sch') schedSheet(el);
+  }
+  /* settings sheet → #memoryView (strip 기억 칸 and the "참고한 기억" chips): optional row id → scroll + 0.6s highlight; gone/none → top of the list */
+  function openMemoryView(id) {
+    if (!MEM) return; let n = 0, opened = false; openSettings();
+    const t = setInterval(() => {
+      n++; const o = $('#memOpen'), v = $('#memoryView');
+      if (v.hidden && o && o.offsetParent && !opened) { opened = true; o.click(); return; }
+      if (v.hidden) { if (n > 30) clearInterval(t); return; }
+      const row = id ? [...v.querySelectorAll('.mem-row')].find(r => r.dataset.id === id) : null;
+      if (row) { clearInterval(t); row.scrollIntoView({ block: 'center' }); row.classList.add('hl'); setTimeout(() => row.classList.remove('hl'), 600); }
+      else if (n > 18 || v.querySelector('.mem-row') || (!id && v.querySelector('#memState:not([hidden])') == null && n > 4)) { clearInterval(t); v.scrollTop = 0; v.parentElement && (v.parentElement.scrollTop = 0); }
+    }, 90);
+  }
+  function todayRender() {
+    if (!TODAY) return;
+    $('#todayDate').textContent = self.EveToday.dateLine();
+    const M = TODAY.render();
+    // pro messages live inside threads: load the messages of today's threads (and the 이어서 candidates) once, then draw again
+    const need = needMsgs(M);
+    if (need.length && mode === 'server') { need.forEach(c => { c._tTried = true; }); msgsPending += need.length; Promise.allSettled(need.map(c => ensureMessages(c).finally(() => { msgsPending--; }))).then(() => todayDirty()); }
+  }
+  function todayDirty() {
+    if (!TODAY || tDirtyT) return;
+    tDirtyT = requestAnimationFrame(() => { tDirtyT = 0; if (app.dataset.route === 'today' || wide.matches) todayRender(); });
+  }
+  function todayShow() { todayRender(); tGrow(); pendRefresh(); memRefresh(); briefRefresh(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); memRefresh(true); briefRefresh(true); } });
+  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
+  function tGrow() {
+    if (!tInput.value) tInput.style.height = ''; else { tInput.style.height = 'auto'; tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px'; }
+    tSend.disabled = controller ? false : !tInput.value.trim();
+  }
+  tInput.addEventListener('input', tGrow);
+  let tDraftT = 0; tInput.addEventListener('input', () => { clearTimeout(tDraftT); tDraftT = setTimeout(() => { const v = tInput.value; if (v) localStorage.setItem(LS.draft + 'today', v); else localStorage.removeItem(LS.draft + 'today'); }, 300); });
+  tInput.value = localStorage.getItem(LS.draft + 'today') || '';
+  function todaySubmit() {
+    if (controller) return stopGeneration();
+    const t = tInput.value.trim(); if (!t) return;
+    saveDraft();
+    const c0 = cur();
+    if (!(c0 && !c0.messages.length && !c0.archived)) { const c = blankConv(); convs.unshift(c); currentId = c.id; persist(); }
+    tInput.value = ''; localStorage.removeItem(LS.draft + 'today'); tGrow();
+    input.value = t; grow(); renderAll(); go('chat'); submitComposer();
+  }
+  tInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); todaySubmit(); } });
+  tSend.addEventListener('click', e => { e.preventDefault(); todaySubmit(); });
+
   /* ---------- navigation stack (NATIVE §1, §4) ---------- */
-  const app = $('#app'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
+  const app = $('#app'), todayView = $('#todayView'), listView = $('#listView'), chatView = $('#chatView'), archView = $('#archiveView');
+  const VIEW = { today: todayView, list: listView, archive: archView, chat: chatView };
+  const RANK = { today: 0, list: 1, archive: 2, chat: 3 };
   let navTimer = 0;
+  /* 1.10.0 B2 (DIRECTION-B §1): a stack  오늘 ▸ 기록 (#/log) ▸ 보관함 (#/archive)  and chat (#/t/<id>) pushed over whichever it was opened from.
+     ≥761px the sidebar is always 기록; the right pane is 오늘 or the chat. */
   function syncInert() {
     const r = app.dataset.route, both = wide.matches;
-    listView.inert = !both && r !== 'list'; chatView.inert = !both && r !== 'chat'; archView.inert = r !== 'archive';
+    todayView.inert = both ? r === 'chat' : r !== 'today'; listView.inert = both ? r === 'archive' : r !== 'list';
+    chatView.inert = r !== 'chat'; archView.inert = r !== 'archive';
   }
-  function setRoute(r) { app.dataset.route = r; save(LS.route, r); syncInert(); if (r === 'list') { renderList(); if (serverReady) MEM?.intro?.(); } }
+  function setRoute(r) {
+    app.dataset.route = r; app.dataset.from = chatFrom; syncInert();
+    if (r === 'list') renderList();
+    if (r === 'today') { todayShow(); if (serverReady) MEM?.intro?.(); }
+    if (r === 'chat') updateBackLbl();
+  }
   function slide(route, dir, dur) { // CSS fallback (and always used after a swipe)
     clearTimeout(navTimer);
     app.style.setProperty('--nav-d', (dur || (dir === 'push' ? 420 : 380)) + 'ms');
@@ -1232,93 +1520,128 @@ if (typeof document !== 'undefined') (function () {
     navTimer = setTimeout(() => { app.classList.remove('transitioning'); app.style.removeProperty('--nav-d'); }, (dur || 420) + 40);
   }
   function animateTo(route, dir) {
-    if (app.dataset.route === route) return syncInert();
+    const from = app.dataset.route;
+    if (from === route) return syncInert();
     if (wide.matches || !app.classList.contains('ready')) return setRoute(route);
-    if (route === 'archive' || app.dataset.route === 'archive') return slide(route, dir);
-    if (document.startViewTransition && !reduce.matches) {
+    const vtPair = (route === 'chat' && chatFrom === 'list') || (from === 'chat' && route === 'list');   // View Transitions: 기록 ↔ chat only
+    if (vtPair && document.startViewTransition && !reduce.matches) {
       document.documentElement.dataset.dir = dir; app.classList.add('vt');
       (route === 'chat' ? chatView : listView).inert = false; // target screen interactive immediately
       const t = document.startViewTransition(() => setRoute(route));
       t.finished.finally(() => app.classList.remove('vt'));
     } else slide(route, dir);
   }
-  const hashFor = r => r === 'chat' && currentId ? '#/c/' + currentId : '#/';
+  const HASH = { today: '#/', list: '#/log', archive: '#/archive' };
+  const hashFor = r => r === 'chat' && currentId ? '#/t/' + currentId : (HASH[r] || '#/');
+  const stateFor = r => r === 'chat' ? { route: 'chat', id: currentId, from: chatFrom } : { route: r };
   function go(route) {
     if (popping) return void setTimeout(() => go(route), 50);
+    const here = app.dataset.route;
     if (route === 'chat') {
-      if (history.state?.route === 'chat') history.replaceState({ route: 'chat', id: currentId }, '', hashFor('chat'));
-      else history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat'));
+      if (here !== 'chat') chatFrom = here === 'archive' ? 'archive' : here === 'list' && !wide.matches ? 'list' : 'today';
+      app.dataset.from = chatFrom;
+      if (history.state?.route === 'chat') history.replaceState(stateFor('chat'), '', hashFor('chat'));
+      else history.pushState(stateFor('chat'), '', hashFor('chat'));
       animateTo('chat', 'push');
+    } else if (route === 'list' || route === 'archive') {
+      if (here === route) return;
+      history.pushState(stateFor(route), '', hashFor(route)); animateTo(route, 'push');
     } else back();
   }
   let popping = false;
+  const parentOf = r => r === 'chat' ? chatFrom : r === 'archive' ? 'list' : r === 'list' ? 'today' : null;
   function back() {
-    if (app.dataset.route === 'list' || popping) return;                   // already on list / pop in flight (REVIEW M1)
+    const r = app.dataset.route; if (r === 'today' || popping) return;       // already at the root / pop in flight (REVIEW M1)
     if (input === document.activeElement) input.blur();
-    const target = app.dataset.route === 'chat' && chatFrom === 'archive' ? 'archive' : 'list';
-    if (target === 'list') chatFrom = 'list';
-    if (history.state?.route === 'chat' || history.state?.route === 'archive') { popping = true; ignorePop++; history.back(); }   // route changes now; popstate is ignored
-    else history.replaceState({ route: target }, '', target === 'archive' ? '#/archive' : '#/');
+    const target = parentOf(r);
+    if (history.state?.route === r) { popping = true; ignorePop++; history.back(); }   // route changes now; popstate is ignored
+    else history.replaceState(stateFor(target), '', hashFor(target));
     animateTo(target, 'pop');
   }
   let ignorePop = 0;
   window.addEventListener('popstate', e => {
     popping = false;
     if (ignorePop) { ignorePop--; return; }
-    const st = e.state || { route: 'list' };
+    const st = e.state || { route: location.hash === '#/log' ? 'list' : location.hash === '#/archive' ? 'archive' : 'today' };   // a hand-typed hash change has no state: read the route from the hash
+    if (st.route === 'chat' && st.from) chatFrom = st.from;
     if (st.route === 'chat' && st.id && st.id !== currentId && (convs.some(c => c.id === st.id) || archivedList.some(c => c.id === st.id))) { saveDraft(); currentId = st.id; persist(); renderAll(); loadDraft(); ensureMessages(cur()); }
-    const r = st.route === 'chat' ? 'chat' : st.route === 'archive' ? 'archive' : 'list';
+    const r = RANK[st.route] != null ? st.route : 'today';
     if (r === 'archive') loadArchive();
     if (e.hasUAVisualTransition) return setRoute(r);   // Safari already animated its own back/forward (REVIEW M2)
-    animateTo(r, r === 'chat' ? 'push' : 'pop');
+    animateTo(r, RANK[r] > RANK[app.dataset.route] ? 'push' : 'pop');
   });
   wide.addEventListener?.('change', syncInert);
   $('#backBtn').onclick = back;
-  $('#newChat').onclick = newConv; $('#newChat2').onclick = newConv; $('#newChat3').onclick = newConv;
+  function updateBackLbl() { const n = { today: '오늘', list: '기록', archive: '보관함' }[chatFrom] || '오늘'; $('#backLbl').textContent = n; $('#backBtn').setAttribute('aria-label', n + '(으)로 돌아가기'); }
+  $('#openLog').onclick = () => go('list');
+  $('#logBack').onclick = () => { if (app.dataset.route === 'list') back(); else showToday(); };
+  function showToday() { if (app.dataset.route === 'chat') back(); else if (app.dataset.route !== 'today') { history.replaceState({ route: 'today' }, '', '#/'); animateTo('today', 'pop'); } }
+  /* ⋯ in the chat top bar: 새 대화 (the old pencil) */
+  $('#newChat2').onclick = () => showMenu($('#newChat2'), [{ label: '새 대화', icon: 'edit', act: () => newConv() }], { align: 'right' });
+
+  /* 기록: search mode (§9.2). The magnifier swaps the title + week strip for the field; 취소 restores them. */
+  function setSearching(on) {
+    listView.classList.toggle('searching', on);
+    for (const e of [$('#wk'), listView.querySelector('.l-head')]) if (e) e.inert = on;   // faded out → also out of the tab order
+    const f = $('#search');
+    if (on) f.focus({ preventScroll: true });
+    else { f.value = ''; f.blur(); onSearch(); }
+    renderList();
+  }
+  $('#logSearch').onclick = () => setSearching(true);
+  $('#searchCancel').onclick = () => setSearching(false);
+  $('#search').addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); setSearching(false); } });
 
   /* large title collapse (§2) */
   const scroller = $('#listScroller'), lt = $('#listView .large-title'), lnav = $('#listView .navbar');
   if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => lnav.classList.toggle('collapsed', !e.isIntersecting), { root: scroller, rootMargin: '-52px 0px 0px 0px' }).observe(lt);
-  scroller.addEventListener('scroll', () => { if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 400) loadMoreThreads(); }, { passive: true });
+  scroller.addEventListener('scroll', () => { if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 400) loadMoreThreads(); trackWk(); }, { passive: true });
   scroller.addEventListener('scroll', () => requestAnimationFrame(() => { const y = scroller.scrollTop; lt.style.transform = y < 0 ? `scale(${1 + Math.min(-y, 60) / 600})` : ''; }), { passive: true });
+  const tScroller = $('#todayScroller'), tnav = $('#todayView .navbar');
+  if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => tnav.classList.toggle('collapsed', !e.isIntersecting), { root: tScroller, rootMargin: '-52px 0px 0px 0px' }).observe($('#todayTitle'));
 
-  /* ---------- edge swipe-back, standalone only (§5) ---------- */
+  /* ---------- edge swipe-back, standalone only (§5): chat → where it came from, 기록 → 오늘, 보관함 → 기록 ---------- */
   const rubber = (d, lim = 120) => lim * (1 - 1 / (d / lim + 1)); // iOS-like resistance
   let g = null;
   const curX = el => { const m = getComputedStyle(el).transform; return m && m !== 'none' ? new DOMMatrix(m).m41 : 0; };
-  chatView.addEventListener('touchstart', e => {
-    if (!isStandalone() || wide.matches || app.dataset.route !== 'chat' || e.touches.length > 1 || popping || app.classList.contains('vt') || app.classList.contains('transitioning')) return;
-    const t = e.touches[0], edge = 24 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sal')) || 0);
-    if (t.clientX > edge) return;
-    g = { x0: t.clientX, y0: t.clientY, t0: performance.now(), tl: performance.now(), xl: t.clientX, v: 0, lock: null, dx: 0, start: Math.max(0, curX(chatView)) };
-  }, { passive: true });
-  chatView.addEventListener('touchmove', e => {
-    if (!g) return; const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
-    if (!g.lock) {
-      if (Math.hypot(dx, dy) < 8) return;
-      g.lock = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-      if (g.lock === 'x') { app.classList.add('dragging'); clearTimeout(navTimer); app.classList.remove('transitioning'); if (document.activeElement === input) input.blur(); }
-    }
-    if (g.lock !== 'x') return; e.preventDefault();
-    const now = performance.now(); g.v = (t.clientX - g.xl) / Math.max(1, now - g.tl); g.xl = t.clientX; g.tl = now;
-    const raw = g.start + dx; g.dx = raw < 0 ? -rubber(-raw, 40) : raw;
-    const W = innerWidth, p = Math.min(1, Math.max(0, g.dx / W));
-    chatView.style.transform = `translateX(${g.dx}px)`;
-    listView.style.transform = `translateX(${-30 + 30 * p}%)`;
-    listView.style.setProperty('--dim', String(.25 * (1 - p)));
-  }, { passive: false });
-  const endSwipe = () => {
-    if (!g) return; const s = g; g = null; if (s.lock !== 'x') return;
-    const W = innerWidth, dxp = Math.max(0, s.dx);
-    const commit = dxp > W * .5 || s.v > .5;
-    const remain = commit ? 1 - dxp / W : dxp / W;
-    const dur = Math.max(180, 380 * remain);
-    app.classList.remove('dragging');
-    chatView.style.transform = listView.style.transform = ''; listView.style.removeProperty('--dim');
-    if (commit) { buzz(8); slide('list', 'pop', dur); if (!popping && history.state?.route === 'chat') { popping = true; ignorePop++; history.back(); } else if (!popping) history.replaceState({ route: 'list' }, '', '#/'); }
-    else slide('chat', 'push', dur);
-  };
-  chatView.addEventListener('touchend', endSwipe); chatView.addEventListener('touchcancel', endSwipe);
+  const clearUnder = u => { u.style.transform = ''; u.style.removeProperty('--dim'); };
+  function attachSwipe(view, routeName) {
+    view.addEventListener('touchstart', e => {
+      if (!isStandalone() || wide.matches || app.dataset.route !== routeName || e.touches.length > 1 || popping || app.classList.contains('vt') || app.classList.contains('transitioning')) return;
+      const t = e.touches[0], edge = 24 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sal')) || 0);
+      if (t.clientX > edge) return;
+      g = { view, routeName, under: VIEW[parentOf(routeName)], x0: t.clientX, y0: t.clientY, t0: performance.now(), tl: performance.now(), xl: t.clientX, v: 0, lock: null, dx: 0, start: Math.max(0, curX(view)) };
+    }, { passive: true });
+    view.addEventListener('touchmove', e => {
+      if (!g || g.view !== view) return; const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+      if (!g.lock) {
+        if (Math.hypot(dx, dy) < 8) return;
+        g.lock = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        if (g.lock === 'x') { app.classList.add('dragging'); clearTimeout(navTimer); app.classList.remove('transitioning'); if (document.activeElement === input) input.blur(); g.under.style.visibility = 'visible'; }
+      }
+      if (g.lock !== 'x') return; e.preventDefault();
+      const now = performance.now(); g.v = (t.clientX - g.xl) / Math.max(1, now - g.tl); g.xl = t.clientX; g.tl = now;
+      const raw = g.start + dx; g.dx = raw < 0 ? -rubber(-raw, 40) : raw;
+      const W = innerWidth, p = Math.min(1, Math.max(0, g.dx / W));
+      view.style.transform = `translateX(${g.dx}px)`;
+      g.under.style.transform = `translateX(${-30 + 30 * p}%)`;
+      g.under.style.setProperty('--dim', String(.25 * (1 - p)));
+    }, { passive: false });
+    const endSwipe = () => {
+      if (!g || g.view !== view) return; const s = g; g = null; if (s.lock !== 'x') return;
+      const W = innerWidth, dxp = Math.max(0, s.dx);
+      const commit = dxp > W * .5 || s.v > .5;
+      const remain = commit ? 1 - dxp / W : dxp / W;
+      const dur = Math.max(180, 380 * remain);
+      app.classList.remove('dragging');
+      view.style.transform = ''; clearUnder(s.under); s.under.style.visibility = '';
+      const target = parentOf(routeName);
+      if (commit) { buzz(8); slide(target, 'pop', dur); if (!popping && history.state?.route === routeName) { popping = true; ignorePop++; history.back(); } else if (!popping) history.replaceState(stateFor(target), '', hashFor(target)); }
+      else slide(routeName, 'push', dur);
+    };
+    view.addEventListener('touchend', endSwipe); view.addEventListener('touchcancel', endSwipe);
+  }
+  attachSwipe(chatView, 'chat'); attachSwipe(listView, 'list'); attachSwipe(archView, 'archive');
 
   /* ---------- list swipe actions (§3) ---------- */
   let openRow = null, rs = null; const ACT_W = 148;
@@ -1627,7 +1950,7 @@ if (typeof document !== 'undefined') (function () {
     document.body.classList.add('sheet-open'); dlg.showModal(); sform.scrollTop = 0;
     renderWho(); loadModels(); $('#sModelInfo').textContent = shortModel() || '—'; PRO?.openSettings(); MEM?.openSettings();
   }
-  $('#openSettings').onclick = openSettings;
+  $('#openSettings').onclick = openSettings; $('#openSettings3').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
   $('#sSyncNow').onclick = () => { outbox.forEach(o => o.nextAt = 0); obFailed = 0; flushOutbox(); initServer(); };
   $('#loadModels').onclick = loadModels;
@@ -1802,16 +2125,15 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- boot ---------- */
   const params = new URLSearchParams(location.search);
-  const hm = location.hash.match(/^#\/c\/(.+)$/);
-  let route = load(LS.route, 'chat');
-  if (hm && convs.some(c => c.id === hm[1])) { currentId = hm[1]; route = 'chat'; } else if (location.hash === '#/' || location.hash === '#/archive') route = 'list';
-  if (route === 'archive') route = 'list';
+  const hm = location.hash.match(/^#\/(?:t|c)\/(.+)$/);
+  let route = 'today', bootTid = null;   // 1.10.0 B2: the app opens on 오늘; only an explicit hash deep-links elsewhere
+  if (hm) { let id = hm[1]; try { id = decodeURIComponent(id); } catch {} if (convs.some(c => c.id === id)) { currentId = id; route = 'chat'; } else bootTid = id; }
+  else if (location.hash === '#/log') route = 'list'; else if (location.hash === '#/archive') route = 'archive';
   if (currentId && !cur()) currentId = convs[0]?.id || null;
   if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
-  if (params.has('new')) route = 'chat';
-  history.replaceState({ route: 'list' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
+  history.replaceState({ route: 'today' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
   if (self.EveProactive) try {
-    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id, 'list'), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
   // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
@@ -1855,17 +2177,19 @@ if (typeof document !== 'undefined') (function () {
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
-  else if (route === 'chat') { history.pushState({ route: 'chat', id: currentId }, '', hashFor('chat')); setRoute('chat'); }
-  else setRoute('list');
+  else if (route === 'chat') { history.pushState(stateFor('chat'), '', hashFor('chat')); setRoute('chat'); }
+  else if (route === 'list') { history.pushState(stateFor('list'), '', hashFor('list')); setRoute('list'); }
+  else if (route === 'archive') { history.pushState(stateFor('list'), '', hashFor('list')); history.pushState(stateFor('archive'), '', hashFor('archive')); loadArchive(); setRoute('archive'); }
+  else setRoute('today');
   const sc = currentId && load(LS.scroll, {})[currentId];
   if (sc > 0) requestAnimationFrame(() => requestAnimationFrame(() => { box.scrollTop = sc; stick = false; }));
   requestAnimationFrame(() => app.classList.add('ready'));
   grow();
   if (cur()) ensureMessages(cur());
   renderSync();
-  checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
+  checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '1.9.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.10.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -1880,5 +2204,5 @@ if (typeof document !== 'undefined') (function () {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
 })();
