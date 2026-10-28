@@ -87,12 +87,13 @@
 <div id="app" class="nav" data-route="today">
   <section id="todayView" class="screen" aria-label="오늘">
     <header class="navbar t-nav"><button id="openLog" class="icon" aria-label="기록"><svg class="i" aria-hidden="true"><use href="#i-archive"/></svg></button>
-      <div class="nav-inline-title" aria-hidden="true">오늘</div>
+      <div class="nav-inline-title" aria-hidden="true">오늘<span class="nav-sub" id="todayNavSub" hidden></span></div>
       <button id="openSettings" class="icon" aria-label="설정"><svg class="i" aria-hidden="true"><use href="#i-settings"/></svg></button></header>
     <div class="offline-bar" role="status"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M3 3l18 18"/></svg>오프라인 — 저장된 대화만 볼 수 있어요</div>
     <div class="scroller" id="todayScroller">
       <h1 class="b-title" id="todayTitle">오늘</h1>
       <p class="b-date" id="todayDate"></p>
+      <div id="todayStrip" class="strip-wrap" hidden><div class="strip" role="group" aria-label="오늘 현황"></div></div>
       <ol id="todayList" class="rail today-rail" aria-label="오늘 기록"></ol>
     </div>
     <div id="tComposer" class="t-composer" role="group" aria-label="새 대화 작성">
@@ -270,6 +271,10 @@
   <div class="grabber"></div><h3 id="renameTitle">대화 이름</h3>
   <input id="titleEdit" class="sheet-input" type="text" enterkeyhint="done" aria-label="대화 제목" autocorrect="on" autocapitalize="sentences" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other">
   <div class="sheet-btns"><button type="button" id="renameCancel" class="text-btn">취소</button><button type="button" id="renameSave" class="primary">저장</button></div>
+</div>
+<div id="stripSheet" class="mini-sheet strip-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="ssTitle">
+  <div class="grabber"></div><h3 id="ssTitle" tabindex="-1"></h3><p id="ssSub" class="ss-sub" hidden></p>
+  <ul id="ssList" class="ss-list"></ul><p id="ssFoot" class="ss-foot" hidden>더 있을 수 있어요</p>
 </div>
 <div id="migrateSheet" class="mini-sheet small" hidden role="dialog" aria-labelledby="migTitle" data-view="ask">
   <div class="grabber"></div>

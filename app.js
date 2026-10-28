@@ -361,7 +361,7 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); MEM?.intro?.();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); memRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
@@ -782,18 +782,7 @@ if (typeof document !== 'undefined') (function () {
     const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
     return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
   }
-  box.addEventListener('click', e => {   // memory chip → settings sheet #memoryView, scroll to the row + 0.6s highlight; gone → quietly the top of the list
-    const b = e.target.closest('.chp.m'); if (!b || !MEM) return; const id = b.dataset.ref; let n = 0, opened = false;
-    openSettings();
-    const t = setInterval(() => {
-      n++; const o = $('#memOpen'), v = $('#memoryView');
-      if (v.hidden && o && o.offsetParent && !opened) { opened = true; o.click(); return; }
-      if (v.hidden) { if (n > 30) clearInterval(t); return; }
-      const row = [...v.querySelectorAll('.mem-row')].find(r => r.dataset.id === id);
-      if (row) { clearInterval(t); row.scrollIntoView({ block: 'center' }); row.classList.add('hl'); setTimeout(() => row.classList.remove('hl'), 600); }
-      else if (n > 18 || v.querySelector('.mem-row')) { clearInterval(t); v.scrollTop = 0; v.parentElement && (v.parentElement.scrollTop = 0); }
-    }, 90);
-  });
+  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });   // memory chip → settings sheet #memoryView (openMemoryView, B3)
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
@@ -1346,24 +1335,120 @@ if (typeof document !== 'undefined') (function () {
   const TODAY = self.EveToday?.init({
     convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
     retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
-    pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p),
+    pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p), strip: () => stripModel(), stripTap: (k, el) => stripTap(k, el),
     open: (c, mid) => (mid ? openHit(c.id, mid) : openConv(c.id)),
     stagger: () => { if (reduce.matches) return false; try { if (sessionStorage.getItem(todaySeenKey)) return false; sessionStorage.setItem(todaySeenKey, '1'); } catch { if (tSeen) return false; tSeen = true; } return true; },
   });
   /* 확인 대기 card (§4-4, §6): the oldest pending confirmation not put off with "나중에". Read-only: [검토하기] opens its thread, approval stays on the card in the thread.
      No endpoint / error / offline / cross-origin → the card is simply not drawn. */
-  let pendItems = [], pendAt = 0, pendBusy = false;
+  let pendItems = [], pendAt = 0, pendBusy = false, pendState = 'init', pendT0 = 0;   // pendState: init | ok | err | absent (no endpoint / cross-origin → the strip cell is not drawn)
   const SNZ = 'eve.b2.snooze';
   const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === self.EveToday.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
-  function pendFirst() { const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
+  function pendFirst() { if (pendState !== 'ok') return null; const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
   function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: self.EveToday.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
   async function pendRefresh(force) {
     if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
-    pendBusy = true; pendAt = Date.now();
-    try { const l = await PRO.pendingList(); pendItems = l || []; } catch { pendItems = []; } finally { pendBusy = false; }
+    pendBusy = true; pendAt = Date.now(); if (pendState === 'init' && !pendT0) { pendT0 = Date.now(); setTimeout(todayDirty, 270); }
+    try { const l = await PRO.pendingList(); if (l) { pendItems = l; pendState = 'ok'; } else { pendItems = []; pendState = 'absent'; } }
+    catch (e) { pendItems = []; pendState = e && (e.code === 'cross_origin' || e.http === 404 || e.http === 405 || e.http === 501) ? 'absent' : 'err'; } finally { pendBusy = false; }
     todayDirty();
   }
   function openPend(p) { openHit(p.threadId, p.messageId || undefined, 'start'); }
+
+  /* 현황 띠 (DIRECTION-B §5–§7, B3): 기억 · 확인 대기 · 오늘 일정. A cell with no data source is simply not drawn (§14); errors show "–" and are not tappable. */
+  let memS = { st: 'init', n: 0, at: 0, busy: false, t0: 0 };   // st: init | ok | err | hidden
+  async function memRefresh(force) {
+    if (!MEM?.count || mode !== 'server' || memS.busy || navigator.onLine === false || (!force && Date.now() - memS.at < 30000)) return;
+    memS.busy = true; memS.at = Date.now(); if (memS.st === 'init' && !memS.t0) { memS.t0 = Date.now(); setTimeout(todayDirty, 270); }
+    try { const r = await MEM.count(); if (r === null) { memS.st = 'hidden'; memS.n = 0; } else if (r.err) memS.st = 'err'; else { memS.st = 'ok'; memS.n = r.n; } }
+    catch { memS.st = memS.st === 'ok' ? 'err' : 'hidden'; } finally { memS.busy = false; }
+    todayDirty(); memChipsSync();
+  }
+  // the "참고한 기억" chips follow the memory cell (§8.1): when the cell appears or goes away the open thread's chips are redrawn
+  let memShownPrev = null;
+  function memChipsSync() { const on = !!(MEM?.active?.()); if (memShownPrev !== null && memShownPrev !== on && app.dataset.route === 'chat' && !controller) renderMessages(true); memShownPrev = on; }
+  const HM = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const kstHM = t => { const p = HM.formatToParts(new Date(t)), g = k => (p.find(x => x.type === k) || {}).value || '00'; return `${g('hour')}:${g('minute')}`; };
+  /* 오늘 일정 (§7): today's briefing message (template_kind 'briefing', briefing.date == today KST), events section. null = no data source → cell hidden. */
+  function schedData(now = Date.now()) {
+    const T = self.EveToday.kstDay(now); let best = null;
+    for (const c of convs) { if (c.archived) continue; for (const m of c.messages || []) if (m.origin === 'proactive' && m.templateKind === 'briefing' && m.briefing && m.briefing.date === T && (!best || m.created > best.m.created)) best = { c, m }; }
+    if (!best) return null;
+    const sec = (best.m.briefing.sections || []).find(x => x.kind === 'events');
+    if (!sec || !sec.ok || !(sec.count > 0)) return null;
+    const end = x => Date.parse(x.end || x.start || '') || 0, past = x => !x.allDay && end(x) > 0 && end(x) < now;
+    const rest = Math.max(0, sec.count - sec.items.length), trunc = sec.truncated || rest > 0;
+    const left = sec.items.filter(x => !past(x)).length + rest;
+    return { items: sec.items, past, left, trunc, at: best.m.created };
+  }
+  function stripModel() {
+    if (mode !== 'server') return { cells: [], sub: '' };
+    const now = Date.now(), cells = [], subs = [], skOK = t0 => t0 && now - t0 >= 250;
+    if (MEM?.count && memS.st !== 'hidden') {
+      if (memS.st === 'ok') { cells.push({ k: 'mem', n: String(memS.n), z: !memS.n, label: '기억', icon: 'memory', aria: `기억 ${memS.n}개` }); subs.push(`기억 ${memS.n}`); }
+      else if (memS.st === 'err') cells.push({ k: 'mem', n: '–', er: true, off: true, label: '기억', icon: 'memory', aria: '기억, 불러오지 못했어요' });
+      else if (skOK(memS.t0)) cells.push({ k: 'mem', sk: true, off: true, label: '기억', icon: 'memory', aria: '기억, 불러오는 중' });
+    }
+    if (PRO?.pendingList && pendState !== 'absent') {
+      const n = pendItems.length;
+      if (pendState === 'ok') { cells.push({ k: 'pend', n: String(n), z: !n, off: !n, label: '확인 대기', icon: 'bell', aria: `확인 대기 ${n}건` }); subs.push(`대기 ${n}`); }
+      else if (pendState === 'err') cells.push({ k: 'pend', n: '–', er: true, off: true, label: '확인 대기', icon: 'bell', aria: '확인 대기, 불러오지 못했어요' });
+      else if (skOK(pendT0)) cells.push({ k: 'pend', sk: true, off: true, label: '확인 대기', icon: 'bell', aria: '확인 대기, 불러오는 중' });
+    }
+    const sd = todayState().ready ? schedData(now) : null;
+    if (sd) { const n = (sd.trunc ? sd.left + '+' : String(sd.left)); cells.push({ k: 'sch', n, z: !sd.left, off: !sd.left, label: '오늘 일정', aria: `오늘 일정 ${n.replace('+', '개 이상')}${sd.trunc ? '' : '개'}, 오늘 아침 기준` }); }
+    return { cells, sub: subs.join(' · ') };
+  }
+  /* medium sheet (shared by 확인 대기 / 오늘 일정): all text via textContent, read-only */
+  const SS = $('#stripSheet'); let ssFrom = null;
+  function ssClose() { if (SS.hidden) return; closeMini(SS); document.removeEventListener('keydown', ssKey, true); const f = ssFrom; ssFrom = null; setTimeout(() => { try { f && f.isConnected && f.focus({ preventScroll: true }); } catch {} }, 0); }
+  function ssKey(e) { if (e.key === 'Escape') { e.stopPropagation(); ssClose(); } }
+  function ssOpen(title, sub, rows, foot, from) {
+    $('#ssTitle').textContent = title; const sb = $('#ssSub'); sb.textContent = sub || ''; sb.hidden = !sub;
+    $('#ssList').replaceChildren(...rows); $('#ssFoot').hidden = !foot; SS.scrollTop = 0; ssFrom = from || null;
+    openMini(SS, { onDismiss: ssClose }); document.addEventListener('keydown', ssKey, true); setTimeout(() => $('#ssTitle').focus({ preventScroll: true }), 60);
+  }
+  sheetDrag(SS, null, ssClose);
+  const mkEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  function pendSheet(from) {
+    const rows = pendItems.map(p => {
+      const li = document.createElement('li'), b = mkEl('button', 'ss-row'); b.type = 'button'; const soon = self.EveToday.soonOf(p, Date.now());
+      const t = mkEl('span', 'ss-b'); t.append(mkEl('span', 'ss-t', p.title || '확인이 필요한 일'));
+      const m = mkEl('span', 'ss-m', p.verbLabel || '실행'); if (soon) { m.append(' · '); m.append(mkEl('span', 'ss-x', '곧 만료')); } t.append(m);
+      const ch = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); ch.setAttribute('class', 'i'); ch.setAttribute('viewBox', '0 0 24 24'); ch.setAttribute('aria-hidden', 'true');
+      const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#i-chevron-right'); ch.appendChild(u);
+      b.setAttribute('aria-label', `${p.title || '확인이 필요한 일'}, ${p.verbLabel || '실행'}${soon ? ', 곧 만료' : ''}`);
+      b.append(t, ch); b.addEventListener('click', () => { ssFrom = null; ssClose(); openPend(p); }); li.appendChild(b); return li;
+    });
+    ssOpen(`확인 대기 ${pendItems.length}건`, '', rows, false, from);
+  }
+  function schedSheet(from) {
+    const sd = schedData(); if (!sd || !sd.left) return;
+    const rows = sd.items.map(x => {
+      const li = mkEl('li', 'ss-ev' + (sd.past(x) ? ' past' : '')), fmt = x.allDay ? '종일' : (x.start ? kstHM(x.start) + (x.end ? '–' + kstHM(x.end) : '') : '');
+      const b = mkEl('div', 'ss-b'); b.append(mkEl('span', 'ss-t', x.title || '(제목 없음)')); if (x.cal) b.append(mkEl('span', 'ss-m', x.cal));
+      li.append(mkEl('time', 'ss-tm', fmt), b); return li;
+    });
+    ssOpen('오늘 일정', `오늘 아침 기준 · ${kstHM(sd.at)}`, rows, sd.trunc, from);
+  }
+  $('#settings')?.addEventListener('close', () => { memRefresh(true); pendRefresh(true); });   // memory switched / items deleted in settings → the strip follows
+  function stripTap(k, el) {
+    if (k === 'mem') openMemoryView(null);
+    else if (k === 'pend') { if (pendItems.length === 1) openPend(pendItems[0]); else if (pendItems.length > 1) pendSheet(el); }
+    else if (k === 'sch') schedSheet(el);
+  }
+  /* settings sheet → #memoryView (strip 기억 칸 and the "참고한 기억" chips): optional row id → scroll + 0.6s highlight; gone/none → top of the list */
+  function openMemoryView(id) {
+    if (!MEM) return; let n = 0, opened = false; openSettings();
+    const t = setInterval(() => {
+      n++; const o = $('#memOpen'), v = $('#memoryView');
+      if (v.hidden && o && o.offsetParent && !opened) { opened = true; o.click(); return; }
+      if (v.hidden) { if (n > 30) clearInterval(t); return; }
+      const row = id ? [...v.querySelectorAll('.mem-row')].find(r => r.dataset.id === id) : null;
+      if (row) { clearInterval(t); row.scrollIntoView({ block: 'center' }); row.classList.add('hl'); setTimeout(() => row.classList.remove('hl'), 600); }
+      else if (n > 18 || v.querySelector('.mem-row') || (!id && v.querySelector('#memState:not([hidden])') == null && n > 4)) { clearInterval(t); v.scrollTop = 0; v.parentElement && (v.parentElement.scrollTop = 0); }
+    }, 90);
+  }
   function todayRender() {
     if (!TODAY) return;
     $('#todayDate').textContent = self.EveToday.dateLine();
@@ -1376,8 +1461,8 @@ if (typeof document !== 'undefined') (function () {
     if (!TODAY || tDirtyT) return;
     tDirtyT = requestAnimationFrame(() => { tDirtyT = 0; if (app.dataset.route === 'today' || wide.matches) todayRender(); });
   }
-  function todayShow() { todayRender(); tGrow(); pendRefresh(); }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); } });
+  function todayShow() { todayRender(); tGrow(); pendRefresh(); memRefresh(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); memRefresh(true); } });
   setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
   function tGrow() {
     if (!tInput.value) tInput.style.height = ''; else { tInput.style.height = 'auto'; tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px'; }
