@@ -37,7 +37,11 @@ with sync_playwright() as p:
     check('source: no setTimeout(done, 160) any more; transitionend + 200ms fallback', 'setTimeout(done, 160)' not in APP and "addEventListener('transitionend', onEnd)" in APP and 'setTimeout(done, 200)' in APP)
     pg.click(btn); pg.wait_for_timeout(400)
     pg.evaluate(f"window.__t0 = performance.now(); window.__ev = 0; document.querySelector('{menu}').addEventListener('transitionend', () => window.__ev++)")
-    pg.click(btn); pg.wait_for_function(f"document.querySelector('{menu}').hidden", timeout=2000); dt = pg.evaluate('performance.now() - window.__t0')
+    pg.click(btn)
+    for _ in range(100):   # polled with evaluate (wait_for_function evals a string; the mock may still carry a CSP flag from an earlier suite)
+        if pg.evaluate(f"document.querySelector('{menu}').hidden"): break
+        pg.wait_for_timeout(10)
+    dt = pg.evaluate('performance.now() - window.__t0')
     check(f'closes: hidden when the 200ms transition has ended, not before ({dt:.0f}ms, 150–330)', 150 <= dt <= 330, dt)
     pg.click(btn); pg.wait_for_timeout(400); pg.click(btn); pg.wait_for_timeout(30); pg.click(btn); pg.wait_for_timeout(500)
     check('close then quick re-open: stays open (no late hide)', not pg.evaluate(f"document.querySelector('{menu}').hidden")); pg.keyboard.press('Escape'); ctx.close()
