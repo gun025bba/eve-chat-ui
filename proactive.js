@@ -519,7 +519,19 @@
     if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', e => { const d = e.data || {}; if (d.type === 'eve-open' && ULID.test(d.nid || '')) { pendingNid = d.nid; refresh(); } });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
     pollT = setInterval(() => { if (document.visibilityState === 'visible' && h.online()) refresh(); }, POLL_MS);
-    return { refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
+    /* 오늘 · 확인 대기 (DIRECTION-B §6): the pending confirmations as plain data for the Today card. Read-only — no token, no approve. Throws on any API error. */
+    async function pendingList() {
+      if (!h.isServer() || !h.online()) return null;
+      const j = await api.pendingActions(), raw = j && Array.isArray(j.data) ? j.data : [];
+      const items = raw.map(a => {
+        const x = F().action(a), v = x.view || {}, verb = verbOf(x), t = typeof v.title === 'string' && v.title.trim() ? v.title.trim() : x.summary.trim();
+        return { id: x.id, title: t, verb, verbLabel: VERB_LABEL[verb], display: variantOf(x) === 'proactive' && x.display ? x.display : null,   // 2nd line only for a scheduled reminder
+          expiresAt: x.expiresAt, threadId: x.threadId, messageId: x.messageId, created: Date.parse(a && a.created_at) || 0, status: x.status };
+      }).filter(i => i.id && i.threadId && (!i.status || i.status === 'pending'));
+      if (items.length && items.every(i => i.created)) items.sort((a, b) => a.created - b.created);   // oldest first (server order otherwise)
+      return items;
+    }
+    return { pendingList, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
   }
   self.EveProactive = { init, renderConfirmCard, setCardState, ULID, when };
 })();

@@ -660,6 +660,8 @@ class H(SimpleHTTPRequestHandler):
                 for t in b.get('user', []): add_msg(th['id'], 'user', t)
                 out['msgs'] = [add_msg(th['id'], 'assistant', t, origin='proactive', job_id='01JJOB0000000000000000000A', provenance={'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': b.get('job_name')}, kind=b.get('kind'), template_kind=b.get('template_kind'), read_at=None)['id'] for t in b.get('proactive', [])]
                 for a in b.get('restore', []):
+                    a = dict(a); mi = a.pop('_mi', None)   # _mi: index into the proactive messages just created → message_id
+                    if mi is not None: a['message_id'] = out['msgs'][mi]
                     PRO['actions'][a['action_id']] = dict(a, status='pending', token=None, thread_id=th['id'])
                 for a in b.get('actions', []):
                     a = dict(a); PRO['actions'][a['action_id']] = dict(a, status='pending', token=None)

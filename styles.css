@@ -1155,3 +1155,19 @@ body.kb-open #tComposer{padding-bottom:8px}
 @media (min-width:761px){#listView .navbar:not(.collapsed)::before{display:block}}
 #convList li.row:not(.swiped),#archList li.row:not(.swiped){background:var(--layer-1)}
 #convList li.row.swiped,#archList li.row.swiped,#convList li.row.removing,#archList li.row.removing{background:var(--danger)}
+/* 오늘 · 확인 대기 card (§4-4, §6, §8.2): read-only — [검토하기] opens the thread, [나중에] hides it for today in this session */
+.ev.wt .dot{background:var(--bg);box-shadow:inset 0 0 0 1.5px var(--pend),0 0 0 3px var(--halo)}
+.ev.wt .who{color:var(--pend)}
+.ev.wt.leaving{opacity:0;transition:opacity 180ms var(--ease-out)}
+.pend{margin-top:8px;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--hair);min-width:0}
+.pend .pd-t{margin:0;font:600 15px/20px var(--font);color:var(--label);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pend .pd-w{margin:2px 0 0;font:400 13px/18px var(--font);color:var(--sub);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pend .pd-m{display:flex;align-items:center;gap:8px;margin-top:8px;min-width:0}
+.pend .pd-v{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:13px;background:var(--fill);font:var(--b-chip);letter-spacing:.2px;color:var(--sub);white-space:nowrap}
+.pend .pd-x{font:500 13px/18px var(--font);color:var(--pend);white-space:nowrap}
+.pend .pd-a{display:flex;gap:8px;margin-top:10px}
+.pend .pd-a button{flex:none;position:relative;min-width:64px;min-height:0;height:32px;padding:0 14px;border-radius:16px;font:600 14px/32px var(--font);background:rgba(255,255,255,.08);color:var(--label)}
+.pend .pd-a button::before{content:"";position:absolute;inset:-6px 0}   /* 44pt tap target around the 32pt button */
+.pend .pd-a .pd-go{background:var(--accent);color:#fff}
+.pend .pd-a button:active{transform:none;opacity:.7}
+@media (prefers-color-scheme:light){.pend .pd-a button{background:var(--fill)}.pend .pd-a .pd-go{background:var(--accent)}}

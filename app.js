@@ -361,7 +361,7 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); renderAll(); loadDraft();
       if (cur()) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); MEM?.intro?.();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
@@ -660,14 +660,14 @@ if (typeof document !== 'undefined') (function () {
   }
   $('#search').addEventListener('input', onSearch);
   $('#search').addEventListener('search', onSearch);
-  async function openHit(tid, mid) {
+  async function openHit(tid, mid, block = 'center') {
     let c = convs.find(x => x.id === tid) || archivedList.find(x => x.id === tid);
     if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? archivedList : convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
     openConv(c.id);
     if (!mid) return;
     for (let i = 0; i < 40 && !(c.loaded && !c.loading); i++) await new Promise(r => setTimeout(r, 50));
     for (let n = 0; n < 10 && !c.messages.some(m => m.id === mid) && c.hasMore; n++) await loadOlder();
-    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
+    requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
   }
   const convOf = el => { const id = el.closest('.row')?.dataset.id; return convs.find(c => c.id === id) || archivedList.find(c => c.id === id); };
   $('#convList').addEventListener('click', e => {
@@ -1346,9 +1346,24 @@ if (typeof document !== 'undefined') (function () {
   const TODAY = self.EveToday?.init({
     convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
     retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
+    pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p),
     open: (c, mid) => (mid ? openHit(c.id, mid) : openConv(c.id)),
     stagger: () => { if (reduce.matches) return false; try { if (sessionStorage.getItem(todaySeenKey)) return false; sessionStorage.setItem(todaySeenKey, '1'); } catch { if (tSeen) return false; tSeen = true; } return true; },
   });
+  /* 확인 대기 card (§4-4, §6): the oldest pending confirmation not put off with "나중에". Read-only: [검토하기] opens its thread, approval stays on the card in the thread.
+     No endpoint / error / offline / cross-origin → the card is simply not drawn. */
+  let pendItems = [], pendAt = 0, pendBusy = false;
+  const SNZ = 'eve.b2.snooze';
+  const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === self.EveToday.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
+  function pendFirst() { const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
+  function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: self.EveToday.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
+  async function pendRefresh(force) {
+    if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
+    pendBusy = true; pendAt = Date.now();
+    try { const l = await PRO.pendingList(); pendItems = l || []; } catch { pendItems = []; } finally { pendBusy = false; }
+    todayDirty();
+  }
+  function openPend(p) { openHit(p.threadId, p.messageId || undefined, 'start'); }
   function todayRender() {
     if (!TODAY) return;
     $('#todayDate').textContent = self.EveToday.dateLine();
@@ -1361,9 +1376,9 @@ if (typeof document !== 'undefined') (function () {
     if (!TODAY || tDirtyT) return;
     tDirtyT = requestAnimationFrame(() => { tDirtyT = 0; if (app.dataset.route === 'today' || wide.matches) todayRender(); });
   }
-  function todayShow() { todayRender(); tGrow(); }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') todayDirty(); });
-  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
+  function todayShow() { todayRender(); tGrow(); pendRefresh(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); } });
+  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
   function tGrow() {
     if (!tInput.value) tInput.style.height = ''; else { tInput.style.height = 'auto'; tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px'; }
     tSend.disabled = controller ? false : !tInput.value.trim();

@@ -1,7 +1,7 @@
 /* Eve 1.10.0 B2 (DIRECTION-B-SPEC §4): the "오늘" screen's timeline.
  * model()  — pure: which events to show, from the thread list (no DOM, no network)
  * init()   — renders them into #todayList with the shared .rail/.ev/.dot components
- * Pending confirmations, the status strip and today's schedule are B3: nothing here reads /v1/actions or the briefing sections. */
+ * 확인 대기 card (§4-4/§6) comes from ctx.pend() (read-only; the app fetches it). The status strip and today's schedule are B3: nothing here reads the briefing sections. */
 (function () {
   const MAX_CONV = 5, CONT_DAYS = 7, DAY = 864e5;
   const KST_YMD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -14,6 +14,8 @@
   const shortDay = (t, now) => { const d = kstDay(t); if (d === kstDay(now - DAY)) return '어제'; const [, m, da] = d.split('-'); return `${m}.${da}`; };
   const flat = s => String(s || '').replace(/```[\s\S]*?(```|$)/g, ' [코드] ').replace(/[#*`>_|]+/g, '').replace(/\s+/g, ' ').trim();
 
+  const SOON = 10 * 60 * 1000;
+  const soonOf = (p, now) => !!(p && p.expiresAt && p.expiresAt - now <= SOON);   // §6: 곧 만료 = expires_at − now ≤ 10 min
   const proLabel = m => (m.kind === 'digest' ? 'Eve · 조용한 시간 동안 요약' : m.jobName ? 'Eve · ' + m.jobName : 'Eve가 먼저 보냄');
   const proIcon = m => ({ briefing: 'sun-horizon', watch: 'eye', followup: 'followup' }[m.templateKind] || 'sparkle');
   const userMsgs = c => (c.messages || []).filter(m => m.role === 'user');
@@ -55,11 +57,29 @@
       return li;
     }
     const hit = (li, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ev-hit'; b.setAttribute('aria-label', label); b.addEventListener('click', fn); li.appendChild(b); li.classList.add('tap'); };
+    function pendEv(p, now) {
+      const title = p.title || '확인이 필요한 일', soon = soonOf(p, now);
+      const li = ev('wt', 0, '대기', '확인해 주세요', 'pw', null, `대기 확인해 주세요 ${title}${soon ? ', 곧 만료' : ''}`); li.dataset.aid = p.id;
+      const card = document.createElement('div'); card.className = 'pend'; card.setAttribute('role', 'group'); card.setAttribute('aria-label', title);
+      const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+      card.appendChild(mk('p', 'pd-t', title));
+      if (p.display) card.appendChild(mk('p', 'pd-w', p.display));
+      const m = mk('div', 'pd-m'); m.appendChild(mk('span', 'pd-v', p.verbLabel || '실행')); if (soon) m.appendChild(mk('span', 'pd-x', '곧 만료')); card.appendChild(m);
+      const a = mk('div', 'pd-a'), go = mk('button', 'pd-go', '검토하기'), later = mk('button', 'pd-later', '나중에'); go.type = later.type = 'button';
+      go.addEventListener('click', () => ctx.review(p)); later.addEventListener('click', () => ctx.later(p));
+      a.append(go, later); card.appendChild(a); li.appendChild(card); return li;
+    }
     function skeleton() { const f = document.createDocumentFragment(); for (let i = 0; i < 2; i++) { const li = document.createElement('li'); li.className = 'ev skel-ev'; li.setAttribute('aria-hidden', 'true'); li.innerHTML = '<i class="s-tm"></i><span class="dot"></span><i class="s-a"></i><i class="s-b"></i>'; f.appendChild(li); } return f; }
     function render() {
-      const now = Date.now(), M = model(ctx.convs(), now), st = ctx.state();
+      const now = Date.now(), M = model(ctx.convs(), now), st = ctx.state(), P = st.error && !ctx.convs().length ? null : ctx.pend();
+      // the pending card leaves with a 180ms opacity fade when it was handled elsewhere / expired (§6)
+      const curWt = list.querySelector('.ev.wt');
+      if (curWt && !curWt.dataset.gone && curWt.dataset.aid !== (P && P.id)) {
+        if (!curWt.classList.contains('leaving')) { curWt.classList.add('leaving'); setTimeout(() => { curWt.dataset.gone = '1'; render(); }, 180); }
+        return M;
+      }
       // same content as the last draw → keep the DOM (a rebuild would cancel the first-visit stagger and drop focus)
-      const sig = JSON.stringify([M.events.map(e => [e.kind, e.t, e.c.id, e.c.title, e.m && e.m.id, e.m && e.m.readAt, e.m && e.m.content && e.m.content.length]), M.more, M.cont && [M.cont.c.id, M.cont.c.title, M.cont.t, ctx.preview(M.cont.c)], !!st.skeleton, !!st.error, ctx.userName(), M.today]);
+      const sig = JSON.stringify([M.events.map(e => [e.kind, e.t, e.c.id, e.c.title, e.m && e.m.id, e.m && e.m.readAt, e.m && e.m.content && e.m.content.length]), M.more, M.cont && [M.cont.c.id, M.cont.c.title, M.cont.t, ctx.preview(M.cont.c)], !!st.skeleton, !!st.error, ctx.userName(), M.today, P && [P.id, P.title, P.verbLabel, P.display, soonOf(P, now)]]);
       if (sig === lastSig && list.firstChild) return M;
       lastSig = sig;
       list.replaceChildren();
@@ -90,6 +110,7 @@
           if (pv) { const p = document.createElement('span'); p.className = 'cp'; p.textContent = pv; b.appendChild(p); } li.appendChild(b); li.dataset.tid = c.id;
           hit(li, `${c.title || '새 대화'} 이어서`, () => ctx.open(c)); frag.appendChild(li);
         }
+        if (P) frag.appendChild(pendEv(P, now));
       }
       const nowEl = document.createElement('li'); nowEl.className = 'rail-now'; nowEl.setAttribute('role', 'listitem'); nowEl.setAttribute('aria-label', `${hhmm(now)} 지금`);
       nowEl.innerHTML = '<time class="tm"></time><span class="dot" aria-hidden="true"></span><div class="who"><span class="who-n">지금</span></div><div class="tx d">아래에 한 줄로 남기면 오늘 기록에 쌓여요.</div>';
@@ -104,5 +125,5 @@
     function tick() { const n = list.querySelector('.rail-now'); if (!n) return; const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); }
     return { render, tick, model: () => model(ctx.convs()) };
   }
-  self.EveToday = { init, model, kstDay, hhmm, dateLine, shortDay, proLabel };
+  self.EveToday = { init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
 })();
