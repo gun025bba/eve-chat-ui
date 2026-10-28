@@ -19,7 +19,7 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         if not touch:
-            check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
+            check('version 1.10.1', pg.evaluate('__app.version') == '1.10.1')
             a = pg.evaluate("""(()=>{const i=document.getElementById('input');const txt=[i.placeholder,i.getAttribute('aria-label'),i.id,i.name||''].join(' ');
               return {form:!!i.form, inForm:!!i.closest('form'), forms:document.querySelectorAll('#chatView form').length, name:i.getAttribute('name'), txt, btn:document.getElementById('sendBtn').type}})()""")
             check('composer textarea has no form owner / no <form> in chat view', not a['form'] and not a['inForm'] and a['forms'] == 0, a)

@@ -34,7 +34,7 @@ with sync_playwright() as p:
 
     # 1) flag off → nothing
     setup(); ctx, pg = launch(flag=False)
-    check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0' and 'v1.10.0' in pg.text_content('#appVersion'))
+    check('version 1.10.1', pg.evaluate('__app.version') == '1.10.1' and 'v1.10.1' in pg.text_content('#appVersion'))
     check('flag off → no sheet, no seen', not shown(pg) and seenLocal(pg) is None and not uiPatches()); ctx.close()
 
     # 2) memory.enabled false → no sheet, no seen
@@ -72,7 +72,7 @@ with sync_playwright() as p:
     check('server ui.memory_intro_seen=true → no sheet (local unset)', not shown(pg) and seenLocal(pg) is None); ctx.close()
 
     # 8) happy path: memory_available missing (→ true) + enabled, 600ms after the list
-    setup(system={k: v for k, v in SYS.items() if k != 'memory_available'}); ctx, pg = launch(wait=0)
+    setup(uiKey=True, system={k: v for k, v in SYS.items() if k != 'memory_available'}); ctx, pg = launch(wait=0)
     pg.wait_for_function("window.__app && __app.state().mode==='server'"); t0 = pg.evaluate('performance.now()')
     pg.wait_for_selector('#memIntro', state='visible', timeout=4000); dt = pg.evaluate('performance.now()') - t0
     check('appears ≥600ms after the thread list (server) renders, on Today (the home route)', dt >= 550 and pg.evaluate("document.getElementById('app').dataset.route") == 'today', round(dt))
@@ -82,8 +82,8 @@ with sync_playwright() as p:
     check('role=dialog aria-modal labelled/described, list role, icons aria-hidden', a == ['dialog', 'true', 'memIntroTitle', 'memIntroBody', 'list', True], a)
     check('focus on title', pg.evaluate("document.activeElement.id") == 'memIntroTitle')
     check('seen saved on show: localStorage', seenLocal(pg) == '1')
-    check('seen saved on show: PATCH /v1/settings {ui:{memory_intro_seen:true}} (CSRF gate passed)', uiPatches() == [{'ui': {'memory_intro_seen': True}}], uiPatches())
-    check('PATCH 400 ignored: sheet stays, no toast, no error', shown(pg) and pg.evaluate("!document.getElementById('toast').classList.contains('show')") and not errs)
+    check('seen saved on show: PATCH /v1/settings {ui:{memory_intro_seen:true}} accepted (200) → server flag set (CSRF gate passed)', pro()['settings'].get('ui') == {'memory_intro_seen': True}, pro()['settings'].get('ui'))
+    check('… sheet stays, no toast, no error', shown(pg) and pg.evaluate("!document.getElementById('toast').classList.contains('show')") and not errs)
     g = pg.evaluate("(()=>{const r=id=>document.getElementById(id).getBoundingClientRect();const s=getComputedStyle(document.getElementById('memIntro'));return [r('memIntroOk').height,r('memIntroSettings').height,Math.round(r('memIntro').height),s.paddingBottom,getComputedStyle(document.getElementById('memIntroOk')).backgroundColor]})()")
     check('buttons ≥44pt (좋아요 50), medium height, bottom padding ≥16, filled --accent-fill', g[0] >= 50 and g[1] >= 44 and 0.5 * 844 <= g[2] <= 0.9 * 844 and float(g[3][:-2]) >= 16 and g[4] == 'rgb(10, 111, 232)', g)
     ids = []
@@ -122,6 +122,36 @@ with sync_playwright() as p:
     rm = pg.evaluate("(()=>{const s=getComputedStyle(document.getElementById('memIntro'));return [s.transform,s.transitionProperty,s.opacity]})()")
     check('reduced motion → no transform, opacity transition only', shown(pg) and rm[0] == 'none' and rm[1] == 'opacity' and rm[2] == '1', rm); ctx.close()
 
+
+    # 13) 1.10.1: localStorage is written ONLY after the server answered 200 to PATCH {ui:{memory_intro_seen:true}}
+    attempts = lambda: len(uiPatches())
+    toast_vis = lambda pg: pg.evaluate("(() => { const t = document.getElementById('toast'); return t && t.classList.contains('show') ? { text: t.innerText } : null })()")
+    err_vis = lambda pg: pg.evaluate("(() => { const t = document.getElementById('memIntroErr'); if (t.hidden) return null; const r = t.getBoundingClientRect(), s = document.getElementById('memIntro').getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { text: t.innerText, role: t.getAttribute('role'), inSheet: r.top >= s.top && r.bottom <= s.bottom, onTop: !!e && t.contains(e) } })()")
+    setup(); ctx, pg = launch(wait=0); pg.wait_for_function("window.__app && __app.state().mode==='server'"); pg.wait_for_selector('#memIntro', state='visible', timeout=4000); pg.wait_for_timeout(500)
+    check('PATCH 400 at show: sheet stays, localStorage NOT written, no error shown yet', shown(pg) and seenLocal(pg) is None and attempts() == 1 and err_vis(pg) is None, (seenLocal(pg), attempts()))
+    pg.click('#memIntroOk'); pg.wait_for_timeout(900); tv = err_vis(pg)
+    check('좋아요 retries the PATCH; still 400 → sheet kept, error line (role=alert) inside the sheet, visible, localStorage still unset, button usable', shown(pg) and attempts() == 2 and seenLocal(pg) is None and tv and '저장하지 못했어요' in tv['text'] and tv['role'] == 'alert' and tv['inSheet'] and tv['onTop'] and not pg.is_disabled('#memIntroOk'), (attempts(), seenLocal(pg), tv))
+    put('/pro/set', {'uiKey': True}); pg.click('#memIntroOk'); pg.wait_for_timeout(900)
+    check('server now accepts → 좋아요 closes, localStorage written only now, server flag set, error line gone', not shown(pg) and pg.evaluate("document.getElementById('memIntroErr').hidden") and seenLocal(pg) == '1' and pro()['settings'].get('ui') == {'memory_intro_seen': True}, (seenLocal(pg), pro()['settings'].get('ui')))
+    pg.reload(); pg.wait_for_timeout(2200); check('… and never shown again', not shown(pg)); ctx.close()
+    setup(); ctx, pg = launch(); pg.wait_for_timeout(400); pg.keyboard.press('Escape'); pg.wait_for_timeout(700)
+    check('failed PATCH + Escape: closes, localStorage unset → next launch asks again', not shown(pg) and seenLocal(pg) is None)
+    pg.reload(); pg.wait_for_timeout(2400); check('… next launch shows the sheet again', shown(pg)); ctx.close()
+    # silent retry on load: local says seen, server flag empty
+    setup(uiKey=True); ctx, pg = launch(local_seen=True, wait=2600)
+    check('local seen + server flag empty: no sheet, PATCH retried silently → server flag set, localStorage stays 1, no toast', not shown(pg) and seenLocal(pg) == '1' and pro()['settings'].get('ui') == {'memory_intro_seen': True} and toast_vis(pg) is None, (pro()['settings'].get('ui'), seenLocal(pg))); ctx.close()
+    setup(); ctx, pg = launch(local_seen=True, wait=2600)
+    check('retry rejected (400): silent — no sheet, no toast, localStorage kept, exactly 1 attempt', not shown(pg) and seenLocal(pg) == '1' and attempts() == 1 and toast_vis(pg) is None, attempts())
+    pg.evaluate("location.hash = '#/log'"); pg.wait_for_timeout(700); pg.evaluate("location.hash = '#/'"); pg.wait_for_timeout(1500)
+    pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))"); pg.wait_for_timeout(1200)
+    check('… still once per load after Today is shown again / app comes back', attempts() == 1, attempts())
+    pg.reload(); pg.wait_for_timeout(2600); check('… a new load tries once more (2 in total)', attempts() == 2 and not shown(pg), attempts()); ctx.close()
+    setup(settings=PS(True, {'memory_intro_seen': True})); ctx, pg = launch(local_seen=True, wait=2400)
+    check('local seen + server seen: no PATCH at all', attempts() == 0 and not shown(pg)); ctx.close()
+    setup(system=dict(SYS, memory_available=False)); ctx, pg = launch(local_seen=True, wait=2400)
+    check('local seen but memory_available=false: no PATCH', attempts() == 0 and not shown(pg)); ctx.close()
+    setup(settings=PS(False)); ctx, pg = launch(local_seen=True, wait=2400)
+    check('local seen but memory.enabled=false: no PATCH', attempts() == 0 and not shown(pg)); ctx.close()
     check('no page errors', not errs, errs)
     b.close()
 print(f'{sum(R)}/{len(R)} passed'); raise SystemExit(0 if all(R) else 1)
