@@ -357,11 +357,12 @@ if (typeof document !== 'undefined') (function () {
       const prev = mode === 'server' ? convs : [];
       const wasLocal = mode !== 'server';
       mode = 'server'; save(LS.mode, 'server'); persistOff = false;
-      const mapped = (j.data || []).map(t => fromServerThread(t, prev.find(p => p.id === t.id)));
+      const liveC = mode === 'server' && controller && genId && cur()?.id === genId ? cur() : null;   // 1.10.2: an answer is streaming into this thread: keep its object and its live bubble
+      const mapped = (j.data || []).map(t => { const o = prev.find(p => p.id === t.id); return liveC && o === liveC ? Object.assign(o, { title: t.title || o.title, archived: !!t.archived, srv: true, pinned: pinSet().has(t.id) }) : fromServerThread(t, o); });
       convs = prev.filter(c => c.fresh).concat(mapped); nextCursor = j.next_cursor || null;
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
-      persist(); renderAll(); loadDraft();
-      if (cur()) ensureMessages(cur());
+      persist(); if (liveC && cur() === liveC) renderList(); else renderAll(); loadDraft();
+      if (cur() && !(liveC && cur() === liveC)) ensureMessages(cur());
       maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); memRefresh(true); briefRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
@@ -1089,6 +1090,10 @@ if (typeof document !== 'undefined') (function () {
     }
   }
   let cancelRun = null;
+  /* 1.10.2: the connection came back (online event) while an answer is streaming. A socket that died silently while offline never errors, so reader.read()
+     would wait forever and the bubble would stay on '답변 불러오는 중…'. Cancelling the reader ends the read → 'stream ended early' → recover() re-requests
+     GET …/stream with Last-Event-ID (or polls). Safe when the stream was in fact alive: the replay continues after the last event we applied. */
+  let kickStream = null;
   function stopGeneration() { if (controller) { try { cancelRun?.(); } catch {} buzz(10); sendBtn.classList.add('pressed'); setTimeout(() => sendBtn.classList.remove('pressed'), 160); controller.abort(); } }
 
   // 409 generation_in_progress bodies: {error:{code,message_id}} | {error_code, message_id} | {error:{code, details:{message_id}}}
@@ -1126,14 +1131,17 @@ if (typeof document !== 'undefined') (function () {
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
-    const finish = () => { clearTimeout(slowTimer); if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const finish = () => { clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
     let wsReq = ws;
+    let liveReader = null;
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
     document.addEventListener('visibilitychange', onVis);
+    const kick = () => { if (mid && !done && liveReader && mode === 'server') { try { liveReader.cancel(); } catch {} } };
+    kickStream = kick;
     cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
       acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage;
@@ -1178,11 +1186,11 @@ if (typeof document !== 'undefined') (function () {
       paint();
     };
     async function consume(res) {   // read one SSE response into the shared state; throws on network loss
-      const reader = res.body.getReader(); const dec = new TextDecoder(); const parser = createSSEParser(onEvent);
+      const reader = liveReader = res.body.getReader(); const dec = new TextDecoder(); const parser = createSSEParser(onEvent);
       const onAbort = () => { try { reader.cancel(); } catch {} };
       ctl.signal.addEventListener('abort', onAbort, { once: true });
       try { while (!done) { const { value, done: rd } = await reader.read(); if (rd) break; parser.push(dec.decode(value, { stream: true })); } parser.flush(); }
-      finally { ctl.signal.removeEventListener('abort', onAbort); }
+      finally { ctl.signal.removeEventListener('abort', onAbort); if (liveReader === reader) liveReader = null; }
       if (!done) try { reader.cancel(); } catch {}
     }
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -2105,7 +2113,7 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- offline banner / toast ---------- */
   const setOffline = off => { chatView.classList.toggle('offline', off); app.classList.toggle('offline', off); };
-  window.addEventListener('online', () => { setOffline(false); flushOutbox(); initServer(); }); window.addEventListener('offline', () => setOffline(true));
+  window.addEventListener('online', () => { setOffline(false); flushOutbox(); kickStream?.(); initServer(); }); window.addEventListener('offline', () => setOffline(true));
   setOffline(navigator.onLine === false);
   const toast = $('#toast'); let toastT = 0;
   function showToast(text, act, fn, ms) {
