@@ -43,7 +43,7 @@
   const dangerOf = (x, variant) => variant === 'forget' || x.op === 'delete' || x.verbs.includes('send') || x.verbs.includes('delete');
   const DENIED = { secret_detected: '비밀번호나 키처럼 보여서 진행하지 않았어요', cap_exceeded: '허용된 한도를 넘어서 진행하지 않았어요', tainted: '외부 내용이 섞인 요청이라 진행하지 않았어요',
     scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '그사이 지워진 항목이 있어서 진행하지 않았어요',
-    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', memory_read_only: '지금은 메모리를 바꿀 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', writes_disabled: '지금은 쓰기가 꺼져 있어서 진행하지 않았어요', memory_read_only: '지금은 메모리를 바꿀 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
   const CROSS = '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 돼요';
   const RTF = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }), YTF = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   function shortDate(iso) {                            // spec B2: 오늘 / N일 전 / 10월 21일 / 2025년 3월 2일
@@ -51,6 +51,28 @@
     const now = new Date(), day0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), diff = Math.round((day0(now) - day0(d)) / 864e5);
     if (diff <= 0) return '오늘'; if (diff < 7) return diff + '일 전';
     return (d.getFullYear() === now.getFullYear() ? RTF : YTF).format(d);
+  }
+  /* 1.10.0 pim write cards (eve-serving #78: reminders_add / reminders_complete). Same .confirm-card; only the rows and error copy are pim-aware. */
+  const PIM = x => x.scopes.some(c => /^(reminders|calendar)\./.test(c));
+  const CAL = x => x.scopes.some(c => /^calendar\./.test(c));
+  const OUTCOME_UNKNOWN = x => (CAL(x) ? '일정이 만들어졌는지' : '리마인더가 만들어졌는지') + ' 확인하지 못했어요. ' + (CAL(x) ? '캘린더' : '미리 알림') + ' 앱에서 확인해 주세요. 다시 시도하면 중복될 수 있어서 다시 보내지 않아요';
+  const EXEC_ERR = { pim_unavailable: 'Mac의 캘린더 연동에 연결하지 못했어요. 잠시 후 다시 시도해 주세요', permission_denied: '캘린더·리마인더 접근이 허용되지 않았어요. Mac 설정을 확인해 주세요', timeout: '응답이 늦어서 실행하지 못했어요. 잠시 후 다시 시도해 주세요', invalid_arguments: '요청 내용이 올바르지 않아 진행하지 않았어요' };
+  /* PIM confirm rows (eve-serving #66 §11.4): one shared card, fixed row names 제목·시간·목록/캘린더·장소·메모. `display` is server-made (Asia/Seoul) and shown as given;
+     id / method / verb and the raw start·end·all_day·calendar_id are execution detail, never rows. */
+  const PIM_HIDE = new Set(['verb', 'method', 'id', 'start', 'end', 'all_day', 'calendar_id', 'due', 'display', 'title', 'list', 'calendar', 'location', 'notes']);
+  function pimRows(x) {
+    const v = x.view || {}, cal = CAL(x), rows = [], s = k => (typeof v[k] === 'string' && v[k] !== '' ? v[k] : null);
+    const add = (k, label, text, raw) => rows.push([k, label, text, raw == null || raw === text ? null : raw]);
+    add('title', '제목', s('title') || '(제목 없음)');
+    let when = s('display');
+    if (!when) { if (cal && s('start')) when = EvePim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = EvePim.fmtDue(v.due); }
+    if (when) add('when', '시간', when); else if (!cal && ('due' in v || 'display' in v)) add('when', '시간', '기한 없음');
+    if (cal) add('calendar', '캘린더', s('calendar') || (v.calendar_id == null ? '기본 캘린더' : '선택한 캘린더'));
+    else if ('list' in v || x.tool === 'reminders_add') add('list', '목록', s('list') || '기본 목록');
+    if (s('location')) add('location', '장소', v.location);
+    if (s('notes')) add('notes', '메모', v.notes);
+    Object.keys(v).filter(k => !PIM_HIDE.has(k)).forEach(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); add(k, k, raw); });   // unknown extra keys stay visible (never silently dropped)
+    return rows;
   }
   const VERB_LABEL = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };
   const VERB_DONE = { add: '추가했어요', update: '변경했어요', send: '보냈어요', delete: '삭제했어요', run: '실행했어요' };
@@ -105,8 +127,12 @@
       body.appendChild(el('p', 'cc-where', '이 대화에서'));
     }
     else {
-      const v = x.view, dl = el('dl', 'cc-view'), ks = Object.keys(v).filter(k => k !== 'verb');   // verb is metadata (button label), not a row
-      ks.forEach((k, i) => { const val = v[k]; const dt = el('dt', null, k), dd = el('dd', null, typeof val === 'string' ? val : JSON.stringify(val)); if (i >= 6) dt.hidden = dd.hidden = true; dl.append(dt, dd); });
+      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && EvePim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
+      ks.forEach(([k, label, text, raw], i) => {
+        const dt = el('dt', null, label), dd = el('dd', null, text);
+        if (raw) dd.title = raw;
+        dt.dataset.k = k; if (i >= 6) dt.hidden = dd.hidden = true; dl.append(dt, dd);
+      });
       if (ks.length) body.appendChild(dl);
       if (ks.length > 6) { const more = el('button', 'cc-more', '모두 보기'); more.type = 'button'; more.onclick = () => { dl.querySelectorAll('[hidden]').forEach(e => { e.hidden = false; }); more.remove(); }; body.appendChild(more); }
     }
@@ -159,6 +185,9 @@
     }
     function settleErr(e, retry) {
       if (!e.http) return setState('error', '연결이 끊겼어요', { retry });   // network only: retryable
+      if (e.outcomeUnknown === true || (e.outcomeUnknown === undefined && !e.code && (e.http === 502 || e.http === 504))) { retryFn = null; return setState('error', OUTCOME_UNKNOWN(x)); }   // #78 502 outcome_unknown: the card is consumed server-side → no retry, no re-approve, no recheck
+      if (e.outcomeUnknown === false && e.code !== 'writes_disabled' && e.code !== 'not_found' && e.code !== 'kill_switch' && e.code !== 'item_gone')   // #78 502, card released: nothing was written, a fresh reissue → approve is safe
+        return setState('error', EXEC_ERR[e.code] || '실행하지 못했어요. 잠시 후 다시 시도해 주세요', { retry });
       if (e.code === 'expired') return setState('expired', EXPIRED);          // branch on body.error_code, never on HTTP status
       if (e.code === 'internal_error') return setState('error', '저장하지 못했어요. 잠시 후 다시 시도해 주세요', { retry });   // 500 fail-closed: nothing changed, fresh reissue → approve is safe
       if (e.code === 'memory_read_only') { SYS.memoryRO = true; }
@@ -329,6 +358,10 @@
         const tm = el('time', null, t); tm.dateTime = new Date(m.created || Date.now()).toISOString(); line.appendChild(tm);
         wrap.insertBefore(line, wrap.firstChild);
       }
+      if (m.briefing && self.EvePim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
+        let c = null; try { c = EvePim.briefingCard(m.briefing); } catch {}
+        if (c) { const b = wrap.querySelector(':scope > .bubble'); if (b) b.after(c); else wrap.appendChild(c); }
+      }
       (m.pendingActions || []).forEach(a => mountCard(a, wrap));
     }
     function mountCard(a, after) {
@@ -397,13 +430,31 @@
       memRow.hidden = !(srv?.memory?.enabled); msw.checked = !!p.memory_read;
       pushRow.hidden = !(p.enabled && h.isStandalone() && vapidOK); psw.checked = localStorage.getItem(LS_PUSH) === '1';
     }
+    /* 아침 브리핑 미리보기 (1.10.0): row only when GET /v1/settings carries `briefing` (the gateway adds it only when briefing is enabled) */
+    const bSec = $('briefSection'), bRun = $('briefRun'), bOut = $('briefOut'); let bSeq = 0;
+    async function briefingRun() {
+      if (bRun.disabled) return; const my = ++bSeq;
+      bRun.disabled = true; bRun.setAttribute('aria-busy', 'true'); bOut.replaceChildren(self.EveBriefing.loading());
+      const done = c => { if (my !== bSeq) return; bRun.disabled = false; bRun.removeAttribute('aria-busy'); bOut.replaceChildren(c); };
+      const retry = () => briefingRun();
+      try { done(self.EveBriefing.card(F().briefing(await api.briefingPreview()), { onRetry: retry })); }
+      catch (e) {
+        if (!e.http) return done(self.EveBriefing.card({ fail: 'net' }, { onRetry: retry }));
+        if (e.http === 404) { bSec.hidden = true; return done(self.EveBriefing.card({ fail: 'off' })); }     // switched off since settings loaded
+        if (e.code === 'scope_denied') return done(self.EveBriefing.card({ fail: 'denied' }));
+        if (e.http === 502 && e.body && typeof e.body.status === 'string') return done(self.EveBriefing.card(F().briefing(e.body), { onRetry: retry }));   // {status, sections}, no text
+        done(self.EveBriefing.card({ fail: 'error' }, { onRetry: retry }));
+      }
+    }
+    bRun.addEventListener('click', () => { if (!h.online()) { h.showToast('연결되면 확인할 수 있어요'); return; } briefingRun(); });
     async function openSettings() {
-      $('qStartWrap').hidden = $('qEndWrap').hidden = true;
+      $('qStartWrap').hidden = $('qEndWrap').hidden = true; bSec.hidden = true; bSeq++; bOut.replaceChildren(); bRun.disabled = false;
       if (!h.isServer()) { sw.disabled = true; more.hidden = true; note.textContent = '서버에 연결되면 설정할 수 있어요.'; return; }
       sw.disabled = true; note.textContent = 'Eve가 브리핑이나 알림을 먼저 보낼 수 있어요. 하루 최대 3번.';
       try {
         srv = await api.getSettings() || {}; SYS = F().system(srv); delete srv.system;   // system.* is read-only: never PATCHed
         sw.disabled = !SYS.proactive; paint();
+        bSec.hidden = !(srv.briefing && typeof srv.briefing === 'object' && P.sameOrigin());
         if (!SYS.proactive) { more.hidden = true; note.textContent = '지금은 이 기능을 쓸 수 없어요'; }
         msw.disabled = SYS.memoryRO;
         if (!vapidOK && h.isStandalone()) api.vapidKey().then(k => { if (k && k.key) { vapidOK = true; paint(); } }).catch(() => {});

@@ -40,7 +40,7 @@
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:dark)" href="splash/dark-1080x2340.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width:360px) and (device-height:780px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait) and (prefers-color-scheme:light)" href="splash/light-1080x2340.png">
 
-<link rel="stylesheet" href="/ui/styles.css?v=1.9.0">
+<link rel="stylesheet" href="/ui/styles.css?v=1.10.0">
 <title>Eve</title>
 </head>
 <body>
@@ -168,6 +168,11 @@
         <p class="status hint">켜면 이름·선호·진행 중인 일만 참고해요.</p>
       </div>
     </div>
+    <div id="briefSection" hidden>
+      <p class="sec">아침 브리핑</p>
+      <div class="group"><button type="button" id="briefRun" class="row-link"><span>지금 미리보기</span></button></div>
+      <div id="briefOut" role="status" aria-live="polite"></div>
+    </div>
     <div id="memSection" hidden>
       <p class="sec">메모리</p>
       <div class="group">
@@ -202,7 +207,7 @@
     <div class="group a2hs-row" id="a2hsRow"><button type="button" id="showA2hs" class="row-link">홈 화면에 추가 방법<svg class="i chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></div>
     <p class="sec">정보</p>
     <div class="group info-group"><div class="info-row"><span>모델</span><span id="sModelInfo" class="info-val">—</span></div></div>
-    <small id="appVersion" class="app-version">v1.9.0</small>
+    <small id="appVersion" class="app-version">v1.10.0</small>
   </form>
 </dialog>
 <div id="authNotice" class="auth-notice" hidden role="alertdialog" aria-labelledby="authTitle" aria-describedby="authBody">
@@ -269,11 +274,13 @@
 </div>
 <div id="fbLive" class="sr-only" aria-live="polite" role="status"></div>
 <div id="toast" hidden role="status"><span id="toastText"></span><button type="button" id="toastAct" class="text-btn"></button></div>
-<script src="/ui/shell.js?v=1.9.0"></script>
-<script src="/ui/proactive-api.js?v=1.9.0"></script>
-<script src="/ui/proactive.js?v=1.9.0"></script>
-<script src="/ui/memory-api.js?v=1.9.0"></script>
-<script src="/ui/memory.js?v=1.9.0"></script>
-<script src="/ui/app.js?v=1.9.0"></script>
+<script src="/ui/shell.js?v=1.10.0"></script>
+<script src="/ui/proactive-api.js?v=1.10.0"></script>
+<script src="/ui/pim.js?v=1.10.0"></script>
+<script src="/ui/proactive.js?v=1.10.0"></script>
+<script src="/ui/briefing.js?v=1.10.0"></script>
+<script src="/ui/memory-api.js?v=1.10.0"></script>
+<script src="/ui/memory.js?v=1.10.0"></script>
+<script src="/ui/app.js?v=1.10.0"></script>
 </body>
 </html>

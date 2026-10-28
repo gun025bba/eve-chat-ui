@@ -294,7 +294,8 @@ if (typeof document !== 'undefined') (function () {
     if (!r.ok) {
       const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
       if (isAuthFail(r.status, code)) { clearCards(); showAuthNotice(null, code); }
-      throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code });
+      // body: parsed error JSON (502 outcome_unknown / briefing preview carry fields beside error_code); outcomeUnknown: eve-serving #78 approve 502
+      throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code, body: j && typeof j === 'object' ? j : null, outcomeUnknown: typeof j?.outcome_unknown === 'boolean' ? j.outcome_unknown : undefined });
     }
     return j;
   }
@@ -1044,10 +1045,16 @@ if (typeof document !== 'undefined') (function () {
       if (j.error) { streamErr = j.error; return; }   // after admission: error event (+ retry_after)
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
+        if (self.EvePim?.isTool(j.tool)) { setWs(EvePim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
         const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
         setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
       }
       if (j.object === 'chat.completion.tool_result') {
+        if (self.EvePim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
+          setWs(EvePim.resultText(j)); let n = null; try { n = EvePim.resultCard(j); } catch {}
+          if (n) EvePim.mount(n, bubble.parentElement);
+          return;
+        }
         if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
         setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
       }
@@ -1865,7 +1872,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); initServer(); });
 
-  const APP_VERSION = '1.9.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.10.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

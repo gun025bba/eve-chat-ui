@@ -25,7 +25,8 @@
     revise:         { status: 'defined', method: 'POST',   path: id => `/v1/proposals/${E(id)}/revise` },     // body {item_ids} → new proposal (new payload_hash + token); Part B forget card
     vapidKey:       { status: 'defined',   method: 'GET',    path: () => '/v1/push/vapid-public-key' },         // → {key (base64url), key_id}
     subscribe:      { status: 'defined',   method: 'POST',   path: () => '/v1/push/subscriptions' },            // body {endpoint, keys:{p256dh,auth}, vapid_key_id}
-    unsubscribe:    { status: 'defined',   method: 'DELETE', path: () => '/v1/push/subscriptions' }             // body {endpoint}
+    unsubscribe:    { status: 'defined',   method: 'DELETE', path: () => '/v1/push/subscriptions' },            // body {endpoint}
+    briefingPreview: { status: 'defined',  method: 'POST',   path: () => '/v1/briefing/preview' }               // eve-serving #77: interactive scope; 200 {status,text,sections}, 502 {status,sections} (no text), 404 when off
   };
   /* Field mapping: the ONLY place that knows server field names (eve-serving PR #12
    * docs/architecture/ui-api-contract.md, not merged yet — "CT"). If the contract changes, edit here. */
@@ -35,7 +36,8 @@
       if (!m || m.origin !== 'proactive') return null;
       const pv = m.provenance || {};
       return { origin: 'proactive', readAt: m.read_at || null, jobId: S(m.job_id) || S(pv.job_id), jobName: S(pv.job_name), kind: m.kind === 'digest' ? 'digest' : null,
-        templateKind: ['briefing', 'watch', 'followup'].includes(m.template_kind) ? m.template_kind : null };   // top-level only (backend answer)   // unknown kind → null
+        templateKind: ['briefing', 'watch', 'followup'].includes(m.template_kind) ? m.template_kind : null,   // top-level only (backend answer)   // unknown kind → null
+        briefing: self.EvePim ? self.EvePim.cleanBriefing(m.briefing) : null };   // eve-serving #66 §11.3: validated (schema 1 only, known section kinds, ≤10 items); anything else → null (content only)
     },
     unread: t => +(t && t.unread_count) || 0,           // CT Q2
     action(a) {                                         // CT Q10–Q14 (SSE confirmation / pending_actions / GET /v1/actions)
@@ -47,14 +49,20 @@
         tainted: !!a.tainted, status: S(a.status), errorCode: S(a.error_code), verbs,
         actor: pv.actor === 'scheduler' ? 'scheduler' : 'user', jobName: S(pv.job_name), threadId: S(a.thread_id), messageId: S(a.message_id),
         op: S(v.op), items: Array.isArray(v.items) ? v.items.map(i => ({ id: i && i.id != null ? String(i.id) : null, text: S(i && i.text) || '', kind: S(i && i.kind), updatedAt: S(i && i.updated_at) })) : [],
+        scopes: Array.isArray(a.scopes) ? a.scopes.map(String) : [],   // raw scope strings (e.g. reminders.write): the card labels pim rows by scope
         verb: S(v.verb), ambiguous: v.ambiguous === true, display: S(v.display), whenAt: S(v.when && v.when.at)
       };
+    },
+    briefing(j) {                                       // eve-serving #77 POST /v1/briefing/preview: {status, text?, sections:[{name, code?, count}]}; sections is null/absent when pim is off
+      const o = j && typeof j === 'object' ? j : {}, n = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+      return { status: S(o.status) || '', text: S(o.text) || '',
+        sections: (Array.isArray(o.sections) ? o.sections : []).filter(x => x && typeof x === 'object').map(x => ({ name: S(x.name) || '', code: S(x.code) || null, count: n(x.count) })) };
     },
     system: s => { const y = (s && s.system) || {}; return { proactive: y.proactive_available !== false, tools: y.tools_available !== false, memoryRO: false }; }   // memory read-only is never read from settings: only a 503 memory_read_only sets it (architect, 0cdadea)   // CT Q8/Q17, read-only
   };
   const UNSUPPORTED = new Set([404, 405, 501]);
   // Confirm-token + decision endpoints send no CORS headers: same-origin only (/ui/ → relative /v1). eve-serving PR #16.
-  const SAME_ORIGIN_ONLY = new Set(['reissue', 'approve', 'reject', 'revise', 'getAction', 'pendingActions']);
+  const SAME_ORIGIN_ONLY = new Set(['briefingPreview', 'reissue', 'approve', 'reject', 'revise', 'getAction', 'pendingActions']);
   function make(api, sameOrigin = () => true) {
     const call = (name, arg, body) => {
       const e = ENDPOINTS[name];
@@ -77,7 +85,8 @@
       markThreadRead: id => call('markThreadRead', id, {}),
       vapidKey: () => call('vapidKey'),
       subscribe: (sub, keyId) => call('subscribe', null, { endpoint: sub.endpoint, keys: sub.keys, vapid_key_id: keyId }),
-      unsubscribe: endpoint => call('unsubscribe', null, { endpoint })
+      unsubscribe: endpoint => call('unsubscribe', null, { endpoint }),
+      briefingPreview: () => call('briefingPreview', null, {})
     };
   }
   self.EveProactiveAPI = { make, ENDPOINTS, FIELDS };

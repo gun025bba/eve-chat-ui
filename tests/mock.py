@@ -88,7 +88,7 @@ class H(SimpleHTTPRequestHandler):
         """선톡 P1 mock (planned/mock endpoints, see proactive-api.js ENDPOINTS)."""
         import re as _re
         m_read = _re.fullmatch(r'/v1/messages/([^/]+)/read', path); m_tread = _re.fullmatch(r'/v1/threads/([^/]+)/read', path); m_rev = _re.fullmatch(r'/v1/proposals/([^/]+)/revise', path); m_act = _re.fullmatch(r'/v1/actions/([^/]+)/(reissue|approve|reject)', path)
-        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions') or m_read or m_act or m_tread or m_rev or path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
+        if not ((_re.fullmatch(r'/v1/actions/[^/]+', path) and method == 'GET') or path in ('/v1/settings', '/v1/actions', '/v1/push/vapid-public-key', '/v1/push/subscriptions', '/v1/briefing/preview') or m_read or m_act or m_tread or m_rev or path in ('/v1/memory', '/v1/memory/export', '/v1/memory/items') or _re.fullmatch(r'/v1/memory/items/[^/]+', path)): return False
         if not s.auth(): return True
         if not PRO['supported']: s.j(404, ec('not_found')); return True
         if method != 'GET': PRO['origins'].append(s.headers.get('Origin'))
@@ -173,6 +173,12 @@ class H(SimpleHTTPRequestHandler):
                     if 'text' in b and (not isinstance(b['text'], str) or not b['text'] or len(b['text']) > 300): s.j(400, ec('invalid')); return True
                     cur.update({k: v for k, v in b.items() if k != 'if_updated_at'}, updated_at=ts); s.j(200, cur); return True
                 s.j(405, ec('invalid')); return True
+            if path == '/v1/briefing/preview':   # eve-serving #77: 200 {status,text,sections} | 502 {status,sections} | 404 off | 403 scope_denied
+                PRO['previews'] = PRO.get('previews', 0) + 1
+                if PRO.get('briefingDelay'): time.sleep(PRO['briefingDelay'])
+                if PRO.get('briefingDrop'): s.close_connection = True; s.connection.shutdown(2); return True
+                st_, body_ = PRO.get('briefing') or (200, {'status': 'ok', 'text': '오늘 2026-10-27(화) 브리핑\n일정 2건\n- 09:30 팀 스탠드업\n- 종일 출장\n리마인더 1건\n- (기한 지남) 10/25 세금 납부', 'sections': [{'name': 'events', 'count': 2}, {'name': 'reminders', 'count': 1}]})
+                s.j(st_, body_); return True
             if path == '/v1/settings':
                 if PRO.get('settingsDrop'): s.close_connection = True; s.connection.shutdown(2); return True
                 if method == 'PATCH':
@@ -207,6 +213,7 @@ class H(SimpleHTTPRequestHandler):
                 PRO['issued'] += 1; a['token'] = f'tok{PRO["issued"]}'; s.j(200, {'confirm_token': a['token'], 'token_expires_at': now(PRO.get('tokenTtl', 120))}); return True
             if op == 'reject':
                 a['status'] = 'rejected'; s.j(200, {'status': 'rejected'}); return True
+            if PRO.get('approveRaw'): st, body_ = PRO.pop('approveRaw'); s.j(st, body_); return True   # 1.10.0: #78 502 bodies {status, action_id, error_code, outcome_unknown}
             if PRO.get('approveCode'): st, code = PRO.pop('approveCode'); s.j(st, ec(code)); return True
             if PRO.get('approveLegacy'): st, code = PRO.pop('approveLegacy'); s.j(st, err(code, 'server_error', code)); return True   # 500/503: legacy {error:{code}} body (§3.9.8)
             if not b.get('confirm_token'): s.j(400, ec('invalid')); return True
@@ -421,9 +428,81 @@ class H(SimpleHTTPRequestHandler):
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return
+        if last.startswith('pim'):   # eve-serving #66 §11: PIM tool events (stream-only cards) — 'pim<scenario> …'
+            import datetime as _dt
+            KST = _dt.timezone(_dt.timedelta(hours=9)); n0 = _dt.datetime.now(KST); Y = n0.year
+            iso = lambda y, mo, d, h=0, mi=0: _dt.datetime(y, mo, d, h, mi, tzinfo=KST).isoformat()
+            scen = last.split()[0]; PRO['pimPrompts'] = PRO.get('pimPrompts', 0) + 1
+            def tr(tool, **k): return dict({"object": "chat.completion.tool_result", "id": "pc_1", "tool": tool}, **k)
+            def tc(tool, args): return {"object": "chat.completion.tool_call", "id": "pc_1", "tool": tool, "args": args, "round": 1}
+            evs = []; text = "확인했어요."
+            EV = [{"id": "evt_a1", "title": "팀 스탠드업 <img src=x onerror=alert(1)>", "start": iso(Y, 10, 28, 9, 30), "end": iso(Y, 10, 28, 10, 0), "all_day": False, "calendar": "회사", "calendar_id": "cal_1"},
+                  {"id": "evt_a2", "title": "기념일", "start": iso(Y, 10, 28), "end": iso(Y, 10, 29), "all_day": True, "calendar": "개인", "calendar_id": "cal_2"},
+                  {"id": "evt_a3", "title": "야간 배포", "start": iso(Y, 10, 28, 23, 0), "end": iso(Y, 10, 29, 1, 0), "all_day": False, "calendar": "회사", "calendar_id": "cal_1"},
+                  {"id": "evt_a4", "title": "제주 여행", "start": iso(Y, 10, 30), "end": iso(Y, 11, 2), "all_day": True, "calendar": "개인", "calendar_id": "cal_2"},
+                  {"id": "evt_a5", "title": "내년 일정", "start": iso(Y + 1, 1, 5, 9, 0), "end": iso(Y + 1, 1, 5, 10, 0), "all_day": False, "calendar": "개인", "calendar_id": "cal_2"}]
+            RNG = {"from": iso(Y, 10, 28), "to": iso(Y, 10, 29)}
+            if scen == 'pimcal':
+                evs = [tc("calendar_list_events", {"from": RNG['from'], "to": RNG['to']}), tr("calendar_list_events", status="ok", count=5, truncated=False, card={"kind": "calendar_events", "v": 1, "range": {"from": iso(Y, 10, 28), "to": iso(Y, 11, 3)}, "items": EV})]
+            elif scen == 'pimcal0':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=0, truncated=False, card={"kind": "calendar_events", "v": 1, "range": RNG, "items": []})]
+            elif scen == 'pimrem':
+                items = [{"id": f"rem_{i}", "title": f"할 일 {i}", "due": iso(Y, 10, 28, 18, 0) if i % 3 else None, "list": "장보기", "done": i == 2} for i in range(12)]
+                evs = [tc("reminders_list", {"due_before": RNG['to'], "include_done": True}), tr("reminders_list", status="ok", count=100, truncated=True, card={"kind": "reminders", "v": 1, "due_before": RNG['to'], "items": items})]
+            elif scen == 'pimerr':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="denied", error_code="permission_denied", card={"kind": "error", "v": 1, "error_code": "permission_denied"})]; text = "캘린더를 확인하지 못했어요."
+            elif scen == 'pimerrto':
+                evs = [tc("reminders_list", {}), tr("reminders_list", status="timeout", error_code="timeout", card={"kind": "error", "v": 1, "error_code": "timeout"})]; text = "리마인더를 확인하지 못했어요."
+            elif scen == 'pimerrunk':
+                evs = [tc("reminders_list", {}), tr("reminders_list", status="error", error_code="brand_new_code", card={"kind": "error", "v": 1, "error_code": "brand_new_code"})]
+            elif scen == 'pimkind':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=1, truncated=False, card={"kind": "heatmap", "v": 1, "items": [{"title": "x"}]})]
+            elif scen == 'pimv2':
+                evs = [tc("calendar_list_events", {}), tr("calendar_list_events", status="ok", count=1, truncated=False, card={"kind": "calendar_events", "v": 2, "range": RNG, "items": EV[:1]})]
+            elif scen in ('pimadd', 'pimremadd', 'pimremdone', 'pimaddall', 'pimaddnull'):
+                tool = 'calendar_add_event' if scen.startswith('pimadd') else ('reminders_complete' if scen == 'pimremdone' else 'reminders_add')
+                aid = '01JBX0000000000000000000' + {'pimadd': 'C1', 'pimaddall': 'C2', 'pimaddnull': 'C3', 'pimremadd': 'A1', 'pimremdone': 'D1'}[scen]
+                if tool == 'calendar_add_event':
+                    pv = {"verb": "add", "title": "치과", "start": iso(Y, 10, 28, 15, 0), "end": iso(Y, 10, 28, 16, 0), "all_day": False, "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 15:00–16:00", "location": "역삼동 치과", "notes": None, "calendar_id": "cal_1", "calendar": "개인"}
+                    if scen == 'pimaddall': pv = dict(pv, title="가족 모임", all_day=True, display="10/30 (금) – 11/1 (일) 종일", location=None, notes="케이크 챙기기", start=iso(Y, 10, 30), end=iso(Y, 11, 2))
+                    if scen == 'pimaddnull': pv = dict(pv, calendar_id=None, calendar="기본 캘린더", location=None)
+                    summ, scopes = "일정 추가", ["calendar.write"]
+                elif tool == 'reminders_add':
+                    pv = {"verb": "add", "title": "우유 사기", "due": iso(Y, 10, 28, 18, 0), "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 18:00", "list": None}; summ, scopes = "리마인더 추가", ["reminders.write"]
+                else:
+                    pv = {"verb": "update", "id": "rem_b1", "title": "우유 사기", "display": f"10/28 ({'월화수목금토일'[_dt.date(Y, 10, 28).weekday()]}) 18:00", "list": "장보기"}; summ, scopes = "리마인더 완료 처리", ["reminders.write"]
+                act = {"action_id": aid, "thread_id": th['id'] if th else None, "message_id": None, "tool": tool, "tool_version": "1", "scopes": scopes, "payload_hash": "sha256:pim", "provenance": {"actor": "user", "job_id": None, "job_name": None},
+                       "tainted": False, "status": "pending", "expires_at": now(900), "created_at": now(0), "summary": summ, "payload_view": pv}
+                PRO['actions'][aid] = dict(act, status='pending', token=None)
+                evs = [tc(tool, {}), tr(tool, status="pending_confirmation", action_id=aid), dict(act, object="chat.completion.confirmation")]; text = "추가할까요?"
+            elif scen == 'pimwritedeny':
+                evs = [tc("calendar_add_event", {}), tr("calendar_add_event", status="denied", error_code="secret_detected", card={"kind": "error", "v": 1, "error_code": "secret_detected"})]; text = "추가하지 못했어요."
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                for e in evs:
+                    if e.get('object') == 'chat.completion.tool_result': time.sleep(PRO.get('pimGap', 0.7))
+                    s.ev(e)
+                time.sleep(PRO.get('pimGap', 0.7))
+                s.ev({"id": "p-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": "stop"}]})
+                if th:
+                    am = s.save_asst(th, rep, text, '')
+                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if last.startswith('confirm'):
             act = {"action_id": "01JACT0000000000000000000S", "tool": "calendar_create_event", "tool_version": "1.0.0", "summary": "10/28 15:00 치과 일정 추가",
                    "payload_view": {"제목": "치과", "시각": "2026-10-28 15:00"}, "payload_hash": "sha256:abc", "expires_at": now(3600), "tainted": False, "scopes": ["calendar.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
+            if last.startswith('confirmreminder') or last.startswith('confirmcomplete'):   # eve-serving #78 reminders_add / reminders_complete, exact Confirmation fields
+                base = {"tool_version": "1.0.0", "scopes": ["reminders.write"], "payload_hash": "sha256:rem", "provenance": {"actor": "user"}, "tainted": False, "status": "pending",
+                        "expires_at": now(900), "created_at": now(0)}
+                if last.startswith('confirmcomplete'):
+                    act = dict(base, action_id="01JACT0000000000000000000C", tool="reminders_complete", summary="리마인더 완료 처리", payload_view={"verb": "update", "method": "reminders.complete", "title": "세금 납부", "list": "개인"})
+                elif last.startswith('confirmreminder0'):
+                    act = dict(base, action_id="01JACT0000000000000000000Z", tool="reminders_add", summary="리마인더 추가", payload_view={"verb": "add", "method": "reminders.add", "title": "우유 사기"})
+                else:
+                    act = dict(base, action_id="01JACT0000000000000000000R", tool="reminders_add", summary="리마인더 추가", payload_view={"verb": "add", "method": "reminders.add", "title": "엄마께 전화 <b>드리기</b>", "due": "2026-10-28T18:00:00+09:00", "list": "개인"})
             if last.startswith('confirmdeny'):
                 act = {"action_id": "01JACT0000000000000000000D", "tool": "memory.propose", "status": "denied", "error_code": "secret_detected", "scopes": ["memory.write"], "provenance": {"actor": "user", "job_id": None, "job_name": None}}
             if last.startswith('confirmremember'):
