@@ -30,7 +30,7 @@ with sync_playwright() as p:
         ctx = mk(); pg = ctx.new_page(); land(pg); shot(pg, '02-today-new-day'); ctx.close()
         reset(); ctx = mk(); pg = ctx.new_page(); land(pg, '#/log'); shot(pg, '06-log-empty'); ctx.close()
         # --- skeleton
-        reset(); rich(); put('/delay/6000?GET /v1/threads'); ctx = mk(); pg = ctx.new_page(); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1000); shot(pg, '03-today-skeleton')
+        reset(); rich(); put('/delay/6000?GET%20/v1/threads'); ctx = mk(); pg = ctx.new_page(); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1000); shot(pg, '03-today-skeleton')
         pg.goto(B + '/ui/#/log'); pg.reload(); pg.wait_for_timeout(1000); shot(pg, '03b-log-skeleton'); ctx.close(); put('/delay/clear')
     # --- light contrast: Today rich, light, with the numbers
     reset(); rich(); older(); d = dict(dev); d['viewport'] = {'width': 390, 'height': 844}

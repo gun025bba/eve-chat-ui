@@ -43,7 +43,7 @@
 
   function init(ctx) {
     const $ = s => document.querySelector(s), list = $('#todayList');
-    let first = true;
+    let first = true, lastSig = '';
     const ic = (name, cls) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'i ' + (cls || '')); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#i-' + name); s.appendChild(u); return s; };
     function ev(cls, t, tmText, who, whoCls, body, label) {
       const li = document.createElement('li'); li.className = 'ev ' + cls; li.setAttribute('role', 'listitem'); li.setAttribute('aria-label', label || `${tmText} ${who}`);
@@ -58,6 +58,10 @@
     function skeleton() { const f = document.createDocumentFragment(); for (let i = 0; i < 2; i++) { const li = document.createElement('li'); li.className = 'ev skel-ev'; li.setAttribute('aria-hidden', 'true'); li.innerHTML = '<i class="s-tm"></i><span class="dot"></span><i class="s-a"></i><i class="s-b"></i>'; f.appendChild(li); } return f; }
     function render() {
       const now = Date.now(), M = model(ctx.convs(), now), st = ctx.state();
+      // same content as the last draw → keep the DOM (a rebuild would cancel the first-visit stagger and drop focus)
+      const sig = JSON.stringify([M.events.map(e => [e.kind, e.t, e.c.id, e.c.title, e.m && e.m.id, e.m && e.m.readAt, e.m && e.m.content && e.m.content.length]), M.more, M.cont && [M.cont.c.id, M.cont.c.title, M.cont.t, ctx.preview(M.cont.c)], !!st.skeleton, !!st.error, ctx.userName(), M.today]);
+      if (sig === lastSig && list.firstChild) return M;
+      lastSig = sig;
       list.replaceChildren();
       const frag = document.createDocumentFragment();
       if (st.error && !ctx.convs().length) {
@@ -66,7 +70,7 @@
         b.append(ic('warning'), Object.assign(document.createElement('span'), { textContent: '불러오지 못했어요' }));
         const r = document.createElement('button'); r.type = 'button'; r.id = 'todayRetry'; r.className = 'text-btn'; r.textContent = '다시 시도'; r.addEventListener('click', () => ctx.retry());
         li.append(b, r); frag.appendChild(li);
-      } else if (st.skeleton) frag.appendChild(skeleton());
+      } else if (st.skeleton && !M.events.length && !M.cont) frag.appendChild(skeleton());
       else {
         if (M.more) { const li = ev('more', 0, '', '기록에서 더 보기', 'sub', `오늘 대화 ${M.more}개`, `기록에서 더 보기, 오늘 대화 ${M.more}개`); hit(li, '기록에서 더 보기', () => ctx.openLog()); frag.appendChild(li); }
         for (const e of M.events) {
@@ -92,7 +96,7 @@
       nowEl.querySelector('.tm').textContent = hhmm(now); frag.appendChild(nowEl);
       list.appendChild(frag);
       list.dataset.day = M.today;
-      const settled = !st.skeleton && !(st.error && !ctx.convs().length);   // the stagger is for real content only, never for a skeleton or an error
+      const settled = !st.skeleton && st.ready !== false && !(st.error && !ctx.convs().length);   // the stagger is for real content only, never for a skeleton or an error
       if (first && settled && ctx.stagger()) { first = false; [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = i * 40 + 'ms'; }); }
       else if (settled) first = false;
       return M;

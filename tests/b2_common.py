@@ -25,7 +25,7 @@ def rich():
     ids['digest'] = pro_thread('조용한 시간 요약', [pro_msg('밤사이 알림 3건을 모았어요.', 6, 0, job=None, kind='digest', read=True)], 6, 0)
     ids['brief'] = pro_thread('아침 브리핑', [pro_msg('좋은 아침이에요. 오늘 일정과 날씨를 정리했어요.', 7, 30, tkind='briefing')], 7, 30)
     ids['watch'] = pro_thread('가격 알림', [pro_msg('찾던 키보드가 12% 내렸어요.', 10, 0, job='가격 알림', tkind='watch', read=True)], 10, 0)
-    for t, h, m in [('점심 메뉴 추천', 8, 12), ('여행 일정 정리', 9, 5), ('SwiftUI 질문', 9, 40), ('회의록 요약', 10, 15), ('파이썬 코드 리뷰', 10, 50), ('운동 루틴 짜기', 11, 20)]: ids[t] = conv2(t, h, m)
+    for t, h, m in [('점심 메뉴 추천', 8, 12), ('여행 일정 정리', 9, 5), ('SwiftUI 질문', 9, 40), ('회의록 요약', 10, 15), ('파이썬 코드 리뷰', 10, 50), ('운동 루틴 짜기', 11, 20), ('번역 부탁', 11, 45)]: ids[t] = conv2(t, h, m)
     return ids
 def older():
     """yesterday (→ 이어서), 2 and 3 days ago, an old one, one archived"""

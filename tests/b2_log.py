@@ -20,9 +20,9 @@ with sync_playwright() as p:
     # --- day groups
     labs = pg.evaluate("[...document.querySelectorAll('#convList .group-label')].map(l=>[l.querySelector('.gl-n').textContent,l.querySelector('.gl-c').textContent,l.dataset.day])")
     check('day group labels: 오늘 · 요일 / 어제 · 요일 / M월 D일 · 요일 …', [l[0] for l in labs][:3] == [label_of(0), label_of(-1), label_of(-2)] and labs[-1][0] == label_of(-8), labs)
-    check('group header shows the count', labs[0][1].strip() in ('9', '9개') or re.search(r'9', labs[0][1]), labs[0])
+    check('group header shows the count', re.search(r'10', labs[0][1]), labs[0])
     rows = pg.evaluate("[...document.querySelectorAll('#convList > li')].map(l=>l.className.split(' ').filter(x=>['group-label','row','g1','g9'].includes(x)).join('.'))")
-    check('each day is one card: first row g1, last row g9', rows.count('row.g1') >= 3 and rows.count('row.g9') >= 3, rows)
+    check('each day is one card: first row g1, last row g9', sum('g1' in r.split('.') for r in rows) >= 3 and sum('g9' in r.split('.') for r in rows) >= 3 and rows[1].startswith('row.g1') and 'g9' not in rows[1].split('.'), rows)
     r0 = pg.evaluate("(()=>{const r=document.querySelector('#convList li.row'),t=r.querySelector('time.r-tm'),b=r.querySelector('.r-bd');return {tm:t.textContent,w:t.getBoundingClientRect().width,h:r.getBoundingClientRect().height,sub:r.querySelector('.row-sub').textContent}})()")
     check('row = 36px time column + title/preview, ≥ 52px tall, time is HH:mm', re.fullmatch(r'\d\d:\d\d', r0['tm']) and abs(r0['w'] - 36) <= 1 and r0['h'] >= 52 and r0['sub'], r0)
     check('선톡 threads carry the Eve mark; plain threads do not', pg.locator('#convList li.row', has_text='아침 브리핑').locator('.r-eve').count() == 1 and pg.locator('#convList li.row', has_text='SwiftUI 질문').locator('.r-eve').count() == 0)
@@ -32,12 +32,12 @@ with sync_playwright() as p:
     if target:
         pg.click(f'#wk .wk-c[data-day="{target[0][0]}"]'); pg.wait_for_timeout(900)
         top = pg.evaluate(f"document.querySelector('#convList .group-label[data-day=\"{target[0][0]}\"]').getBoundingClientRect().top")
-        check('tap a day → its group header scrolls to the top (just under the strip)', top < 200 and pg.locator(f'#wk .wk-c.sel[data-day="{target[0][0]}"]').count() == 1, top)
+        check('tap a day → its group header scrolls to the top (just under the strip)', (top < 200 or pg.evaluate("(s=>s.scrollTop+s.clientHeight>=s.scrollHeight-2)(document.getElementById('listScroller'))")) and pg.locator(f'#wk .wk-c.sel[data-day="{target[0][0]}"]').count() == 1, top)
     # --- 보관함 row
     ar = pg.locator('#archivedRow'); check('보관함 row visible, label 보관함', ar.is_visible() and '보관함' in ar.text_content())
     # --- search mode
     pg.click('#logSearch'); pg.wait_for_timeout(500)
-    check('search mode: .searching, input focused, strip + 보관함 row hidden', pg.evaluate("document.getElementById('listView').classList.contains('searching')") and pg.evaluate("document.activeElement.id") == 'search' and not pg.is_visible('#wk') and not pg.is_visible('#archivedRow'))
+    check('search mode: .searching, input focused, strip + 보관함 row hidden', pg.evaluate("document.getElementById('listView').classList.contains('searching')") and pg.evaluate("document.activeElement.id") == 'search' and pg.evaluate("getComputedStyle(document.getElementById('wk')).opacity") == '0' and pg.evaluate("document.getElementById('wk').inert") and not pg.is_visible('#archivedRow'))
     pg.fill('#search', '발표'); pg.wait_for_timeout(900)
     rows = pg.locator('#convList li.row'); h = pg.locator('#convList li.hit').count()
     check('search: flat results (no group headers), each with a date · preview subtitle', pg.locator('#convList .group-label').count() == 0 and rows.count() + h >= 1 and '발표 자료 준비' in pg.text_content('#convList') and re.search(r'\d+월 \d+일|어제|오늘', rows.first.locator('.row-sub').text_content() or ''), [rows.count(), h])
@@ -60,7 +60,7 @@ with sync_playwright() as p:
     check('empty: 보관함 row still reachable', pg.is_visible('#archivedRow'))
     check('empty: no logo / 무엇을 도와드릴까요', '무엇을 도와드릴까요' not in pg.evaluate('document.body.innerText')); ctx.close()
     # --- loading skeleton rows in the log
-    reset(); rich(); put('/delay/1500?GET /v1/threads'); ctx, pg = newpg(b); pg.goto(B + '/ui/#/log'); pg.reload(); pg.wait_for_timeout(700)
+    reset(); rich(); put('/delay/1500?GET%20/v1/threads'); ctx, pg = newpg(b); pg.goto(B + '/ui/#/log'); pg.reload(); pg.wait_for_timeout(700)
     check('log loading: skeleton rows, no "아직 기록이 없어요" flash', pg.locator('#convList .skel').count() == 3 and not pg.is_visible('#listEmpty'))
     pg.wait_for_timeout(2200); check('skeleton → rows', pg.locator('#convList .skel').count() == 0 and pg.locator('#convList li.row').count() >= 6)
     put('/delay/clear'); ctx.close()

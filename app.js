@@ -346,9 +346,11 @@ if (typeof document !== 'undefined') (function () {
       preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
+  let listLoading = true, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false, msgsPending = 0, coldStart = false;   // 오늘 / 기록 loading state (declared before first use)
+  const logSkel = () => coldStart && listLoading && Date.now() - loadT0 >= 250;
   let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
-    listLoading = true; loadT0 = Date.now(); listError = false; setTimeout(() => todayDirty(), 260); todayDirty();
+    listLoading = true; loadT0 = Date.now(); coldStart = !convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
       const prev = mode === 'server' ? convs : [];
@@ -368,7 +370,7 @@ if (typeof document !== 'undefined') (function () {
       }
       if (!persistOff) listError = true;
       renderSync();
-    } finally { listLoading = false; todayDirty(); }
+    } finally { const wasCold = coldStart && listLoading; listLoading = false; todayDirty(); if (wasCold) renderList(); }
   }
   async function loadMoreThreads() {
     if (mode !== 'server' || !nextCursor || threadsLoading || listQuery()) return;
@@ -598,11 +600,12 @@ if (typeof document !== 'undefined') (function () {
   $('#wk').addEventListener('click', e => {
     const b = e.target.closest('.wk-c'); if (!b || b.getAttribute('aria-disabled') === 'true') return;
     const lab = $('#convList').querySelector(`.group-label[data-day="${b.dataset.day}"]`); if (!lab) return;
-    wkDay = b.dataset.day; renderWk(); lab.scrollIntoView({ block: 'start', behavior: reduce.matches ? 'auto' : 'smooth' });
+    wkDay = b.dataset.day; wkLock = Date.now() + 1000; renderWk(); lab.scrollIntoView({ block: 'start', behavior: reduce.matches ? 'auto' : 'smooth' });
   });
-  let wkT = 0;
+  let wkT = 0, wkLock = 0;
   function trackWk() {
     clearTimeout(wkT); wkT = setTimeout(() => {
+      if (Date.now() < wkLock) return;
       const top = scroller.getBoundingClientRect().top + (parseFloat(getComputedStyle(listView).getPropertyValue('--nav-h')) || 44) + ($('#wk').offsetHeight || 0) + 2;
       const labs = [...$('#convList').querySelectorAll('.group-label[data-day]')]; if (!labs.length) return;
       let cur = labs[0]; for (const l of labs) if (l.getBoundingClientRect().top <= top + 8) cur = l; else break;
@@ -615,7 +618,7 @@ if (typeof document !== 'undefined') (function () {
     const live = convs.filter(c => !c.archived);
     live.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updated - a.updated);
     const list = live.filter(c => !q || c.title.toLowerCase().includes(q) || c.messages.some(m => (m.content || '').toLowerCase().includes(q)) || (c.preview || '').toLowerCase().includes(q));
-    $('#listEmpty').hidden = !!live.length || threadsLoading || flatMode;
+    $('#listEmpty').hidden = !!live.length || threadsLoading || listLoading || flatMode;
     const label = (txt, n, day) => { const h = document.createElement('li'); h.className = 'group-label'; if (day) h.dataset.day = day; h.innerHTML = '<span class="gl-n"></span><span class="gl-c"></span>'; h.querySelector('.gl-n').textContent = txt; h.querySelector('.gl-c').textContent = n ? `대화 ${n}` : ''; ul.appendChild(h); };
     if (!flatMode) {
       const cnt = new Map(); list.forEach(c => { const k = c.pinned ? 'pin' : kstDay(c.updated || 0); cnt.set(k, (cnt.get(k) || 0) + 1); });
@@ -636,7 +639,7 @@ if (typeof document !== 'undefined') (function () {
       });
       if (!list.length && !hits.length) ul.innerHTML = '<li class="no-results">결과 없음</li>';
     } else if (q && !list.length && !(mode === 'server' && searchT)) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    if (threadsLoading && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
+    if ((threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
     // one group card per run of rows: round the first and last row
     let run = [];
     const flush = () => { if (run.length) { run[0].classList.add('g1'); run[run.length - 1].classList.add('g9'); } run = []; };
@@ -1336,9 +1339,10 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- 오늘 (DIRECTION-B §4, B2): the root. A timeline of what Eve sent first and what you asked today, a "지금" line, one composer. ---------- */
   const tInput = $('#tInput'), tSend = $('#tSend');
-  let listLoading = false, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false;
   const todaySeenKey = 'eve.b2.todaySeen';
-  const todayState = () => ({ error: listError, skeleton: listLoading && !convs.length && Date.now() - loadT0 >= 250 });
+  // skeleton only on a cold start (no cached list) and only when 250ms have passed; `ready` = list loaded and today's threads' messages in (the stagger waits for it)
+  const needMsgs = M => M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
+  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(self.EveToday.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
   const TODAY = self.EveToday?.init({
     convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
     retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
@@ -1350,8 +1354,8 @@ if (typeof document !== 'undefined') (function () {
     $('#todayDate').textContent = self.EveToday.dateLine();
     const M = TODAY.render();
     // pro messages live inside threads: load the messages of today's threads (and the 이어서 candidates) once, then draw again
-    const need = M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
-    if (need.length && mode === 'server') { need.forEach(c => { c._tTried = true; }); Promise.allSettled(need.map(c => ensureMessages(c))).then(() => todayDirty()); }
+    const need = needMsgs(M);
+    if (need.length && mode === 'server') { need.forEach(c => { c._tTried = true; }); msgsPending += need.length; Promise.allSettled(need.map(c => ensureMessages(c).finally(() => { msgsPending--; }))).then(() => todayDirty()); }
   }
   function todayDirty() {
     if (!TODAY || tDirtyT) return;
@@ -1466,6 +1470,7 @@ if (typeof document !== 'undefined') (function () {
   /* 기록: search mode (§9.2). The magnifier swaps the title + week strip for the field; 취소 restores them. */
   function setSearching(on) {
     listView.classList.toggle('searching', on);
+    for (const e of [$('#wk'), listView.querySelector('.l-head')]) if (e) e.inert = on;   // faded out → also out of the tab order
     const f = $('#search');
     if (on) f.focus({ preventScroll: true });
     else { f.value = ''; f.blur(); onSearch(); }

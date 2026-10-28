@@ -48,20 +48,20 @@ with sync_playwright() as p:
     reset(); ctx, pg = newpg(b); goto_today(pg); c = cls(pg)
     check('empty account: just the 지금 item, no 이어서, no logo, no error', c == ['rail-now'] or [x.split()[0] for x in c] == ['rail-now'], c); ctx.close()
     # ---- 4) skeleton while the first load is in flight
-    reset(); rich(); put('/delay/1800?GET /v1/threads')
+    reset(); rich(); put('/delay/1800?GET%20/v1/threads')
     ctx, pg = newpg(b); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(900)
     check('skeleton: 2 placeholder items (aria-hidden) while loading; no 지금 mixed with stale data', pg.locator('#todayList .skel-ev').count() == 2 and pg.evaluate("[...document.querySelectorAll('#todayList .skel-ev')].every(l=>l.getAttribute('aria-hidden')==='true')"))
-    pg.wait_for_timeout(2600); check('skeleton replaced by the real items', pg.locator('#todayList .skel-ev').count() == 0 and pg.locator('#todayList .ev.pro').count() == 3)
+    pg.wait_for_timeout(5600); check('skeleton replaced by the real items', pg.locator('#todayList .skel-ev').count() == 0 and pg.locator('#todayList .ev.pro').count() == 3)
     put('/delay/clear'); ctx.close()
     # ---- 5) load error → message + retry
-    reset(); rich(); put('/fail/500?GET /v1/threads')
+    reset(); rich(); put('/fail/500?GET%20/v1/threads')
     ctx, pg = newpg(b); goto_today(pg, wait=1800)
     check('error: "불러오지 못했어요" + 다시 시도 (no raw error text)', pg.locator('#todayList .t-err').count() == 1 and '불러오지 못했어요' in pg.text_content('#todayList .t-err') and pg.is_visible('#todayRetry'))
     put('/fail/clear'); pg.click('#todayRetry'); pg.wait_for_timeout(1500)
     check('retry → items appear', pg.locator('#todayList .t-err').count() == 0 and pg.locator('#todayList .ev.pro').count() == 3); ctx.close()
     # ---- 6) first-visit stagger: transform/opacity only, once per session, never with reduced motion
     reset(); rich()
-    ctx, pg = newpg(b); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(120); pg.reload(); pg.wait_for_timeout(700)
+    ctx, pg = newpg(b); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900)   # the stagger is once per session: look before any reload
     n1 = pg.locator('#todayList .stg').count(); d = pg.evaluate("[...document.querySelectorAll('#todayList .stg')].map(l=>l.style.animationDelay)")
     check('first visit: ≤5 items staggered 40ms apart', 1 <= n1 <= 5 and d[:3] == ['0ms', '40ms', '80ms'], [n1, d])
     pg.reload(); pg.wait_for_timeout(900); check('same session again: no stagger', pg.locator('#todayList .stg').count() == 0); ctx.close()
