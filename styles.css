@@ -1001,7 +1001,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 @media (prefers-reduced-motion:reduce){.plus-menu{transform:none;transition:opacity var(--d-2) linear}.msg.ev.enter{animation:fadeIn var(--d-2) linear both}}
 .ev,.rail-now,.ev>*,.cc-stack,.cc-stack>*{min-width:0}
 
-.mchips.fresh{animation:srcFade 120ms ease-out both}
+.mchips.fresh{animation:srcFade var(--d-1) var(--ease-out) both}
 @media (prefers-reduced-motion:reduce){.mchips.fresh{animation:none;opacity:1}}
 .mem-row{position:relative}
 .mem-row.hl::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--fill);pointer-events:none;animation:hlFade 600ms var(--ease-out) both}

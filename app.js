@@ -234,7 +234,8 @@ if (typeof document !== 'undefined') (function () {
     if (open === !menu.hidden) return;
     btn.setAttribute('aria-expanded', String(open));
     if (open) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; menu.classList.add('show'); web.focus({ preventScroll: true }); }
-    else { menu.classList.remove('show'); const done = () => { if (!menu.classList.contains('show')) menu.hidden = true; }; if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else setTimeout(done, 160); }
+    else { menu.classList.remove('show'); let fin = false, t = 0; const done = () => { if (fin) return; fin = true; clearTimeout(t); menu.removeEventListener('transitionend', onEnd); if (!menu.classList.contains('show')) menu.hidden = true; }; const onEnd = e => { if (e.target === menu) done(); };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else { menu.addEventListener('transitionend', onEnd); t = setTimeout(done, 200); } }   /* hidden once the close transition ends, or after 200ms (--d-2) if it never fires */
   }
   PLUS.forEach(P => {
     P.btn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(P.menu.hidden, P); });
