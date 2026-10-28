@@ -118,7 +118,8 @@
   /** the stream-only stack that also holds the confirm card (same .cc-stack proactive.js mounts into) */
   function mount(node, after) {
     if (!node || !after) return;
-    const host = after.nextElementSibling && after.nextElementSibling.classList.contains('cc-stack') ? after.nextElementSibling : (() => { const s = el('div', 'cc-stack'); after.after(s); return s; })();
+    let host = after.querySelector(':scope > .cc-stack');   // §8.2: inside the event body, after the text and before the action row
+    if (!host) { host = el('div', 'cc-stack'); const act = after.querySelector(':scope > .actions'); if (act) act.before(host); else after.appendChild(host); }
     host.appendChild(node);
   }
 

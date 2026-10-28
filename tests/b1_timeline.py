@@ -20,7 +20,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(); ctx = new_ctx(b); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     open_thread(pg, '하루 타임라인'); pg.wait_for_timeout(800)
     ev = lambda js: pg.evaluate(js)
-    check('list role + aria-label 오늘 기록', ev("(()=>{const m=document.getElementById('messages');return m.getAttribute('role')==='list'&&m.getAttribute('aria-label')==='오늘 기록'})()"))
+    check('list role + aria-label = the thread title (follow-up d)', ev("(()=>{const m=document.getElementById('messages'),t=document.getElementById('title').textContent.trim();return m.getAttribute('role')==='list'&&!!t&&m.getAttribute('aria-label')===t})()"))
     msgs = ev("[...document.querySelectorAll('#messages > .msg')].map(m=>({c:m.className,r:m.getAttribute('role'),a:m.getAttribute('aria-label'),tm:m.querySelector(':scope>.tm')?.textContent,who:m.querySelector(':scope>.who .who-n')?.textContent,dot:m.querySelector(':scope>.dot')?.getAttribute('aria-hidden')}))")
     check('6 events, all listitems with a dot aria-hidden', len(msgs) == 6 and all(m['r'] == 'listitem' and m['dot'] == 'true' for m in msgs), msgs)
     check('time column = KST HH:mm (24h)', [m['tm'] for m in msgs][:5] == ['07:41', '07:42', '08:05', '08:06', '09:00'], [m['tm'] for m in msgs])

@@ -361,9 +361,13 @@
       }
       (m.pendingActions || []).forEach(a => mountCard(a, wrap));
     }
+    function ccHost(after) {   // the .cc-stack lives inside the message (.ev body column): after the text / chips / briefing card, before the action row
+      let s = after.querySelector(':scope > .cc-stack'); if (s) return s;
+      s = el('div', 'cc-stack'); const act = after.querySelector(':scope > .actions'); if (act) act.before(s); else after.appendChild(s); return s;
+    }
     function mountCard(a, after) {
       if (cards.has(a.action_id) && document.body.contains(cards.get(a.action_id))) return;
-      const host = after.nextElementSibling && after.nextElementSibling.classList.contains('cc-stack') ? after.nextElementSibling : (() => { const s = el('div', 'cc-stack'); after.after(s); return s; })();
+      const host = ccHost(after);   // §8.2: inside the Eve event body (under the text, 8px), not a sibling row
       host.appendChild(renderConfirmCard(a, { P, onSettled: (id, s) => { a.status = { confirmed: 'executed', declined: 'rejected', expired: 'expired', error: 'failed' }[s]; } }));
     }
     /* read rule (A3.3): ≥50% visible for 1s while the page is visible → local now, POST via outbox */
