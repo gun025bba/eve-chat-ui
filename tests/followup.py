@@ -63,6 +63,11 @@ with sync_playwright() as p:
         g = pg.evaluate("""(() => { const c = document.querySelector('.confirm-card'), ev = c.closest('.ev'), st = c.closest('.cc-stack'), tx = ev && ev.querySelector(':scope > .tx'), act = ev && ev.querySelector(':scope > .actions');
           const r = e => e.getBoundingClientRect(); return { inEv: !!ev && st.parentElement === ev, gap: Math.round((r(st).top - r(tx).bottom) * 10) / 10, before: !!act && !!(st.compareDocumentPosition(act) & Node.DOCUMENT_POSITION_FOLLOWING), left: Math.round(r(c).left - r(tx).left), sibling: !!document.querySelector('#messages > .cc-stack'), rail: getComputedStyle(ev).backgroundImage.includes('linear-gradient') } })()""")
         check(f'{scheme} g) confirm card is inside the .ev body, 8px under the text, before the action row, same left edge, no sibling stack', g['inEv'] and abs(g['gap'] - 8) <= .6 and g['before'] and g['left'] == 0 and not g['sibling'], g)
+        rl = pg.evaluate("""(() => { const st = document.querySelector('.cc-stack'), ev = st.closest('.ev'), r = e => e.getBoundingClientRect(); const x = r(ev).left + 51;
+          const rails = e => [e, ...e.querySelectorAll('*')].filter(n => { const cs = getComputedStyle(n); return cs.backgroundImage.includes('gradient') && parseFloat(cs.backgroundSize.split(' ')[0]) <= 2 }).length;
+          const c = document.querySelector('.confirm-card'); return { stackBg: getComputedStyle(st).backgroundImage, stackRails: rails(st), evRail: getComputedStyle(ev).backgroundImage.includes('gradient'), railX: Math.round(x), cardLeft: Math.round(r(c).left), stackLeft: Math.round(r(st).left) } })()""")
+        check(f'{scheme} g-fix) no rail line over the confirm card: .cc-stack and its children draw no 1px gradient, the .ev rail (x={rl["railX"]}) is left of the card ({rl["cardLeft"]})', rl['stackBg'] == 'none' and rl['stackRails'] == 0 and rl['evRail'] and rl['railX'] < rl['stackLeft'] and rl['railX'] < rl['cardLeft'], rl)
+        pg.screenshot(path=f'/tmp/fu_card_{scheme}.png')
         ctx.close()
     # e) one icon name
     reset(); rich(); brief_thread([ev('a', 9, 0)]); ctx, pg = newpg(b, errs); goto_today(pg)
@@ -103,5 +108,23 @@ with sync_playwright() as p:
         ctx, pg = newpg(b, errs); goto_today(pg); pg.wait_for_timeout(500)
         check(f'k) {label} → 오늘 일정 cell {"shown" if want else "hidden"}', ('sch' in keys(pg)) == want, keys(pg)); ctx.close()
     check('k) TODO for the architect is left in app.js', 'TODO(architect)' in APP and 'briefing.enabled' in APP)
+    # ---- a2) .primary / .mem-intro-ok on --accent-fill, c2) .sources.fresh token, b2) reopen without a jump
+    for scheme in ('dark', 'light'):
+        ctx, pg = newpg(b, errs, scheme=scheme); goto_today(pg)
+        o = pg.evaluate("""(() => { const out = {}; for (const c of ['primary', 'mem-intro-ok']) { const e = document.createElement('button'); e.className = c; document.body.appendChild(e); const cs = getComputedStyle(e); out[c] = [cs.backgroundColor, cs.color]; e.remove() } return out })()""")
+        want = 'rgb(10, 111, 232)' if scheme == 'dark' else 'rgb(0, 113, 227)'
+        for c in ('primary', 'mem-intro-ok'):
+            cr = cr_white(pg, o[c][0])
+            check(f'{scheme} a2) .{c}: white on --accent-fill = {cr}:1 (was {"3.7" if scheme == "dark" else "4.0"}:1) ≥ 4.5', o[c][0] == want and o[c][1] == 'rgb(255, 255, 255)' and cr >= 4.5, o[c])
+        ctx.close()
+    check('c2) .sources.fresh uses var(--d-1) var(--ease-out); no 120ms literal left in animations', '.sources.fresh{animation:srcFade var(--d-1) var(--ease-out) both}' in CSS and 'srcFade 120ms' not in CSS)
+    reset(); rich(); ctx, pg = newpg(b, errs); goto_today(pg); open_thread(pg, '코드 리뷰'); pg.wait_for_timeout(500)
+    btn = '#tPlus' if pg.locator('#tPlus').is_visible() else '#plusBtn'; menu = '#tMenu' if btn == '#tPlus' else '#plusMenu'
+    pg.click(btn); pg.wait_for_timeout(400)
+    r = pg.evaluate(f"""new Promise(res => {{ const m = document.querySelector('{menu}'), b = document.querySelector('{btn}'); b.click();
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => {{ const before = parseFloat(getComputedStyle(m).opacity); b.click(); requestAnimationFrame(() => {{ const after = parseFloat(getComputedStyle(m).opacity); requestAnimationFrame(() => res({{ before, after, shown: m.classList.contains('show'), hidden: m.hidden }})) }}) }})))
+    }})""")
+    check('b2) re-opening mid-close does not reset to opacity 0 (no one-frame jump)', r['shown'] and not r['hidden'] and r['after'] >= r['before'] - .02 and r['before'] < 1, r)
+    pg.wait_for_timeout(500); check('b2) …and the menu stays open', not pg.evaluate(f"document.querySelector('{menu}').hidden")); ctx.close()
     check('no page errors', not errs, errs); b.close()
 print(f'{sum(R)}/{len(R)} checks'); raise SystemExit(0 if all(R) else 1)

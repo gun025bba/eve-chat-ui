@@ -158,7 +158,7 @@ dialog::backdrop{background:var(--scrim);animation:fade var(--d-base) var(--ease
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:999px;background:var(--fill);position:relative;flex:none;margin:0;transition:background var(--d-fast)}
 input[type=checkbox]::before{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform var(--d-base) var(--ease-spring)}
 input[type=checkbox]:checked{background:var(--green)}input[type=checkbox]:checked::before{transform:translateX(20px)}
-.primary{width:100%;height:50px;border-radius:12px;background:var(--accent);color:#fff;font-weight:600;margin-top:12px}
+.primary{width:100%;height:50px;border-radius:12px;background:var(--accent-fill);color:#fff;font-weight:600;margin-top:12px}
 @media (min-width:761px){dialog{margin:auto;width:480px;border-radius:16px}.grabber{display:none}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:var(--d-2)!important;animation-iteration-count:1!important;transition-duration:var(--d-2)!important;transition-property:opacity!important}
   @keyframes msgIn{from{opacity:0}}@keyframes msgSend{from{opacity:0}}@keyframes sheetIn{from{opacity:0}}@keyframes sheetUp{from{opacity:0}}@keyframes rowIn{from{opacity:0}}@keyframes cc-in{from{opacity:0}to{opacity:1}}
@@ -711,7 +711,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-intro-list{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:16px}
 .mem-intro-list li{display:flex;gap:12px;align-items:flex-start;font-size:1.0625rem;line-height:1.375rem;color:var(--label)}
 .mem-intro-list svg{flex:none;width:28px;height:28px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
+.mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent-fill);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
 .mem-intro-alt{min-height:44px;color:var(--accent);font-size:17px;margin-top:4px}
 @media (prefers-reduced-motion:reduce){.mem-intro{transform:none;opacity:0;transition:opacity .2s}.mem-intro.show{opacity:1}.mem-intro-scrim{transition:opacity .2s}.mem-intro-icon{transform:none;transition:opacity .2s}}
 /* 1.2.1 — no horizontal scroll from long sources/links/tables/code (design 2deb88d SOURCES-SPEC.md) */
@@ -806,7 +806,7 @@ sup.cite{line-height:0;margin-left:1px;vertical-align:super}
 sup.cite a{position:relative;display:inline-block;min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-size:11px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;box-sizing:border-box}
 sup.cite a::before{content:"";position:absolute;inset:-14px -6px}
 .sources{margin-top:2px;padding-top:0;border-top:0;min-width:0}
-.sources.fresh{animation:srcFade 120ms ease-out both}
+.sources.fresh{animation:srcFade var(--d-1) var(--ease-out) both}
 @keyframes srcFade{from{opacity:0}to{opacity:1}}
 .fav{width:20px;height:20px;border-radius:50%;box-shadow:0 0 0 2px var(--src-bg);background:var(--fill);overflow:hidden;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--label);flex:none}
 .fav img{width:100%;height:100%;object-fit:cover;display:block}
@@ -926,10 +926,10 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 }
 @media (prefers-color-scheme:light){:root{--sub:rgba(60,60,67,.78);--pend:#B25000;--tx:var(--label);--me:var(--label)}}
 #messages{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
-.ev,.rail-now,.cc-stack,.day-sep,.unread-sep{max-width:560px;margin-left:auto;margin-right:auto;
-  background:linear-gradient(var(--rail),var(--rail)) no-repeat 51px 0/1px 100%}   /* the rail: a 1px column drawn by each row, so it continues through day separators and cards */
-:is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep):not(:has(~ :is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep))){background-image:linear-gradient(var(--rail),var(--rail) 88%,transparent)}
-:is(.ev,.rail-now):not(:is(.ev,.rail-now,.cc-stack,.day-sep,.unread-sep) ~ *){background-position:51px 6px;background-size:1px calc(100% - 6px)}
+.ev,.rail-now,.day-sep,.unread-sep{max-width:560px;margin-left:auto;margin-right:auto;
+  background:linear-gradient(var(--rail),var(--rail)) no-repeat 51px 0/1px 100%}   /* the rail: a 1px column drawn by each row, so it continues through day separators; the confirm card (.cc-stack) sits inside .ev and draws no rail of its own */
+:is(.ev,.rail-now,.day-sep,.unread-sep):not(:has(~ :is(.ev,.rail-now,.day-sep,.unread-sep))){background-image:linear-gradient(var(--rail),var(--rail) 88%,transparent)}
+:is(.ev,.rail-now):not(:is(.ev,.rail-now,.day-sep,.unread-sep) ~ *){background-position:51px 6px;background-size:1px calc(100% - 6px)}
 .ev,.rail-now{position:relative;padding:0 0 18px 70px;margin-top:0;margin-bottom:0;min-width:0;align-items:stretch}
 .msg.ev+.msg.ev,.msg.user+.msg.user,.msg.assistant+.msg.assistant{margin-top:0}
 .msg.ev.enter,.msg.user.ev.enter{animation:msgIn var(--d-3) var(--ease-out) both}

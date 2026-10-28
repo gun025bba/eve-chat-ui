@@ -233,7 +233,7 @@ if (typeof document !== 'undefined') (function () {
     const { btn, menu, web } = P;
     if (open === menu.classList.contains('show')) return;   // logical state: a tap during the close transition re-opens
     btn.setAttribute('aria-expanded', String(open));
-    if (open) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; menu.classList.add('show'); web.focus({ preventScroll: true }); }
+    if (open) { if (menu.hidden) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; } menu.classList.add('show');   /* re-opening mid-close just adds .show back: no reset to 0, no one-frame jump */ web.focus({ preventScroll: true }); }
     else { menu.classList.remove('show'); let fin = false, t = 0; const done = () => { if (fin) return; fin = true; clearTimeout(t); menu.removeEventListener('transitionend', onEnd); if (!menu.classList.contains('show')) menu.hidden = true; }; const onEnd = e => { if (e.target === menu) done(); };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else { menu.addEventListener('transitionend', onEnd); t = setTimeout(done, 200); } }   /* hidden once the close transition ends, or after 200ms (--d-2) if it never fires */
   }
