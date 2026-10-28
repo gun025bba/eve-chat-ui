@@ -218,11 +218,21 @@ if (typeof document !== 'undefined') (function () {
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
   /* web search toggle (persisted; on => web_search:'auto') */
-  const webBtn = $('#webBtn'), LS_WEB = 'llmchat.webSearch';
+  const webBtn = $('#webBtn'), plusBtn = $('#plusBtn'), plusMenu = $('#plusMenu'), LS_WEB = 'llmchat.webSearch';
   const webOn = () => localStorage.getItem(LS_WEB) === '1';
-  function setWebOn(on) { if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB); webBtn.setAttribute('aria-pressed', String(on)); webBtn.classList.toggle('on', on); webBtn.title = on ? '웹 검색 켜짐' : '웹 검색 꺼짐'; }
+  function setWebOn(on) { if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB); webBtn.setAttribute('aria-checked', String(on)); webBtn.classList.toggle('on', on); plusBtn.classList.toggle('web-on', on); plusBtn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); plusBtn.title = on ? '웹 검색 켜짐' : ''; }
   setWebOn(webOn());
-  webBtn.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+  /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur */
+  function setPlusMenu(open) {
+    if (open === !plusMenu.hidden) return;
+    plusBtn.setAttribute('aria-expanded', String(open));
+    if (open) { plusMenu.hidden = false; plusMenu.classList.remove('show'); void plusMenu.offsetWidth; plusMenu.classList.add('show'); webBtn.focus({ preventScroll: true }); }
+    else { plusMenu.classList.remove('show'); const done = () => { if (!plusMenu.classList.contains('show')) plusMenu.hidden = true; }; if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else setTimeout(done, 160); }
+  }
+  plusBtn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(plusMenu.hidden); });
+  document.addEventListener('pointerdown', e => { if (!plusMenu.hidden && !e.target.closest('#plusMenu, #plusBtn')) setPlusMenu(false); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !plusMenu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false); plusBtn.focus({ preventScroll: true }); } }, true);
+  webBtn.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
@@ -314,6 +324,7 @@ if (typeof document !== 'undefined') (function () {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
+    { const r = self.EveProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
@@ -637,10 +648,32 @@ if (typeof document !== 'undefined') (function () {
   $('#archBack').onclick = () => back();
 
   /* ---------- messages ---------- */
+  /* 1.10.0 B1 (DIRECTION-B §3): a message is one timeline event: time (KST, 24h) · dot · who · body. No bubbles. */
+  const KST_HM = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const KST_YMD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const hhmm = t => { try { return KST_HM.format(new Date(t)); } catch { return ''; } };
+  const kstDay = t => { try { return KST_YMD.format(new Date(t)); } catch { return ''; } };
+  const WEEKDAY = '일월화수목금토';
+  function daySepText(t, now = Date.now()) {
+    const d = kstDay(t), today = kstDay(now), [y, mo, da] = d.split('-').map(Number), wd = WEEKDAY[new Date(Date.UTC(y, mo - 1, da)).getUTCDay()];
+    if (d === today) return `오늘 · ${wd}`; if (d === kstDay(now - 864e5)) return `어제 · ${wd}`;
+    return (String(y) !== today.slice(0, 4) ? `${y}년 ` : '') + `${mo}월 ${da}일 · ${wd}`;
+  }
+  const USER_NAME = '나';   // the signed-in display name has no settings field yet (DIRECTION-B §14): never hard-code a person
   function addMsgEl(role, content, m) {
-    const wrap = document.createElement('div'); wrap.className = 'msg ' + role; if (m?.id) wrap.dataset.mid = m.id;
-    const b = document.createElement('div'); b.className = 'bubble'; wrap.appendChild(b);
+    const t = m?.created > 0 ? m.created : Date.now(), who = role === 'user' ? USER_NAME : 'Eve';
+    const wrap = document.createElement('div'); wrap.className = 'msg ev ' + role + (role === 'user' ? ' me' : role === 'assistant' ? ' e' : ''); wrap.dataset.t = String(t); if (m?.id) wrap.dataset.mid = m.id;
+    wrap.setAttribute('role', 'listitem'); wrap.setAttribute('aria-label', `${hhmm(t)} ${who}`);
+    const tm = document.createElement('time'); tm.className = 'tm'; tm.dateTime = new Date(t).toISOString(); tm.textContent = hhmm(t);
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.setAttribute('aria-hidden', 'true');
+    const wh = document.createElement('div'); wh.className = 'who'; const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; wh.appendChild(wn);
+    const b = document.createElement('div'); b.className = 'bubble tx'; wrap.append(tm, dot, wh, b);
     if (role === 'user') b.textContent = content;
+    if (role !== 'error') {   // a new date starts a day-sep (rail continues through it)
+      const prev = box._lastMsg && box.contains(box._lastMsg) ? box._lastMsg : [...box.querySelectorAll(':scope > .msg:not(.error)')].pop();
+      if (prev ? prev.dataset.t && kstDay(+prev.dataset.t) !== kstDay(t) : kstDay(t) !== kstDay(Date.now())) { const sep = document.createElement('div'); sep.className = 'day-sep'; sep.textContent = daySepText(t); box.appendChild(sep); }
+      box._lastMsg = wrap;
+    }
     if (!box.classList.contains('no-anim')) { box.querySelectorAll(':scope > .msg.enter').forEach(x => x.classList.remove('enter')); wrap.classList.add('enter'); }   // M9: only the newly appended last one
     box.appendChild(wrap); return b;
   }
@@ -680,6 +713,24 @@ if (typeof document !== 'undefined') (function () {
     if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
+  /* "참고한 기억" chips (DIRECTION-B §8.1): only when the message carries memory_refs and memory is on; text via escapeHtml only */
+  function renderMemRefs(m) {
+    const refs = m?.memoryRefs; if (!refs?.length || !MEM?.active?.()) return '';
+    const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
+    return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
+  }
+  box.addEventListener('click', e => {   // memory chip → settings sheet #memoryView, scroll to the row + 0.6s highlight; gone → quietly the top of the list
+    const b = e.target.closest('.chp.m'); if (!b || !MEM) return; const id = b.dataset.ref; let n = 0, opened = false;
+    openSettings();
+    const t = setInterval(() => {
+      n++; const o = $('#memOpen'), v = $('#memoryView');
+      if (v.hidden && o && o.offsetParent && !opened) { opened = true; o.click(); return; }
+      if (v.hidden) { if (n > 30) clearInterval(t); return; }
+      const row = [...v.querySelectorAll('.mem-row')].find(r => r.dataset.id === id);
+      if (row) { clearInterval(t); row.scrollIntoView({ block: 'center' }); row.classList.add('hl'); setTimeout(() => row.classList.remove('hl'), 600); }
+      else if (n > 18 || v.querySelector('.mem-row')) { clearInterval(t); v.scrollTop = 0; v.parentElement && (v.parentElement.scrollTop = 0); }
+    }, 90);
+  });
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
@@ -699,13 +750,13 @@ if (typeof document !== 'undefined') (function () {
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}`;
+    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}${renderMemRefs(opts.msg)}`;
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     bubble.innerHTML = html;
     if (wasLive && !live) bubble._freshAt = performance.now();
-    { const sec = !live && bubble._freshAt && bubble.querySelector('.sources'), el = sec ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill
-      if (sec && el < 120) { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; } }
+    { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
+      if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
@@ -863,16 +914,14 @@ if (typeof document !== 'undefined') (function () {
     return `입력 ${u.prompt_tokens ?? '?'} · 출력 ${ct ?? '?'} tok${rate}`;
   }
 
-  const CHIPS = [['코드 리뷰', '이 함수의 개선점을 알려줘', 'source'], ['요약', '긴 글을 핵심 3줄로 정리해줘', 'sparkle'], ['번역', '자연스러운 영어 문장으로 바꿔줘', 'globe'], ['아이디어', '주말에 할 사이드 프로젝트 추천', 'think']];
-  // 1.4.0 (REFRESH-SPEC §1.1/§1.7): no model name on screen; it lives in 설정 > 정보
-  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only
-  const EMPTY_SUB = 'Eve는 이 기기 가까이에서 실행돼요'; // REFRESH-SPEC §1.7
+  const SUBTITLE = '로컬 · 비공개'; // navigation subtitle only (moves to the settings header in B2)
+  /* 1.10.0 B1: an empty conversation is just the timeline's "지금" event (DIRECTION-B §4): no logo, headline, subtitle or suggestion cards. */
   function renderEmpty() {
-    box.innerHTML = `<div class="empty"><div class="mark-tile"><div class="mark"></div></div><h1>무엇을 도와드릴까요?</h1><small>${EMPTY_SUB}</small>
-      <div class="chips">${CHIPS.map((c, i) => `<button type="button" class="chip" data-i="${i}" data-q="${escapeHtml(c[1])}">${icon(c[2], 'i-sm chip-ic')}<b>${escapeHtml(c[0])}</b><span>${escapeHtml(c[1])}</span></button>`).join('')}</div></div>`;
-    box.querySelectorAll('.empty .mark-tile,.empty h1,.empty>small,.chip').forEach((b, i) => { b.style.animationDelay = (i * 40) + 'ms'; });
-    box.querySelectorAll('.chip').forEach(b => b.onclick = () => { if (!controller) send(b.dataset.q); });
+    const t = Date.now(), ev = document.createElement('div'); ev.className = 'rail-now'; ev.setAttribute('role', 'listitem'); ev.setAttribute('aria-label', `${hhmm(t)} 지금`);
+    ev.innerHTML = '<time class="tm"></time><span class="dot" aria-hidden="true"></span><div class="who"><span class="who-n">지금</span></div><div class="tx d">아래에 한 줄로 남기면 오늘 기록에 쌓여요.</div>';
+    ev.querySelector('.tm').textContent = hhmm(t); box.innerHTML = ''; box.appendChild(ev);
   }
+  setInterval(() => { const n = box.querySelector('.rail-now'); if (n && !document.hidden) { const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); } }, 60000);
   function renderMessages(keep) {
     box.innerHTML = '';
     const c = cur();
@@ -890,6 +939,7 @@ if (typeof document !== 'undefined') (function () {
       PRO?.decorateMsg([...box.querySelectorAll(':scope > .msg')].pop() || null, m, i, c.messages);
     });
     PRO?.afterRender(c);
+    if (MEM?.ensure && !MEM.active() && c.messages.some(m => m.memoryRefs?.length)) MEM.ensure().then(on => { if (on && cur() === c && !controller) renderMessages(true); });
     // 1.1.3: thread ends with a user turn and no reply (and nothing running) → visible retry
     if (!c.archived && c.messages.at(-1)?.role === 'user' && !c.loading && !(controller && genId === c.id)) addError('답변을 받지 못했어요', () => generate(c));
     requestAnimationFrame(() => { box.classList.remove('no-anim'); if (!keep) { stick = true; scrollBottom(); } });
@@ -1210,7 +1260,7 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- composer ---------- */
   let growH = -1;
-  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 160); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
+  function grow() { if (!input.value) { if (growH !== 0) { input.style.height = ''; growH = 0; } } else { input.style.height = 'auto'; const h = Math.min(input.scrollHeight, 120); input.style.height = h + 'px'; growH = h; } if (!controller) sendBtn.disabled = !input.value.trim(); }
   input.addEventListener('input', grow);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); submitComposer(); }

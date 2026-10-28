@@ -256,7 +256,11 @@
       const end = e => { if (y0 == null) return; const dy = e.clientY - y0; y0 = null; ix.style.transform = ''; if (dy > 80) closeIntro(); };
       ix.addEventListener('pointerup', end); ix.addEventListener('pointercancel', () => { y0 = null; ix.style.transform = ''; });
     }
-    return { openSettings, flag: true, flushDeletes, intro, closeIntro };
+    /* DIRECTION-B §5/§8.1: "참고한 기억" chip is shown only while memory is effectively on (memory_available AND memory.enabled); unknown → off */
+    const active = () => !!(h.isServer() && st.serverOn && st.enabled && !st.kill);
+    let okAt = 0;
+    async function ensure() { if (!(h.isServer() && st.serverOn && Date.now() - okAt < 60000)) { try { const s = await api.getSettings(); st = Object.assign({}, st, { serverOn: true, enabled: s.enabled, kill: !s.available }); okAt = Date.now(); } catch { st = Object.assign({}, st, { serverOn: false }); } } return active(); }
+    return { openSettings, flag: true, flushDeletes, intro, closeIntro, active, ensure };
   }
   self.EveMemory = { init, FLAG, order };
 })();

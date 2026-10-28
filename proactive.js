@@ -343,20 +343,17 @@
     let prevJob = null, sepDone = new Set();
     function decorateMsg(wrap, m, i, msgs) {
       if (!wrap || !m) return;
-      if (m.origin === 'proactive') {
-        const prev = msgs && msgs[i - 1], cont = prev && prev.origin === 'proactive' && prev.jobId === m.jobId && prev.kind === m.kind;
-        const label = m.kind === 'digest' ? '조용한 시간 동안 · 요약' : m.jobName ? 'Eve가 먼저 보냄 · ' + m.jobName : 'Eve가 먼저 보냄', t = when(m.created || Date.now());
+      if (m.origin === 'proactive') {   // 1.10.0 B1 (DIRECTION-B §3): the who line + time replace the origin line and the time separator
+        const label = m.kind === 'digest' ? 'Eve · 조용한 시간 동안 요약' : m.jobName ? 'Eve · ' + m.jobName : 'Eve가 먼저 보냄', t = m.created || Date.now();
         wrap.classList.add('proactive'); wrap.dataset.origin = 'proactive'; if (m.jobId) wrap.dataset.job = m.jobId;
-        wrap.setAttribute('role', 'article');
-        wrap.setAttribute('aria-label', (m.readAt ? '' : '읽지 않음, ') + 'Eve가 먼저 보낸 메시지, ' + (m.kind === 'digest' ? '조용한 시간 동안 요약, ' : m.jobName ? m.jobName + ', ' : '') + t);
+        wrap.setAttribute('aria-label', (m.readAt ? '' : '읽지 않음, ') + (wrap.querySelector(':scope > .tm')?.textContent || '') + ' ' + label);
         if (!m.readAt) wrap.dataset.unread = '';
-        if (prev && (m.created || 0) - (prev.created || 0) >= 30 * 60000 || prev && new Date(m.created).toDateString() !== new Date(prev.created).toDateString()) {
-          const sep = el('div', 'day-sep', (new Date(m.created).toDateString() === new Date().toDateString() ? '오늘 ' : '') + when(m.created)); wrap.before(sep);
+        const who = wrap.querySelector(':scope > .who');
+        if (who) {
+          who.querySelector('.who-ic')?.remove();
+          const ic = IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle']; if (ic) who.insertAdjacentHTML('afterbegin', ic.replace('class="i"', 'class="i who-ic"'));
+          who.querySelector('.who-n').textContent = label;
         }
-        const line = el('div', 'origin-line');
-        if (!cont) { line.insertAdjacentHTML('beforeend', IC[{ briefing: 'sun', watch: 'eye', followup: 'uturn' }[m.templateKind] || 'sparkle'].replace('class="i"', 'class="i origin-ic"')); line.appendChild(el('span', 'origin-label', label)); }
-        const tm = el('time', null, t); tm.dateTime = new Date(m.created || Date.now()).toISOString(); line.appendChild(tm);
-        wrap.insertBefore(line, wrap.firstChild);
       }
       if (m.briefing && self.EvePim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
         let c = null; try { c = EvePim.briefingCard(m.briefing); } catch {}
