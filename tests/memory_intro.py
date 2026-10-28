@@ -85,7 +85,7 @@ with sync_playwright() as p:
     check('seen saved on show: PATCH /v1/settings {ui:{memory_intro_seen:true}} (CSRF gate passed)', uiPatches() == [{'ui': {'memory_intro_seen': True}}], uiPatches())
     check('PATCH 400 ignored: sheet stays, no toast, no error', shown(pg) and pg.evaluate("!document.getElementById('toast').classList.contains('show')") and not errs)
     g = pg.evaluate("(()=>{const r=id=>document.getElementById(id).getBoundingClientRect();const s=getComputedStyle(document.getElementById('memIntro'));return [r('memIntroOk').height,r('memIntroSettings').height,Math.round(r('memIntro').height),s.paddingBottom,getComputedStyle(document.getElementById('memIntroOk')).backgroundColor]})()")
-    check('buttons ≥44pt (좋아요 50), medium height, bottom padding ≥16, filled accent', g[0] >= 50 and g[1] >= 44 and 0.5 * 844 <= g[2] <= 0.9 * 844 and float(g[3][:-2]) >= 16 and g[4] == 'rgb(10, 132, 255)', g)
+    check('buttons ≥44pt (좋아요 50), medium height, bottom padding ≥16, filled --accent-fill', g[0] >= 50 and g[1] >= 44 and 0.5 * 844 <= g[2] <= 0.9 * 844 and float(g[3][:-2]) >= 16 and g[4] == 'rgb(10, 111, 232)', g)
     ids = []
     for _ in range(4): pg.keyboard.press('Tab'); ids.append(pg.evaluate('document.activeElement.id'))
     pg.keyboard.press('Shift+Tab'); ids.append(pg.evaluate('document.activeElement.id'))
