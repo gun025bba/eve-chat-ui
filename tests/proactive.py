@@ -40,7 +40,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 1.10.0', pg.evaluate('window.__app && window.__app.version') == '1.10.0', [errs, pg.url, pg.content()[:300]])
+    check('version 1.10.1', pg.evaluate('window.__app && window.__app.version') == '1.10.1', [errs, pg.url, pg.content()[:300]])
     to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')

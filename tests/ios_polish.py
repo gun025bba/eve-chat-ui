@@ -13,7 +13,7 @@ errs = []
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark').new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500)
-    check('version 1.10.0', pg.evaluate('__app.version') == '1.10.0')
+    check('version 1.10.1', pg.evaluate('__app.version') == '1.10.1')
     a = pg.evaluate("(()=>{const i=document.getElementById('input');return [i.tagName,i.name,i.getAttribute('autocomplete'),i.getAttribute('autocorrect'),i.getAttribute('autocapitalize'),i.getAttribute('enterkeyhint')]})()")
     check('composer: textarea, non-sensitive name, meaningless autocomplete token, autocorrect/autocapitalize off (1.7.0 QuickType), enterkeyhint', a == ['TEXTAREA', 'eve-composer', 'eve-composer', 'off', 'off', 'send'] and not re.search(r'name|contact|tel|email', a[1]), a)
     s = pg.evaluate("(()=>[...document.querySelectorAll('.navbar,#topbar')].map(n=>{const c=getComputedStyle(n),b=getComputedStyle(n,'::before');return [c.backgroundColor,c.backdropFilter||c.webkitBackdropFilter||'none',b.content==='none'?'':b.backgroundColor,b.backdropFilter||'none']}))()")
