@@ -1150,7 +1150,7 @@ body.kb-open #tComposer{padding-bottom:8px}
 #tMenu #tWeb.on .i-check{opacity:1}
 /* nav on 오늘/기록: transparent at rest, --material crossfades in (opacity) once the title has scrolled away (§4) */
 #todayView .navbar,#listView .navbar{background:transparent}
-#todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-fast) linear;pointer-events:none}
+#todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-2) var(--ease-out);pointer-events:none}
 #todayView .navbar.collapsed::before,#listView .navbar.collapsed::before{opacity:1}
 @media (min-width:761px){#listView .navbar:not(.collapsed)::before{display:block}}
 #convList li.row:not(.swiped),#archList li.row:not(.swiped){background:var(--layer-1)}
