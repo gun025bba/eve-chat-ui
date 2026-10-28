@@ -2,7 +2,7 @@
   color-scheme:dark light;
   --bg:#000;--bg-elev:#1C1C1E;--bg-elev-2:#2C2C2E;--fill:rgba(120,120,128,.24);
   --label:#F5F5F7;--label-2:rgba(235,235,245,.62);--label-3:rgba(235,235,245,.32);
-  --separator:rgba(84,84,88,.6);--accent:#0A84FF;--user-bubble:#2C2C2E;--user-fg:#F5F5F7;
+  --separator:rgba(84,84,88,.6);--accent:#0A84FF;--accent-fill:#0A6FE8;--user-bubble:#2C2C2E;--user-fg:#F5F5F7;
   --danger:#FF453A;--code-bg:#111113;--material:#161618;--scrim:rgba(0,0,0,.5);--green:#30D158;
   --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Apple SD Gothic Neo",system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
@@ -15,7 +15,7 @@
 @media (prefers-color-scheme:light){:root{
   --bg:#fff;--bg-elev:#F2F2F7;--bg-elev-2:#E5E5EA;--fill:rgba(120,120,128,.12);
   --label:#1D1D1F;--label-2:rgba(60,60,67,.62);--label-3:rgba(60,60,67,.32);
-  --separator:rgba(60,60,67,.18);--accent:#007AFF;--user-bubble:#E9E9EB;--user-fg:#1D1D1F;
+  --separator:rgba(60,60,67,.18);--accent:#007AFF;--accent-fill:#0071E3;--user-bubble:#E9E9EB;--user-fg:#1D1D1F;
   --header-bg:#F6F6F7;--title-solid:#1D1D1F;--subtitle-solid:#6E6E73;--danger:#FF3B30;--code-bg:#F6F6F8;--material:#FFFFFF;--scrim:rgba(0,0,0,.25);--green:#34C759}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--label);font:17px/1.55 var(--font);
@@ -628,7 +628,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .cc-more{color:var(--accent);font-size:15px;min-height:44px}
 .cc-actions{display:flex;gap:8px}
 .cc-actions button{flex:1;min-height:44px;border-radius:10px;font-size:15px;font-weight:600;background:var(--fill);color:var(--label)}
-.cc-actions .cc-primary{background:var(--accent);color:#fff}
+.cc-actions .cc-primary{background:var(--accent-fill);color:#fff}
 .cc-actions .cc-primary.cc-danger{background:var(--danger)}
 .cc-actions button:disabled{opacity:.5}
 .cc-actions button.loading::after{content:"";display:inline-block;width:14px;height:14px;margin-left:6px;vertical-align:-2px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
@@ -963,8 +963,8 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .cc-actions{gap:8px;margin-top:10px}
 .cc-actions button{flex:none;position:relative;min-width:64px;min-height:0;height:32px;padding:0 14px;border-radius:16px;font:600 14px/32px var(--font);background:rgba(255,255,255,.08);color:var(--label)}
 .cc-actions button::before{content:"";position:absolute;inset:-6px 0}   /* 44pt tap target around the 32pt button */
-.cc-actions .cc-primary{background:var(--accent);color:#fff}.cc-actions .cc-primary.cc-danger{background:var(--danger)}
-@media (prefers-color-scheme:light){.cc-actions button{background:var(--fill)}.cc-actions .cc-primary{background:var(--accent)}.cc-actions .cc-primary.cc-danger{background:var(--danger)}}
+.cc-actions .cc-primary{background:var(--accent-fill);color:#fff}.cc-actions .cc-primary.cc-danger{background:var(--danger)}
+@media (prefers-color-scheme:light){.cc-actions button{background:var(--fill)}.cc-actions .cc-primary{background:var(--accent-fill)}.cc-actions .cc-primary.cc-danger{background:var(--danger)}}
 .cc-prov,.cc-result,.cc-meta{color:var(--sub)}
 /* "참고한 기억" chips (§8.1): same capsule as the source chips; only shown when the server sends memory_refs and memory is on */
 .mchips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;min-width:0}
@@ -1087,7 +1087,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .wk-n{position:relative;display:grid;place-items:center;width:36px;height:36px;margin-top:2px;border-radius:50%;font:600 17px/22px var(--font);font-variant-numeric:tabular-nums;color:var(--label)}
 .wk-c[aria-disabled=true]{cursor:default}.wk-c[aria-disabled=true] .wk-n{color:var(--label-3);font-weight:500}
 .wk-c.has .wk-n::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--sub)}
-.wk-c.sel .wk-n{background:var(--accent);color:#fff}.wk-c.sel.has .wk-n::after{background:var(--brand)}
+.wk-c.sel .wk-n{background:var(--accent-fill);color:#fff}.wk-c.sel.has .wk-n::after{background:var(--brand)}
 #convList,#archList{margin:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));padding:0;list-style:none}
 #archList{padding-top:0}
 #convList li.group-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:18px 4px 8px;font:var(--b-day);letter-spacing:.2px;color:var(--sub);scroll-margin-top:calc(var(--nav-h) + 72px)}
@@ -1168,9 +1168,9 @@ body.kb-open #tComposer{padding-bottom:8px}
 .pend .pd-a{display:flex;gap:8px;margin-top:10px}
 .pend .pd-a button{flex:none;position:relative;min-width:64px;min-height:0;height:32px;padding:0 14px;border-radius:16px;font:600 14px/32px var(--font);background:rgba(255,255,255,.08);color:var(--label)}
 .pend .pd-a button::before{content:"";position:absolute;inset:-6px 0}   /* 44pt tap target around the 32pt button */
-.pend .pd-a .pd-go{background:var(--accent);color:#fff}
+.pend .pd-a .pd-go{background:var(--accent-fill);color:#fff}
 .pend .pd-a button:active{transform:none;opacity:.7}
-@media (prefers-color-scheme:light){.pend .pd-a button{background:var(--fill)}.pend .pd-a .pd-go{background:var(--accent)}}
+@media (prefers-color-scheme:light){.pend .pd-a button{background:var(--fill)}.pend .pd-a .pd-go{background:var(--accent-fill)}}
 
 /* ===== 1.10.0 B3 현황 띠 + 시트 (DIRECTION-B-SPEC §5–§7). Only opacity/transform animate; no blur. ===== */
 :root{--b-stat:600 22px/26px var(--font)}
