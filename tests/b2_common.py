@@ -34,6 +34,8 @@ def older():
     ids['d2'] = conv2('주말 캠핑 장비', 15, 30, day=-2); ids['d3'] = conv2('영어 이메일 초안', 9, 15, day=-3); ids['old'] = conv2('지난달 영수증 정리', 14, 0, day=-8)
     ids['arch'] = conv2('보관한 대화', 12, 0, day=-5, archived=True)
     return ids
-def goto_today(pg, hash_='#/', wait=1500):
-    pg.goto(B + '/ui/' + hash_); pg.reload(); pg.wait_for_timeout(wait)
+def goto_today(pg, hash_='#/', wait=1500, reload=True):
+    pg.goto(B + '/ui/' + hash_)
+    if reload and not hash_.startswith(('#/t/', '#/c/')): pg.reload()   # boot rewrites the hash to #/ and a deep link is opened after the list loads, so a reload right after goto would lose it
+    pg.wait_for_timeout(wait)
 def rt(pg): return pg.evaluate("document.getElementById('app').dataset.route")
