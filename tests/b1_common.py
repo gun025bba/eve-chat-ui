@@ -29,6 +29,11 @@ def new_ctx(b, w=390, h=844, scheme='dark', **kw):
     ctx.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);" + SETTINGS + "}")
     pin_clock(ctx)
     return ctx
+def clock_skew():
+    """page clock minus real clock while pin_clock applies (0 otherwise); fixtures that are relative to "now" (expires_at in 5 min, ...) add it so they match the page clock"""
+    f = os.environ.get('EVE_TEST_PIN'); n = datetime.now(KST); mins = n.hour * 60 + n.minute
+    if f == '0' or (f != '1' and not (mins >= 23 * 60 or mins < 30)): return timedelta(0)
+    return n.replace(hour=12, minute=0, second=0, microsecond=0) - n
 def pin_clock(ctx):
     """Fixtures place events at fixed KST wall-clock times (00:05, 23:00 ...) and assert past/upcoming relative to "now". Between 23:00 and 00:30 KST
     that is not satisfiable with the real clock, so in that window the page clock starts at 12:00 KST of the same KST date and then runs normally.
