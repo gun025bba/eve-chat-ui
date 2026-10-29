@@ -730,7 +730,7 @@ if (typeof document !== 'undefined') (function () {
     const wrap = document.createElement('div'); wrap.className = 'msg ev ' + role + (role === 'user' ? ' me' : role === 'assistant' ? ' e' : ''); wrap.dataset.t = String(t); if (m?.id) wrap.dataset.mid = m.id;
     wrap.setAttribute('role', 'listitem'); wrap.setAttribute('aria-label', `${hhmm(t)} ${who}`);
     const tm = document.createElement('time'); tm.className = 'tm'; tm.dateTime = new Date(t).toISOString(); tm.textContent = hhmm(t);
-    const dot = document.createElement('span'); dot.className = 'dot'; dot.setAttribute('aria-hidden', 'true');
+    const dot = document.createElement('span'); dot.setAttribute('aria-hidden', 'true'); if (role === 'assistant') { dot.className = 'av'; dot.innerHTML = self.EveToday?.MARK_S || ''; } else dot.className = 'dot';   // icon F: Eve has the 24x16 avatar, me/error keep the state dots
     const wh = document.createElement('div'); wh.className = 'who'; const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; wh.appendChild(wn);
     const b = document.createElement('div'); b.className = 'bubble tx'; wrap.append(tm, dot, wh, b);
     if (role === 'user') b.textContent = content;
@@ -1111,7 +1111,7 @@ if (typeof document !== 'undefined') (function () {
     persist();
   }
   async function generate(c, replaceId) {
-    const bubble = addMsgEl('assistant');
+    const bubble = addMsgEl('assistant'); bubble.parentNode.classList.add('streaming');   // icon F: the eyes blink while the answer is pending/streaming (removed in finish)
     const hist = c.messages.map(({ role, content }) => ({ role, content: role === 'assistant' ? stripStopMark(splitThink(stripStopMark(content)).answer) : content }))
       .filter(m => m.role !== 'assistant' || m.content.trim());
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
@@ -1131,7 +1131,7 @@ if (typeof document !== 'undefined') (function () {
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
-    const finish = () => { clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const finish = () => { bubble.parentNode?.classList.remove('streaming'); clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
@@ -2197,7 +2197,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '1.10.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.11.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
