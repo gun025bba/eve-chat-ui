@@ -4,6 +4,7 @@ import re, json, struct, urllib.request
 from playwright.sync_api import sync_playwright
 from b2_common import *
 R = []; errs = []
+put('/csp/off')   # an earlier suite may leave the mock's CSP on; wait_for_function needs eval
 def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '' if ok else x)
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 def rd(f, mode='r'): return open(os.path.join(ROOT, f), mode).read() if mode == 'r' else open(os.path.join(ROOT, f), mode).read()
@@ -97,7 +98,7 @@ with sync_playwright() as p:
         ctx.close()
 
         # ---- 5) Today: empty → hero 88x58 once per session; events → avatar, no hero
-        reset(); ctx, pg = newpg(scheme); goto_today(pg, wait=1600)
+        reset(); ctx, pg = newpg(scheme); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(2000)   # no reload: the first render of the session is the one that animates
         h = pg.evaluate("""(()=>{const f=document.getElementById('todayFree'),hero=f&&f.querySelector('.hero'),svg=hero&&hero.querySelector('svg'),r=svg&&svg.getBoundingClientRect(),d=document.getElementById('todayDate').getBoundingClientRect(),n=document.querySelector('.rail-now').getBoundingClientRect(),c=document.getElementById('tComposer').getBoundingClientRect();
           return {vis:!!f&&!f.hidden&&f.getBoundingClientRect().height>0,w:r&&r.width,h:r&&r.height,cx:r&&r.left+r.width/2,top:r&&r.top,bot:r&&r.bottom,dateB:d.bottom,nowT:n.top,nowB:n.bottom,compT:c.top,aria:svg&&svg.getAttribute('aria-hidden'),
             enter:hero&&hero.classList.contains('enter'),an:svg&&getComputedStyle(svg).animationName,eyesAn:svg&&getComputedStyle(svg.querySelector('.eyes')).animationName,over:document.getElementById('todayScroller').scrollWidth-document.getElementById('todayScroller').clientWidth,

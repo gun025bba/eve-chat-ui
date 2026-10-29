@@ -34,7 +34,7 @@ with sync_playwright() as p:
     check('title = payload_view.title; verb chip = payload_view.verb → "추가"', card(pg).locator('.pd-t').text_content() == '치과 예약 · 내일 10시' and card(pg).locator('.pd-v').text_content() == '추가')
     check('no display line for a non-reminder action; no 곧 만료', card(pg).locator('.pd-w').count() == 0 and card(pg).locator('.pd-x').count() == 0)
     check('exactly [검토하기] [나중에] — no approve button, no token ever fetched', card(pg).locator('button').all_text_contents() == ['검토하기', '나중에'] and not any('approve' in x['p'] or 'reissue' in x['p'] for x in pro().get('bodies', [])))
-    check('card order: after 이어서/선톡, before nothing else of its kind; rail intact (one .dot per item)', pg.evaluate("[...document.querySelectorAll('#todayList > li')].every(l=>l.querySelector('.dot'))"))
+    check('card order: after 이어서/선톡, before nothing else of its kind; rail intact (one .dot per item)', pg.evaluate("[...document.querySelectorAll('#todayList > li')].every(l=>l.querySelector('.dot,.av'))"))
     check('buttons 44px+ tap area and 32px visible', pg.evaluate("[...document.querySelectorAll('#todayList .pend button')].every(b=>{const r=b.getBoundingClientRect(),a=getComputedStyle(b,'::before');return Math.round(r.height)===32&&r.height+Math.abs(parseFloat(a.top))*2>=44})"))
     check('no horizontal overflow at 390', pg.evaluate("document.documentElement.scrollWidth<=innerWidth"))
     ctx.close()
