@@ -209,7 +209,7 @@
     let introTried = false, introPrev = null, introTimer = 0;
     const localSeen = () => { try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch { return false; } };
     /* "seen" is written to localStorage ONLY after the server accepted PATCH {ui:{memory_intro_seen:true}} (200). A failed PATCH keeps the sheet
-       (좋아요 retries it and, if it still fails, stays open with a toast) and leaves localStorage alone, so the next launch asks again. */
+       (좋아요 retries it and, if it still fails, stays open and shows the in-sheet error line) and leaves localStorage alone, so the next launch asks again. */
     let introSaved = false, introSaving = null;
     function saveSeen() {
       if (introSaved) return Promise.resolve(true);
@@ -232,6 +232,7 @@
     function introFocusables() { return [...ix.querySelectorAll('button')].filter(b => !b.disabled && !b.hidden); }
     function showIntro() {
       introPrev = document.activeElement;
+      { const er = $('memIntroErr'); er.classList.remove('on'); er.removeAttribute('role'); er.setAttribute('aria-hidden', 'true'); }   // reopened sheet starts with the line reserved but invisible
       iScrim.hidden = false; ix.hidden = false; void ix.offsetWidth; ix.classList.add('show'); iScrim.classList.add('show');
       saveSeen();                                                               // fire at show; failure is handled when 좋아요 is tapped
       $('memIntroTitle').focus();
@@ -244,11 +245,12 @@
       matchMedia('(prefers-reduced-motion: reduce)').matches ? setTimeout(done, 200) : setTimeout(done, 380);
     }
     if (ix) {
-      const ok = $('memIntroOk');
+      const ok = $('memIntroOk'), ERR_TEXT = $('memIntroErr').textContent;
       ok.onclick = async () => {
         if (!introSaved) {                                                       // not on the server yet: try again now; keep the sheet if it still fails
-          const er = $('memIntroErr'); er.hidden = true; ok.disabled = true; const saved = await saveSeen(); ok.disabled = false;
-          if (!saved) { er.hidden = false; ok.focus(); return; }                // error line inside the sheet (the app toast sits under the sheet's scrim)
+          const er = $('memIntroErr'); ok.disabled = true; const saved = await saveSeen(); ok.disabled = false;   // the error line (if already shown) stays visible while retrying: no flicker
+          if (!saved) { er.textContent = ERR_TEXT; er.setAttribute('role', 'alert'); er.setAttribute('aria-hidden', 'false'); er.classList.add('on'); ok.focus(); return; }   // in the sheet's reserved line (the app toast sits under the sheet's scrim); role=alert is set only while the error is shown (an always-present alert region would count as an error banner)
+          er.classList.remove('on'); er.removeAttribute('role'); er.setAttribute('aria-hidden', 'true');
         }
         closeIntro();
       };
