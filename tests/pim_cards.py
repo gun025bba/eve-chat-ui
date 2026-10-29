@@ -101,7 +101,7 @@ with sync_playwright() as p:
 
     # ---- web search copy untouched
     ask('ws 질문'); pg.wait_for_timeout(500)
-    check('web tools keep the web copy', '웹 검색 중' in status() or status() == '', status())
+    check('web tools keep the web copy', '웹에서 찾고 있어요' in status() or status() == '', status())
 
     # ---- every error code copy
     copy = pg.evaluate("(['pim_unavailable','permission_denied','scope_denied','kill_switch','timeout','invalid_arguments','not_found','writes_disabled','secret_detected','__proto__','constructor'].map(c => [c, EvePim.errText(c)]))")
