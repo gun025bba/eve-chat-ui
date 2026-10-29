@@ -33,6 +33,9 @@ cache = re.search(r"const CACHE = '(llmchat-[\d.]+)'", sw).group(1); ver = re.se
 check('CACHE, APP_VERSION and README agree on 1.11.0', cache == 'llmchat-1.11.0' and ver == '1.11.0' and '**1.11.0**' in rd('README.md') and 'styles.css?v=1.11.0' in html and 'v1.11.0' in html, (cache, ver))
 check('sw.js: ICONS are the same ?v=f1 URLs as the page links and are in SHELL', '.map(f => `${f}?v=f1`)' in sw and '...ICONS' in sw and all(f"'{x.split('?')[0].replace('/ui/', '')}'" in sw for x in links))
 
+check('own module: eve-mark.js + eve-mark.css are linked (?v=1.11.0, css after styles.css, js before today.js), precached, and styles.css/today.js hold no mark markup',
+      html.index('styles.css?v=1.11.0') < html.index('eve-mark.css?v=1.11.0') and html.index('eve-mark.js?v=1.11.0') < html.index('today.js?v=1.11.0') and "'eve-mark.css', 'eve-mark.js'" in sw
+      and 'eve-mark' not in rd('styles.css') and 'viewBox="0 0 24 16"' not in rd('today.js') and 'viewBox="0 0 24 16"' in rd('eve-mark.js') and '.av{' in rd('eve-mark.css'))
 with sync_playwright() as p:
     b = p.chromium.launch()
     def newpg(scheme='dark', reduced=False, w=390):
@@ -42,7 +45,7 @@ with sync_playwright() as p:
     check('served: icons answer 200 with the right type', all(get(l.replace('/ui/', ''))[0] == 200 for l in links) and get('icons/icon-512.png?v=f1')[1][:4] == b'\x89PNG')
     pg.evaluate("navigator.serviceWorker.ready.then(()=>1)"); pg.wait_for_timeout(1200)
     keys = pg.evaluate("(async()=>{const c=await caches.open('llmchat-1.11.0');return (await c.keys()).map(r=>r.url.replace(location.origin+'/ui/',''))})()")
-    check('SW cache llmchat-1.11.0 holds every ?v=f1 link URL (offline icons) and the old cache is gone', all(l.replace('/ui/', '') in keys for l in links) and 'icons/icon-192.png?v=f1' in keys and 'icons/mark-dark.svg?v=f1' in keys
+    check('SW cache llmchat-1.11.0 holds every ?v=f1 link URL (offline icons) and the old cache is gone', all(l.replace('/ui/', '') in keys for l in links) and 'icons/icon-192.png?v=f1' in keys and 'icons/mark-dark.svg?v=f1' in keys and '/ui/eve-mark.css?v=1.11.0'.replace('/ui/', '') in keys and 'eve-mark.js?v=1.11.0' in keys
           and pg.evaluate("caches.keys()") == ['llmchat-1.11.0'], (keys, pg.evaluate("caches.keys()")))
     ctx.close()
 

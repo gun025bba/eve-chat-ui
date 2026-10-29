@@ -43,9 +43,6 @@
     return { events: shown, more, cont, candidates, today: T };
   }
 
-  /* ICON-SPEC §3.1 (icon F): inline marks, colors from CSS variables, decorative only */
-  const MARK_S = '<svg class="eve-mark" viewBox="0 0 24 16" width="24" height="16" aria-hidden="true" focusable="false"><path class="b" d="M.69 16A12 12 0 1 1 23.31 16Z"/><g class="eyes"><circle class="e" cx="8.1" cy="6.6" r="2.1"/><circle class="e" cx="15.9" cy="6.6" r="2.1"/></g></svg>';
-  const MARK_L = '<svg class="eve-mark" viewBox="0 0 800 524" width="800" height="524" aria-hidden="true" focusable="false"><path class="b" d="M19.7 524A400 400 0 1 1 780.3 524Z"/><g class="eyes"><circle class="e" cx="298" cy="208" r="52"/><circle class="e" cx="502" cy="208" r="52"/></g></svg>';
   function init(ctx) {
     const $ = s => document.querySelector(s), list = $('#todayList');
     let first = true, lastSig = '';
@@ -53,7 +50,7 @@
     function ev(cls, t, tmText, who, whoCls, body, label) {
       const li = document.createElement('li'); li.className = 'ev ' + cls; li.setAttribute('role', 'listitem'); li.setAttribute('aria-label', label || `${tmText} ${who}`);
       const tm = document.createElement('time'); tm.className = 'tm'; tm.textContent = tmText; if (t) tm.dateTime = new Date(t).toISOString();
-      const dot = document.createElement('span'); dot.setAttribute('aria-hidden', 'true'); if (/(^| )e( |$)/.test(cls)) { dot.className = 'av'; dot.innerHTML = MARK_S; } else dot.className = 'dot';   // icon F: the Eve event has the 24x16 avatar, state dots stay
+      const dot = /(^| )e( |$)/.test(cls) ? self.EveMark.avatar() : document.createElement('span'); dot.setAttribute('aria-hidden', 'true'); if (!dot.className) dot.className = 'dot';   // icon F: the Eve event has the 24x16 avatar, state dots stay
       const w = document.createElement('div'); w.className = 'who'; if (whoCls) w.classList.add(whoCls); const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; w.appendChild(wn);
       li.append(tm, dot, w);
       if (body) { const b = document.createElement('div'); b.className = 'tx d'; if (typeof body === 'string') b.textContent = body; else b.append(...body); li.appendChild(b); }
@@ -153,13 +150,14 @@
       list.dataset.day = M.today;
       const settled = !st.skeleton && st.ready !== false && !(st.error && !ctx.convs().length);   // the stagger is for real content only, never for a skeleton or an error
       const isEmpty = settled && !M.events.length && !M.cont && !P, free = $('#todayFree'), scr = $('#todayScroller');   // ICON-SPEC §3.4: the hero mark shows only while nothing is on the timeline but 지금
-      if (free) { free.hidden = !isEmpty; if (scr) scr.classList.toggle('is-empty', isEmpty); if (!isEmpty) free.firstElementChild?.classList.remove('enter'); }
-      if (first && settled && ctx.stagger()) { first = false; if (isEmpty && free) free.firstElementChild?.classList.add('enter'); [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = (i + (stripShown ? 1 : 0)) * 40 + 'ms'; }); }
+      const enter = first && settled && ctx.stagger();
+      self.EveMark.syncHero(free, scr, isEmpty, enter);
+      if (enter) { first = false; [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = (i + (stripShown ? 1 : 0)) * 40 + 'ms'; }); }
       else if (settled) first = false;
       return M;
     }
     function tick() { const n = list.querySelector('.rail-now'); if (!n) return; const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); }
     return { render, tick, renderStrip, model: () => model(ctx.convs()) };
   }
-  self.EveToday = { MARK_S, MARK_L, init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
+  self.EveToday = { init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
 })();

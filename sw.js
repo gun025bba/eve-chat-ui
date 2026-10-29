@@ -2,7 +2,7 @@
 const CACHE = 'llmchat-1.11.0';
 const VER = CACHE.slice('llmchat-'.length);
 // 1.5.1: versioned asset URLs (same ?v= as index.html) + cache:'reload' so precache never comes from the HTTP cache
-const ASSETS = ['app.js', 'today.js', 'shell.js', 'proactive-api.js', 'pim.js', 'proactive.js', 'briefing.js', 'memory-api.js', 'memory.js', 'styles.css'].map(f => `${f}?v=${VER}`);
+const ASSETS = ['app.js', 'today.js', 'shell.js', 'proactive-api.js', 'pim.js', 'proactive.js', 'briefing.js', 'memory-api.js', 'memory.js', 'styles.css', 'eve-mark.css', 'eve-mark.js'].map(f => `${f}?v=${VER}`);
 // 1.11.0 (icon F): same file names as before, so every icon URL carries ?v=f1 (the page links use the exact same URLs; the fetch handler serves ?v= URLs cache-first by exact URL)
 const ICONS = ['favicon.ico', 'favicon.svg', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/mark-dark.svg', 'icons/mark-light.svg'].map(f => `${f}?v=f1`);
