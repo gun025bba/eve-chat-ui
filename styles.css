@@ -947,8 +947,39 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 .ev .tm,.rail-now .tm{position:absolute;left:0;top:0;width:44px;font:var(--b-time);color:var(--sub);font-variant-numeric:tabular-nums;white-space:nowrap}
 .ev .dot,.rail-now .dot{position:absolute;left:47px;top:6px;width:9px;height:9px;border-radius:50%;background:var(--bg);box-shadow:inset 0 0 0 1.5px var(--sub),0 0 0 3px var(--halo)}
 .ev.me .dot{background:var(--label);box-shadow:0 0 0 3px var(--halo)}
-.ev.e .dot{background:var(--brand);box-shadow:0 0 0 3px var(--halo),0 0 12px rgba(0,210,190,.5)}
-@media (prefers-color-scheme:light){.ev.e .dot{box-shadow:0 0 0 3px var(--halo)}}
+/* icon F (ICON-SPEC §3): the Eve event has a 24x16 avatar instead of the 9px dot; the dark glow is gone. me / wt / now / error keep their dots */
+:root{--mark-body:#00D2BE;--mark-eye:#101011}
+@media (prefers-color-scheme:light){:root{--mark-body:#00C4B2}}
+.eve-mark{display:block;flex:none}
+.eve-mark .b{fill:var(--mark-body)}
+.eve-mark .e{fill:var(--mark-eye)}
+.eve-mark .eyes{transform-box:fill-box;transform-origin:center}
+.ev .av{position:absolute;left:39.5px;top:2px;width:24px;height:16px;overflow:hidden;border-radius:12px 12px 0 0;background:var(--halo);box-shadow:0 0 0 3px var(--halo)}
+.ev.enter .av .eve-mark{animation:avRise var(--d-3) var(--ease-out) 80ms both}
+@keyframes avRise{from{transform:translateY(100%);opacity:0}}
+.ev.e.streaming .av .eyes{animation:eveBlink 4s var(--ease-standard) -3s infinite}
+@keyframes eveBlink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
+@keyframes avFade{from{opacity:0}}
+.today-free{flex:1 1 auto;display:grid;place-items:center;padding-bottom:8vh;min-height:0}
+.today-free[hidden]{display:none}
+.hero{width:88px;height:58px;overflow:hidden}
+.hero .eve-mark{width:88px;height:58px}
+.hero.enter .eve-mark{animation:avRise var(--d-4) var(--ease-out) both}
+.hero.enter .eyes{animation:heroBlink var(--d-3) var(--ease-standard) 700ms 1 both}
+@keyframes heroBlink{40%{transform:scaleY(.1)}}
+#todayScroller.is-empty{display:flex;flex-direction:column}
+#todayScroller.is-empty>*{flex:none}
+#todayScroller.is-empty>.today-free{flex:1 1 auto}
+.s-top{display:flex;align-items:center;gap:12px;padding:12px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left))}
+.s-top .priv{padding:0}
+.hero.s-mark{width:40px;height:26px;flex:none}.hero.s-mark .eve-mark{width:40px;height:26px}
+.hero.auth-hero{width:72px;height:47px;margin:0 auto 14px}.hero.auth-hero .eve-mark{width:72px;height:47px}
+.auth-card{--mark-body:#00D2BE;--mark-eye:#101011}
+@media (prefers-reduced-motion:reduce){
+  .ev.enter .av .eve-mark{animation:avFade var(--d-2) linear both}
+  .ev.e.streaming .av .eyes{animation:none}
+  .hero.enter .eve-mark{animation:avFade var(--d-2) linear both}.hero.enter .eyes{animation:none}
+}
 .rail-now .dot{background:var(--accent);box-shadow:0 0 0 3px var(--halo),0 0 0 5px rgba(10,132,255,.3)}
 .ev .who,.rail-now .who{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 0;font:var(--b-who);letter-spacing:.2px;color:var(--sub)}
 .ev.e .who{color:var(--brand)}.rail-now .who{color:var(--accent)}
