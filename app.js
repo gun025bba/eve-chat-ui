@@ -757,7 +757,7 @@ if (typeof document !== 'undefined') (function () {
     const wrap = document.createElement('div'); wrap.className = 'msg ev ' + role + (role === 'user' ? ' me' : role === 'assistant' ? ' e' : ''); wrap.dataset.t = String(t); if (m?.id) wrap.dataset.mid = m.id;
     wrap.setAttribute('role', 'listitem'); wrap.setAttribute('aria-label', `${hhmm(t)} ${who}`);
     const tm = document.createElement('time'); tm.className = 'tm'; tm.dateTime = new Date(t).toISOString(); tm.textContent = hhmm(t);
-    const dot = document.createElement('span'); dot.setAttribute('aria-hidden', 'true'); if (role === 'assistant') { dot.className = 'av'; dot.innerHTML = self.EveToday?.MARK_S || ''; } else dot.className = 'dot';   // icon F: Eve has the 24x16 avatar, me/error keep the state dots
+    const dot = role === 'assistant' ? self.EveMark.avatar() : document.createElement('span'); dot.setAttribute('aria-hidden', 'true'); if (role !== 'assistant') dot.className = 'dot';   // icon F: Eve has the 24x16 avatar, me/error keep the state dots
     const wh = document.createElement('div'); wh.className = 'who'; const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; wh.appendChild(wn);
     const b = document.createElement('div'); b.className = 'bubble tx'; wrap.append(tm, dot, wh, b);
     if (role === 'user') b.textContent = content;
