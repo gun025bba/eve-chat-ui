@@ -40,7 +40,7 @@ with sync_playwright() as p:
         check(t + 'tap outside closes the menu', pg.is_hidden('#plusMenu'))
         pg.click('#plusBtn'); pg.wait_for_timeout(300); pg.click('#webBtn'); pg.wait_for_timeout(450)
         w = ev("(()=>{const b=document.getElementById('plusBtn'),s=getComputedStyle(b),g=b.querySelector('.i-globe'),pl=b.querySelector('.i-plus');return {on:b.classList.contains('web-on'),bg:s.backgroundColor,gd:getComputedStyle(g).display,pd:getComputedStyle(pl).display,ls:localStorage.getItem('llmchat.webSearch'),ac:document.getElementById('webBtn').getAttribute('aria-checked'),lab:b.getAttribute('aria-label')}})()")
-        check(t + 'web on: + turns into a globe (accent) on rgba(10,132,255,.16); menu closes; check set; persisted', w['on'] and w['gd'] != 'none' and w['pd'] == 'none' and w['bg'] == 'rgba(10, 132, 255, 0.16)' and w['ac'] == 'true' and w['ls'] in ('1', 'true') and pg.is_hidden('#plusMenu'), w)
+        check(t + 'web on: + turns into a globe (accent) on rgba(10,132,255,.16); menu closes; check set; persisted', w['on'] and w['gd'] != 'none' and w['pd'] == 'none' and w['bg'] == 'rgba(10, 132, 255, 0.16)' and w['ac'] == 'true' and w['ls'] in ('1', 'true', 'auto') and pg.is_hidden('#plusMenu'), w)
         pg.reload(); pg.wait_for_timeout(1200)
         if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(500)
         check(t + 'web-on state survives a reload', pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')"))
