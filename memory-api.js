@@ -66,7 +66,8 @@
     return {
       getSettings: () => call('getSettings').then(SETTINGS.read),
       setEnabled: on => call('patchSettings', null, SETTINGS.patch(on)),
-      markIntroSeen: () => call('patchSettings', null, SETTINGS.introSeen()),
+      // 1.10.2: only a JSON object body (the settings) counts as saved; a 200 with an HTML/plain page (captive portal, proxy) or an empty body must not
+      markIntroSeen: () => call('patchSettings', null, SETTINGS.introSeen()).then(r => { if (!r || typeof r !== 'object') throw Object.assign(new Error('non-JSON settings response'), { nonJson: true }); return r; }),
       list: () => call('list').then(FIELDS.list),
       exportAll: () => call('exportAll'),                 // same body as list; client builds the file
       add: (kind, text) => call('addItem', null, FIELDS.add(kind, text)).then(FIELDS.item),
