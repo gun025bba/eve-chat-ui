@@ -114,8 +114,6 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 #drawer{position:fixed;z-index:20;top:0;bottom:0;left:0;width:min(84vw,320px);background:var(--bg-elev);display:flex;flex-direction:column;
   padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);transform:translateX(-100%);transition:transform var(--d-slow) var(--ease-sheet)}
 #app.open #drawer{transform:none}
-#scrim{position:fixed;inset:0;z-index:15;background:var(--scrim);opacity:0;transition:opacity var(--d-base) var(--ease-out)}
-#app.open #scrim{opacity:1;pointer-events:auto}
 #main{transition:transform var(--d-slow) var(--ease-sheet)}
 #app.open #main{transform:translateX(24px) scale(.98)}
 .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:12px 8px 8px 20px}
@@ -134,7 +132,7 @@ details.think.live summary span{background:linear-gradient(90deg,var(--label-3),
 .row-btn svg{width:20px;height:20px}
 @media (min-width:761px){
   #drawer{position:relative;transform:none;box-shadow:.5px 0 0 var(--separator)}
-  #scrim,#menuBtn{display:none}#app.open #main{transform:none}
+  #menuBtn{display:none}#app.open #main{transform:none}
 }
 /* settings sheet */
 dialog{border:0;padding:0;color:var(--label);background:var(--bg-elev);margin:auto 0 0;width:100%;max-width:100%;max-height:92dvh;border-radius:16px 16px 0 0}
@@ -711,7 +709,7 @@ sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;b
 .mem-intro-list{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:16px}
 .mem-intro-list li{display:flex;gap:12px;align-items:flex-start;font-size:1.0625rem;line-height:1.375rem;color:var(--label)}
 .mem-intro-list svg{flex:none;width:28px;height:28px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.mem-intro-err{margin:0 0 10px;height:1.25rem;text-align:center;font-size:.9375rem;line-height:1.25rem;font-weight:500;color:var(--pend);opacity:0;transition:opacity .15s}.mem-intro-err.on{opacity:1}
+.mem-intro-err{margin:0 0 10px;height:1.25rem;text-align:center;font-size:.9375rem;line-height:1.25rem;font-weight:500;color:var(--pend);opacity:0;transition:opacity var(--d-1) var(--ease-out)}.mem-intro-err.on{opacity:1}
 .mem-intro-ok{min-height:50px;border-radius:14px;background:var(--accent-fill);color:#fff;border:0;font:inherit;font-size:17px;font-weight:600;margin-top:auto}
 .mem-intro-alt{min-height:44px;color:var(--accent);font-size:17px;margin-top:4px}
 @media (prefers-reduced-motion:reduce){.mem-intro{transform:none;opacity:0;transition:opacity .2s}.mem-intro.show{opacity:1}.mem-intro-scrim{transition:opacity .2s}.mem-intro-icon{transform:none;transition:opacity .2s}}
