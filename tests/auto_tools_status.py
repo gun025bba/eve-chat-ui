@@ -84,6 +84,7 @@ with sync_playwright() as p:
     # ── §5.1 failure notes ──
     CASES = [  # name, tool_result extras, status-line copy, note title, sub
         ('ok, 0 results', dict(status='ok'), '검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'),
+        ('ok, count 0, blocked_count 3 (suspect items dropped, 6.0.0)', dict(status='ok', count=0, blocked_count=3), '검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'),
         ('timeout', dict(status='timeout'), '검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요'),
         ('search_unavailable', dict(status='error', error_code='search_unavailable'), '지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요'),
         ('rate_limited', dict(status='error', error_code='rate_limited'), '검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에는 다시 검색할 수 있어요'),

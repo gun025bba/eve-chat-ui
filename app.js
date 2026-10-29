@@ -168,7 +168,7 @@ function toolFailKey(j) {
   if (code === 'permission_denied' || code === 'scope_denied' || code === 'kill_switch') return 'denied';
   if (TOOL_FAIL[code] && code !== 'empty' && code !== 'unknown') return code;
   if (code === 'invalid_arguments' || code) return 'unknown';
-  if (st === 'ok') { const n = Number.isFinite(+j.count) && j.count != null ? +j.count : (Array.isArray(j.sources) ? j.sources.length : null); return n === 0 ? 'empty' : null; }
+  if (st === 'ok') { const n = Number.isFinite(+j.count) && j.count != null ? +j.count : (Array.isArray(j.sources) ? j.sources.length : null); return n === 0 || (n == null && +j.blocked_count > 0) ? 'empty' : null; }   // 6.0.0: blocked_count = items the server dropped as suspect; nothing usable left → the empty note
   if (st === 'timeout') return 'timeout'; if (st === 'blocked') return 'blocked'; if (st === 'denied') return 'denied';
   return 'unknown';
 }
