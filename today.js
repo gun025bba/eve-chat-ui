@@ -113,7 +113,7 @@
         return M;
       }
       // same content as the last draw → keep the DOM (a rebuild would cancel the first-visit stagger and drop focus)
-      const sig = JSON.stringify([M.events.map(e => [e.kind, e.t, e.c.id, e.c.title, e.m && e.m.id, e.m && e.m.readAt, e.m && e.m.content && e.m.content.length]), M.more, M.cont && [M.cont.c.id, M.cont.c.title, M.cont.t, ctx.preview(M.cont.c)], !!st.skeleton, !!st.error, ctx.userName(), M.today, P && [P.id, P.title, P.verbLabel, P.display, soonOf(P, now)]]);
+      const sig = JSON.stringify([M.events.map(e => [e.kind, e.t, e.c.id, e.c.title, e.m && e.m.id, e.m && e.m.readAt, e.m && e.m.content && e.m.content.length]), M.more, M.cont && [M.cont.c.id, M.cont.c.title, M.cont.t, ctx.preview(M.cont.c)], !!st.skeleton, st.ready !== false, !!st.error, ctx.userName(), M.today, P && [P.id, P.title, P.verbLabel, P.display, soonOf(P, now)]]);
       if (sig === lastSig && list.firstChild) return M;
       lastSig = sig;
       list.replaceChildren();
@@ -152,7 +152,7 @@
       list.appendChild(frag);
       list.dataset.day = M.today;
       const settled = !st.skeleton && st.ready !== false && !(st.error && !ctx.convs().length);   // the stagger is for real content only, never for a skeleton or an error
-      const isEmpty = settled && !M.events.length && !M.cont && !P && !stripShown, free = $('#todayFree'), scr = $('#todayScroller');   // ICON-SPEC §3.4: the hero mark shows only while nothing is on the timeline but 지금
+      const isEmpty = settled && !M.events.length && !M.cont && !P, free = $('#todayFree'), scr = $('#todayScroller');   // ICON-SPEC §3.4: the hero mark shows only while nothing is on the timeline but 지금
       if (free) { free.hidden = !isEmpty; if (scr) scr.classList.toggle('is-empty', isEmpty); if (!isEmpty) free.firstElementChild?.classList.remove('enter'); }
       if (first && settled && ctx.stagger()) { first = false; if (isEmpty && free) free.firstElementChild?.classList.add('enter'); [...list.children].slice(0, 5).forEach((li, i) => { li.classList.add('stg'); li.style.animationDelay = (i + (stripShown ? 1 : 0)) * 40 + 'ms'; }); }
       else if (settled) first = false;
