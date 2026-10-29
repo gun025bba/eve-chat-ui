@@ -20,7 +20,7 @@ with sync_playwright() as p:
     ctx = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark')
     ctx.add_init_script("if(!sessionStorage.getItem('s')){sessionStorage.setItem('s',1);" + SETTINGS + "localStorage.setItem('eve.mem.introSeen','1')}")
     pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
-    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .ws-status')].pop()||{}).textContent||''")
+    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .tstat')].pop()||{}).textContent||''")
     def ask(text, aid, wait=2300):
         put('/pro/reset'); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
         if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)

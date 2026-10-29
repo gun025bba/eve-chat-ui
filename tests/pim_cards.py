@@ -24,7 +24,7 @@ with sync_playwright() as p:
     def fresh():
         put('/pro/reset'); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
         if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
-    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .ws-status')].pop()||{}).textContent||''")
+    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .tstat')].pop()||{}).textContent||''")
     def ask(text):
         fresh(); pg.fill('#input', text); pg.click('#sendBtn')
 

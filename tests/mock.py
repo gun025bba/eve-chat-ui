@@ -200,6 +200,7 @@ class H(SimpleHTTPRequestHandler):
                 out = dict(PRO['settings'], system=PRO['system'])
                 if PRO.get('memMode') in ('off', 'availOff'): out['system'] = dict(out['system'], memory_available=False)
                 if PRO.get('memNoKey'): out.pop('memory', None)   # missing memory key → off
+                if PRO.get('toolsAuto') is not None: out['tools'] = {'auto': bool(PRO['toolsAuto'])}   # AUTO-TOOLS-SPEC §6.4 (tools.auto)
                 s.j(200, out); return True
             if path == '/v1/actions' and PRO.get('actFail'): s.j(PRO['actFail'], err('internal_error', 'server_error', 'x')); return True   # B3: list failing (503 → strip shows "–")
             if path == '/v1/actions':
@@ -420,6 +421,23 @@ class H(SimpleHTTPRequestHandler):
             out = {"id": "x", "object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": WSTEXT, "sources": SRCS[:2]}}]}
             if th: am = s.save_asst(th, rep, WSTEXT, ''); am['sources'] = SRCS[:2]; out.update(thread_id=th['id'], message_id=am['id'])
             return s.j(200, out)
+        if last.startswith('atscript') or last.endswith('\u2063'):   # AUTO-TOOLS-SPEC §13: replay PRO['atScript'] = [{d: seconds to wait, ev: {...}[, name: 'eve.meta']} | {d, text: '답변…'}] then a normal finish (persisted + [DONE]); the request body is in STATE['lastBody']
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                txt = []
+                for it in PRO.get('atScript', []):
+                    time.sleep(it.get('d', 0))
+                    if 'text' in it: txt.append(it['text']); s.ev({"id": "at-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": it['text']}, "finish_reason": None}]})
+                    elif it.get('name'): s.wfile.write(f"event: {it['name']}\ndata: {json.dumps(it['ev'])}\n\n".encode()); s.wfile.flush(); time.sleep(0.08)
+                    else: s.ev(it['ev'])
+                s.ev({"id": "at-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+                if th:
+                    am = s.save_asst(th, rep, ''.join(txt), ''); am['sources'] = PRO.get('atSources', [])
+                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if WS and last.startswith('ws'):
             s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
             try:

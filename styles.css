@@ -541,11 +541,35 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .web.on span{display:inline}
 .web:active{transform:scale(.94)}
 #input{padding-left:4px}
-.ws-status{display:inline-flex;align-items:center;gap:8px;color:var(--label-2);font-size:15px;padding:2px 0}
-.ws-status svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;animation:wsspin 1.6s linear infinite;flex:none}
-.ws-status span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw}
+/* AUTO-TOOLS-SPEC §3/§4: the one reused tool status line (.tline > .tstat) — opacity/transform only, no blur, no layout animation */
+.tline{margin-top:2px;opacity:0;transform:translateY(4px);transition:opacity var(--d-2) var(--ease-out),transform var(--d-2) var(--ease-out)}
+.tline.in{opacity:1;transform:none}
+.tline.out{position:absolute;pointer-events:none;opacity:0;transform:none;transition:opacity var(--d-1) var(--ease-out)}
+.tstat{min-height:24px;max-width:100%}
+.tstat .row1{display:flex;align-items:center;gap:8px;font:500 15px/22px var(--font);color:var(--sub);min-width:0}
+.tstat .row1 svg{width:16px;height:16px;fill:none;stroke:var(--brand);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;animation:wsspin 1.6s linear infinite}
+.tstat .row2{margin:0 0 0 24px;font:400 13px/18px var(--font);color:var(--sub);min-width:0}
+.tstat .row2[hidden]{display:none}
+.tstat .tw{display:grid;min-width:0;max-width:100%}
+.tstat .tw>span{grid-area:1/1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0;transition:opacity var(--d-1) var(--ease-out)}
+.tstat .tw>span.on{opacity:1}
+.tstat .slow{white-space:nowrap;flex:none}
+.tline .hint{margin:10px 0 0;display:flex;align-items:center;gap:4px;font:400 13px/18px var(--font);color:var(--sub);flex-wrap:wrap}
+.tline .hint button{height:44px;margin:-13px 0;padding:0 8px;border:0;background:none;color:var(--accent);font:600 13px/18px var(--font);cursor:pointer}
 @keyframes wsspin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.ws-status svg{animation:none}}
+@media (prefers-reduced-motion:reduce){.tstat .row1 svg{animation:none}.tline{transform:none;transition:opacity var(--d-2) linear}.tline.out{transition:opacity var(--d-1) linear}.tstat .tw>span{transition:none}}
+/* §5 the note that stays under a reply when the search failed / found nothing */
+.tnote{display:flex;gap:8px;align-items:flex-start;margin-top:6px;font:400 13px/18px var(--font);color:var(--sub)}
+.tnote:empty{display:none}
+.tnote>svg{width:16px;height:16px;fill:none;stroke:var(--pend);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px;flex:none}
+.tnote .tb{min-width:0;display:flex;flex-direction:column;align-items:flex-start}
+.tnote b{display:block;font-weight:600;color:var(--label)}
+.tnote .retry{display:inline-flex;align-items:center;height:44px;margin:-6px 0 -10px -2px;padding:0 2px;border:0;background:none;color:var(--accent);font:600 15px/20px var(--font);cursor:pointer}
+.tnote .retry:disabled{opacity:.4;cursor:default}
+/* §7 search-query line at the top of the opened source list / sheet */
+.tq{display:flex;margin:2px 0 6px;font:400 13px/18px var(--font);color:var(--sub);min-width:0}
+.tq span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tq q{quotes:"“" "”";color:var(--label);font-weight:500}
 sup.cite{line-height:0;margin-left:1px}
 sup.cite a{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--fill);color:var(--accent);font-size:11px;font-weight:600;line-height:16px;text-align:center;text-decoration:none;vertical-align:super}
 .sources{margin-top:10px;padding-top:8px;border-top:.5px solid var(--separator)}
@@ -996,6 +1020,18 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 #plusMenu #webBtn .i{width:20px;height:20px}
 #plusMenu #webBtn .i-check{color:var(--accent);opacity:0}
 #plusMenu #webBtn.on{background:none;color:var(--label)}#plusMenu #webBtn.on .i-check{opacity:1}
+#plusMenu #webBtn[hidden],#tMenu #tWeb[hidden]{display:none}
+/* AUTO-TOOLS-SPEC §6: 3-mode rows (자동 · 항상 검색 · 사용 안 함); the + button shows only the modes that differ from the quiet default */
+.plus .i-goff{display:none}.plus.web-off .i-goff{display:block}.plus.web-off .i-plus{display:none}.plus.web-off{color:var(--sub)}
+.plus-menu.modes{min-width:288px}
+.plus-menu .mode{display:flex;align-items:center;gap:12px;width:100%;min-width:0;min-height:52px;padding:6px 12px;border-radius:10px;text-align:left;color:var(--label);background:none}
+.plus-menu .mode[hidden]{display:none}
+.plus-menu .mode:active{background:var(--fill);transform:none}
+.plus-menu .mode>.i{width:20px;height:20px;flex:none}
+.plus-menu .mode .tt{display:block;flex:1;min-width:0}
+.plus-menu .mode .a{display:block;font:500 16px/22px var(--font);color:var(--label)}
+.plus-menu .mode .b{display:block;font:400 12px/16px var(--font);color:var(--sub)}
+.plus-menu .mode .i-check{color:var(--accent);opacity:0}.plus-menu .mode.on .i-check{opacity:1}
 @media (prefers-reduced-motion:reduce){.plus-menu{transform:none;transition:opacity var(--d-2) linear}.msg.ev.enter{animation:fadeIn var(--d-2) linear both}}
 .ev,.rail-now,.ev>*,.cc-stack,.cc-stack>*{min-width:0}
 

@@ -130,13 +130,53 @@ function citeMap(sources) {
 }
 function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
 function srcFavicon(c) { const u = c.favicon || c.icon; if (typeof u !== 'string') return ''; if (/^data:image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|webp|gif|jpeg);base64,/i.test(u)) return u; return /^\/(?!\/)[\w\-./?=&%]+$/.test(u) ? u : ''; } // server-provided only: data: or same-origin path (CSP img-src 'self' data:)
-function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url;
-  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${d}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }
+/* AUTO-TOOLS-SPEC §7: published (optional, server-provided) → 오늘 · 어제 · M월 d일 (this year) · yyyy년 M월 d일; anything unparsable → no date */
+function srcDate(p, now = new Date()) {
+  if (typeof p !== 'string' || !p) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p), d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(p);
+  if (isNaN(d)) return '';
+  const day = x => Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()), diff = Math.round((day(now) - day(d)) / 864e5);
+  if (diff === 0) return '오늘'; if (diff === 1) return '어제';
+  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url, dt = srcDate(c.published), sd = dt ? `${d} · ${dt}` : d;
+  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${sd}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(sd)}</span></a></li>`; }
+/* §7 `.tq`: one line per web_search query (max 3) at the top of the opened list / sheet; reason only when selected_by is known. Absent info (reload) → '' */
+function renderToolQueries(tools) {
+  const qs = (Array.isArray(tools) ? tools : []).filter(t => t && typeof t.q === 'string' && t.q.trim()).slice(0, 3);
+  if (!qs.length) return '';
+  const by = qs.find(t => t.by === 'model' || t.by === 'user')?.by, why = by === 'model' ? 'Eve가 필요하다고 판단해 검색했어요' : by === 'user' ? '직접 켠 웹 검색으로 찾았어요' : '';
+  return qs.map((t, i) => `<div class="tq"><span>검색어 <q>${escapeHtml(t.q)}</q>${i === 0 && why ? ` · ${why}` : ''}</span></div>`).join('');
+}
+/* AUTO-TOOLS-SPEC §5.1: web tool failure → fixed copy by key (never a server string). [status line, note title, note sub, retry: '' none | 'r' | 'r10' (enabled after 10 s)] */
+const TOOL_FAIL = {
+  empty:            ['검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요', 'r'],
+  timeout:          ['검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요', 'r'],
+  search_unavailable: ['지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요', 'r'],
+  rate_limited:     ['검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에 다시 찾아 주세요', 'r10'],
+  budget_exhausted: ['검색 한도에 도달했어요', '한 번에 할 수 있는 검색을 다 썼어요', '지금까지 찾은 내용으로 답했어요', ''],
+  blocked:          ['차단된 주소는 열지 않았어요', '일부 페이지는 열지 않았어요', '안전하지 않은 주소라 건너뛰었어요', ''],
+  denied:           ['웹 검색이 꺼져 있어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요', ''],
+  query_rejected:   ['검색어에 보낼 수 없는 내용이 있어요', '검색하지 않았어요', '개인 정보처럼 보이는 내용은 밖으로 보내지 않아요', ''],
+  unknown:          ['검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요', 'r']
+};
+/* tool_result (web tools only) → a TOOL_FAIL key, or null when nothing is wrong / nothing is to be shown (duplicate_query, tainted). Reads optional fields defensively. */
+function toolFailKey(j) {
+  const code = typeof j?.error_code === 'string' ? j.error_code : '', st = typeof j?.status === 'string' ? j.status : 'ok';
+  if (code === 'duplicate_query' || code === 'tainted') return null;
+  if (code === 'permission_denied' || code === 'scope_denied' || code === 'kill_switch') return 'denied';
+  if (TOOL_FAIL[code] && code !== 'empty' && code !== 'unknown') return code;
+  if (code === 'invalid_arguments' || code) return 'unknown';
+  if (st === 'ok') { const n = Number.isFinite(+j.count) && j.count != null ? +j.count : (Array.isArray(j.sources) ? j.sources.length : null); return n === 0 ? 'empty' : null; }
+  if (st === 'timeout') return 'timeout'; if (st === 'blocked') return 'blocked'; if (st === 'denied') return 'denied';
+  return 'unknown';
+}
 let _srcSeq = 0;
 // 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
 // >6 sources → list shows 5 + 모두 보기 (bottom sheet). Chips are per domain; +N counts sources whose domain has no chip.
-function renderSources(sources) {
+function renderSources(sources, tools) {
   const m = citeMap(sources); if (!m) return '';
+  const tq = renderToolQueries(tools);
   const all = [...m.entries()].sort((a, b) => a[0] - b[0]);
   const doms = [];
   for (const [, c] of all) { const d = srcDomain(c); if (!doms.some(x => x.d === d)) doms.push({ d, u: srcFavicon(c) }); }
@@ -147,8 +187,8 @@ function renderSources(sources) {
   const chip = ({ d, u }) => `<button type="button" class="sc" aria-expanded="false" aria-controls="${id}" aria-label="${escapeHtml(`출처 ${d}`)}"><span class="sc-in">${fav(d, u)}<span class="sc-n">${escapeHtml(d)}</span></span></button>`;
   const more = rest ? `<button type="button" class="sc sc-more" aria-expanded="false" aria-controls="${id}" aria-label="출처 ${rest}개 더 보기"><span class="sc-in">+${rest}</span></button>` : '';
   return `<section class="sources" aria-label="출처"><div class="src-row">${shown.map(chip).join('')}${more}</div>`
-    + `<div class="src-list" id="${id}" hidden><ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
-    + `<template class="src-all-tpl"><ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
+    + `<div class="src-list" id="${id}" hidden>${tq}<ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
+    + `<template class="src-all-tpl">${tq}<ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
 }
 function renderMarkdown(src, sources) {
   _cites = citeMap(sources);
@@ -169,7 +209,7 @@ function renderMd(src) {
   });
   return out.join('');
 }
-if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, escapeHtml, stableCut, stripStopMark };
+if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {
@@ -217,31 +257,80 @@ if (typeof document !== 'undefined') (function () {
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  /* web search toggle (persisted; on => web_search:'auto') */
-  const LS_WEB = 'llmchat.webSearch';
-  const webOn = () => localStorage.getItem(LS_WEB) === '1';
+  /* web search mode (persisted, one setting shared by both composers). AUTO-TOOLS-SPEC §6:
+     stored 'auto' | 'force' | 'off' | (none); the old '1' reads as 'auto'.
+     • server with system.auto_select_available:true → the + menu has 3 radio rows (자동 · 항상 검색 · 사용 안 함), 'off' is sent explicitly, none → field omitted
+     • otherwise (flag missing/false, /v1/settings failed) → today's single check row: on → web_search:'auto', off → field omitted
+     'force' ("항상 검색") is HELD behind FORCE_MODE until the architect confirms a browser may send web_search:"force" (spec §12-1): while false there are two modes (자동 · 사용 안 함) and a stored 'force' reads as 'auto'. */
+  const LS_WEB = 'llmchat.webSearch', LS_HINT = 'llmchat.autoHintSeen';
+  const FORCE_MODE = !!self.__eveFlags?.forceMode;   // spec §12-1 gate (false in production); tests flip it with an init script
+  let autoAvail = false, toolsAuto = false;           // GET /v1/settings: system.auto_select_available, tools.auto
+  const webStored = () => { const v = localStorage.getItem(LS_WEB); return v === '1' || v === 'auto' ? 'auto' : v === 'force' ? (FORCE_MODE ? 'force' : 'auto') : v === 'off' ? 'off' : null; };
+  const webOn = () => { const m = webStored(); return autoAvail ? (m ? m !== 'off' : toolsAuto) : (m === 'auto' || m === 'force'); };   // legacy: "on" = a stored on-mode
+  /* the value for web_search in the next request (null → omit the field) */
+  const webReq = () => { const m = webStored(); return autoAvail ? m : (m === 'auto' || m === 'force' ? 'auto' : null); };
+  /* what the + button / menu show: 'auto' | 'force' | 'off' (autoAvail), or 'on' | 'off' (legacy) */
+  const webShown = () => { const m = webStored(); return autoAvail ? (m || (toolsAuto ? 'auto' : 'off')) : (webOn() ? 'on' : 'off'); };
   /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur.
      B2: the same menu exists on the chat composer and on the 오늘 composer; they share one persisted setting. */
   const PLUS = [['#plusBtn', '#plusMenu', '#webBtn'], ['#tPlus', '#tMenu', '#tWeb']].map(([p, m, w]) => ({ btn: $(p), menu: $(m), web: $(w), sel: `${m}, ${p}` }));
   const plusBtn = PLUS[0].btn, plusMenu = PLUS[0].menu, webBtn = PLUS[0].web;
-  function setWebOn(on) {
-    if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB);
-    PLUS.forEach(({ btn, web }) => { web.setAttribute('aria-checked', String(on)); web.classList.toggle('on', on); btn.classList.toggle('web-on', on); btn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); btn.title = on ? '웹 검색 켜짐' : ''; });
+  const MODE_ROWS = [
+    ['auto', 'globe-spark', '자동', '필요하면 Eve가 직접 검색해요'],
+    ['force', 'globe', '항상 검색', '모든 질문을 검색해서 답해요'],
+    ['off', 'globe-off', '사용 안 함', '질문을 외부로 보내지 않아요']];
+  PLUS.forEach(P => {   // 3-mode rows live next to the legacy row; renderWeb() shows exactly one of the two sets
+    P.btn.insertAdjacentHTML('beforeend', '<svg class="i i-goff" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3zM4 4l16 16"/></svg>');
+    P.rows = MODE_ROWS.map(([k, ic, t, sub]) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'mode'; b.dataset.mode = k; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', 'false'); b.hidden = true;
+      b.innerHTML = `${icon(ic)}<span class="tt"><span class="a">${t}</span><span class="b">${sub}</span></span>${icon('check', 'i-check')}`; P.menu.appendChild(b); return b; });
+  });
+  function renderWeb() {
+    const sh = webShown(), legacy = !autoAvail;
+    const lab = { auto: '더하기 · 웹 검색 자동', force: '더하기 · 웹 검색 항상', off: '더하기 · 웹 검색 꺼짐', on: '더하기 · 웹 검색 켜짐' };
+    PLUS.forEach(({ btn, web, rows, menu }) => {
+      web.hidden = !legacy; web.setAttribute('aria-checked', String(sh === 'on')); web.classList.toggle('on', sh === 'on');
+      menu.classList.toggle('modes', !legacy);
+      rows.forEach(r => { const k = r.dataset.mode; r.hidden = legacy || (k === 'force' && !FORCE_MODE); r.setAttribute('aria-checked', String(k === sh)); r.classList.toggle('on', k === sh); });
+      btn.classList.toggle('web-on', sh === 'on' || sh === 'force'); btn.classList.toggle('web-off', !legacy && sh === 'off');
+      btn.setAttribute('aria-label', sh === 'auto' ? lab.auto : sh === 'force' ? lab.force : sh === 'on' ? lab.on : legacy ? '더하기' : lab.off);
+      btn.title = sh === 'on' ? '웹 검색 켜짐' : sh === 'force' ? '웹 검색 항상' : !legacy && sh === 'off' ? '웹 검색 꺼짐' : '';
+    });
   }
-  setWebOn(webOn());
+  /* mode: 'auto' | 'force' | 'off' | null (clear). Legacy servers only know on/off: on → 'auto', off → cleared. */
+  function setWebMode(m) {
+    const store = m === 'force' ? (FORCE_MODE ? 'force' : 'auto') : m === 'off' ? (autoAvail ? 'off' : null) : m;
+    if (store) localStorage.setItem(LS_WEB, store); else localStorage.removeItem(LS_WEB);
+    renderWeb();
+  }
+  const setWebOn = on => setWebMode(on ? 'auto' : null);   // legacy single toggle / web_search_disabled reset
+  renderWeb();
+  let autoAt = 0;
+  async function loadAutoAvail() {   // GET /v1/settings → system.auto_select_available (+ tools.auto); any failure / missing field → legacy single row
+    if (mode !== 'server') { if (autoAvail) { autoAvail = false; renderWeb(); } return; }
+    try { const j = await api('/v1/settings'); autoAt = Date.now(); const v = j?.system?.auto_select_available === true; toolsAuto = j?.tools?.auto === true; autoAvail = v; renderWeb(); }
+    catch { autoAt = 0; if (autoAvail) { autoAvail = false; renderWeb(); } }
+  }
   function setPlusMenu(open, P = PLUS[0]) {
     const { btn, menu, web } = P;
     if (open === menu.classList.contains('show')) return;   // logical state: a tap during the close transition re-opens
     btn.setAttribute('aria-expanded', String(open));
-    if (open) { if (menu.hidden) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; } menu.classList.add('show');   /* re-opening mid-close just adds .show back: no reset to 0, no one-frame jump */ web.focus({ preventScroll: true }); }
+    if (open) { if (menu.hidden) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; } menu.classList.add('show');   /* re-opening mid-close just adds .show back: no reset to 0, no one-frame jump */
+      (autoAvail ? (P.rows.find(r => r.classList.contains('on') && !r.hidden) || P.rows.find(r => !r.hidden)) : web).focus({ preventScroll: true }); }
     else { menu.classList.remove('show'); let fin = false, t = 0; const done = () => { if (fin) return; fin = true; clearTimeout(t); menu.removeEventListener('transitionend', onEnd); if (!menu.classList.contains('show')) menu.hidden = true; }; const onEnd = e => { if (e.target === menu) done(); };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else { menu.addEventListener('transitionend', onEnd); t = setTimeout(done, 200); } }   /* hidden once the close transition ends, or after 200ms (--d-2) if it never fires */
   }
+  const TOAST = { auto: '웹 검색 자동 · 필요할 때 Eve가 검색해요', force: '웹 검색 항상 · 모든 질문을 검색해요', off: '웹 검색 꺼짐' };
   PLUS.forEach(P => {
-    P.btn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(!P.menu.classList.contains('show'), P); });
+    P.btn.addEventListener('click', e => { e.stopPropagation(); if (!P.menu.classList.contains('show') && mode === 'server' && Date.now() - autoAt > 60e3) loadAutoAvail(); setPlusMenu(!P.menu.classList.contains('show'), P); });
     document.addEventListener('pointerdown', e => { if (!P.menu.hidden && !e.target.closest(P.sel)) setPlusMenu(false, P); }, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !P.menu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false, P); P.btn.focus({ preventScroll: true }); } }, true);
+    P.menu.addEventListener('keydown', e => {   // ↑/↓ (and Home/End) move between the visible rows
+      if (!autoAvail || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+      const rs = P.rows.filter(r => !r.hidden), i = rs.indexOf(document.activeElement); if (!rs.length) return; e.preventDefault();
+      rs[e.key === 'Home' ? 0 : e.key === 'End' ? rs.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + rs.length) % rs.length].focus({ preventScroll: true });
+    });
     P.web.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false, P); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
+    P.rows.forEach(r => r.addEventListener('click', () => { const k = r.dataset.mode; setWebMode(k); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false, P); P.btn.focus({ preventScroll: true }); showToast(TOAST[k], '', null, 1400); }));
   });
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
@@ -363,11 +452,11 @@ if (typeof document !== 'undefined') (function () {
       if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
       persist(); if (liveC && cur() === liveC) renderList(); else renderAll(); loadDraft();
       if (cur() && !(liveC && cur() === liveC)) ensureMessages(cur());
-      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); memRefresh(true); briefRefresh(true); MEM?.intro?.();
+      maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; loadAutoAvail(); PRO?.refresh(); pendRefresh(true); memRefresh(true); briefRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
         persistOff = true;
-        if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
+        if (mode === 'server') { clearCards(); mode = 'local'; if (autoAvail) { autoAvail = false; renderWeb(); } convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
       if (!persistOff) listError = true;
@@ -762,9 +851,9 @@ if (typeof document !== 'undefined') (function () {
       if (!thinking && !det.dataset.user && !settings.showThink && det.open) det.open = false;
     }
     const md = bubble.querySelector('.md');
-    if (!answer.trim()) return !md && (!!bubble.querySelector('.typing') || (!!det && thinking));
+    if (!answer.trim()) return !md && (!!bubble.querySelector('.typing,.tline') || (!!det && thinking));
     if (!md) { // first answer token: append answer container without touching the think block
-      bubble.querySelectorAll('.typing,.warming,.ws-status').forEach(n => n.remove());
+      bubble.querySelectorAll('.typing,.warming').forEach(n => n.remove()); bubble._tsDrop?.();   // the tool line fades out (opacity --d-1) and leaves the flow
       const nm = document.createElement('div'); nm.className = 'md cursor'; nm.innerHTML = '<div class="stable"></div><div class="tail"></div>';
       bubble.appendChild(nm); bubble._cut = 0; return patchLive(bubble, think, answer, thinking);
     }
@@ -778,13 +867,31 @@ if (typeof document !== 'undefined') (function () {
     if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
+  /* AUTO-TOOLS-SPEC §5/§7: what the web tools did for a reply — {tools:[{q,by}], note:{key,t}} — kept in memory for this session only (message id → info; never written to storage, so queries do not persist) */
+  const TOOLINFO = new Map();
+  const renderToolNote = n => n && TOOL_FAIL[n.key] ? `<div class="tnote" role="status" aria-live="polite" data-key="${n.key}" data-t="${n.t || 0}"></div>` : '';   // empty container first; the text is filled next frame so assistive tech announces it
+  function fillToolNote(bubble) {
+    const n = bubble.querySelector('.tnote[data-key]'); if (!n) return;
+    requestAnimationFrame(() => {
+      if (!n.isConnected || n.firstChild) return;
+      const [, title, sub, rt] = TOOL_FAIL[n.dataset.key] || TOOL_FAIL.unknown;
+      n.innerHTML = `${ICON.warn}<div class="tb"><b>${title}</b><span>${sub}</span>${rt ? '<button type="button" class="retry">웹에서 다시 찾기</button>' : ''}</div>`;
+      const b = n.querySelector('.retry'), wait = rt === 'r10' ? 10000 - (Date.now() - (+n.dataset.t || 0)) : 0;
+      if (b && wait > 0) { b.disabled = true; setTimeout(() => { if (b.isConnected) b.disabled = false; }, wait); }
+    });
+  }
   /* "참고한 기억" chips (DIRECTION-B §8.1): only when the message carries memory_refs and memory is on; text via escapeHtml only */
   function renderMemRefs(m) {
     const refs = m?.memoryRefs; if (!refs?.length || !MEM?.active?.()) return '';
     const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
     return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
   }
-  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });   // memory chip → settings sheet #memoryView (openMemoryView, B3)
+  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });
+  box.addEventListener('click', e => {
+    if (e.target.closest('.hint-chg')) { setPlusMenu(true, PLUS[0]); return; }   // "바꾸기" opens the + mode menu
+    const r = e.target.closest('.tnote .retry');   // "웹에서 다시 찾기": same question, web_search:"force" + replace_message_id; the saved mode does not change
+    if (r && !r.disabled) regenerate(FORCE_MODE ? 'force' : 'auto');   // force is held behind the architect's answer (spec §12-1): until then a normal auto retry
+  });   // memory chip → settings sheet #memoryView (openMemoryView, B3)
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
@@ -800,17 +907,20 @@ if (typeof document !== 'undefined') (function () {
     }
     const waiting = live && !answer.trim() && (think === null || !thinking);
     const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
-    if (waiting && bubble._ws) html += `<div class="ws-status" role="status">${ICON.globe}<span>${escapeHtml(bubble._ws)}</span></div>`;
+    if (waiting && bubble._tline) { /* the persistent .tline node is re-attached below */ }
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}${renderMemRefs(opts.msg)}`;
+    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs, ti?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti?.note)}`; }
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
+    if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
     bubble.innerHTML = html;
+    if (live && bubble._tline && !answer.trim()) { bubble.appendChild(bubble._tline); requestAnimationFrame(() => bubble._tline?.classList.add('in')); }
     if (wasLive && !live) bubble._freshAt = performance.now();
     { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
       if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
+    fillToolNote(bubble);
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
@@ -1062,14 +1172,14 @@ if (typeof document !== 'undefined') (function () {
     input.value = ''; grow(); stick = true; scrollBottom(true);
     return generate(c);
   }
-  async function regenerate() {
+  async function regenerate(webOv) {
     const c = cur(); if (controller || !c || c._regenBusy) return;
     const la = c.messages.at(-1);
     if (mode === 'server' && c.srv && la?.role === 'assistant' && !la.id && la.status === 'incomplete') { c._regenBusy = true; try { await resolveStoppedId(c, la, null, 1); } finally { c._regenBusy = false; } if (controller || c !== cur()) return; }
     let replaceId = null;
     if (c.messages.at(-1)?.role === 'assistant') replaceId = c.messages.pop().id || null;
     const els = box.querySelectorAll('.msg.assistant'); els[els.length - 1]?.remove();
-    clearErrors(); persist(); generate(c, replaceId);
+    clearErrors(); persist(); generate(c, replaceId, typeof webOv === 'string' ? webOv : undefined);
   }
 
   // the server stores a stopped reply as status=incomplete, but the client never sees its id (stream cut before "persisted")
@@ -1110,14 +1220,14 @@ if (typeof document !== 'undefined') (function () {
     for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant' && msgs[i].id === id) { msgs.splice(i, 1); if (c === cur()) box.querySelector(`.msg.assistant[data-mid="${CSS.escape(id)}"]`)?.remove(); }
     persist();
   }
-  async function generate(c, replaceId) {
+  async function generate(c, replaceId, webOverride) {
     const bubble = addMsgEl('assistant');
     const hist = c.messages.map(({ role, content }) => ({ role, content: role === 'assistant' ? stripStopMark(splitThink(stripStopMark(content)).answer) : content }))
       .filter(m => m.role !== 'assistant' || m.content.trim());
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
     const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
-    let sources = null; const ws = webOn(); bubble._ws = ''; bubble._sources = null;
+    let sources = null; bubble._tline = null; bubble._ti = null; bubble._sources = null;
     let confs = null, acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
@@ -1131,11 +1241,92 @@ if (typeof document !== 'undefined') (function () {
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
-    const finish = () => { clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const finish = () => { tsStop(); clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
-    const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
-    let wsReq = ws;
+    /* ---- the tool status line (AUTO-TOOLS-SPEC §3/§4/§9): ONE reused .tline > .tstat[role=status] per reply; text swaps cross-fade (opacity only),
+       web updates are throttled to ≥1 s apart (the latest wins), a PIM tool's own copy shows at once; the line leaves the flow on the first answer token / on stop ---- */
+    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, tools: [], calls: new Map(), fail: null, hintDone: false };
+    const reduceM = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function tsSwap(wrap, text) {
+      const cur = wrap.querySelector('span.on:last-child') || wrap.lastElementChild;
+      if (!text) { wrap.replaceChildren(); return; }
+      if (cur && cur.textContent === text) return;
+      const n = document.createElement('span'); n.textContent = text;
+      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), 160); } else if (cur) cur.remove();
+      wrap.appendChild(n); requestAnimationFrame(() => n.classList.add('on'));
+    }
+    function tsFill(w, r1, r2) {
+      tsSwap(w.querySelector('.t1'), r1); const row2 = w.querySelector('.row2'); row2.hidden = !r2; tsSwap(w.querySelector('.t2'), r2 || '');
+    }
+    function tsApply() {
+      ts.timer = 0; const want = ts.want; ts.want = null; if (!want || ts.dead || acc.trim()) return;
+      let w = bubble._tline;
+      if (!w || !w.isConnected) {
+        if (!w) { w = bubble._tline = document.createElement('div'); w.className = 'tline';
+          w.innerHTML = `<div class="tstat" role="status" aria-live="polite" aria-atomic="true"><div class="row1">${icon('globe-spark')}<span class="tw t1"></span></div><div class="row2" hidden><span class="tw t2"></span></div></div>`; }
+        bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom();
+        ts.applied = performance.now(); requestAnimationFrame(() => { if (bubble._tline === w) tsFill(w, want.r1, want.r2); });   // container first, text on the next frame
+        return;
+      }
+      ts.applied = performance.now(); tsFill(w, want.r1, want.r2);
+    }
+    const tsShow = (r1, r2 = '', now = false) => {
+      if (ts.dead || acc.trim()) return;
+      ts.want = { r1, r2 }; clearTimeout(ts.timer); ts.timer = 0;
+      const wait = now || !ts.applied ? 0 : Math.max(0, ts.applied + 1000 - performance.now());
+      if (wait) ts.timer = setTimeout(tsApply, wait); else tsApply();
+    };
+    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; };
+    const tsRemove = () => {
+      clearTimeout(ts.timer); ts.timer = 0; ts.want = null; clearTimeout(ts.s4T); tsSlowOff();
+      const w = bubble._tline; bubble._tline = null; if (!w) return;
+      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), 160); }
+    };
+    bubble._tsDrop = tsRemove;
+    const tsStop = () => { ts.dead = true; tsRemove(); };
+    const setWs = t => { tsShow(t, '', true); };   // PIM tools (calendar/reminders): own copy, no throttle, never the web wording
+    const hostOf = u => { try { return u ? new URL(u).hostname.replace(/^www\./i, '') : ''; } catch { return ''; } };
+    const isWebTool = t => t === 'web_search' || t === 'web_fetch';
+    const tsHint = () => {   // first auto search only: say once that the question leaves the device (§4.1)
+      const w = bubble._tline; if (!w || w.querySelector('.hint')) return;
+      const h = document.createElement('div'); h.className = 'hint';
+      h.innerHTML = '<span>Eve가 필요하다고 판단해 검색해요 ·</span><button type="button" class="hint-chg">바꾸기</button>'; w.appendChild(h);
+    };
+    function onWebCall(j) {
+      const a = j.args && typeof j.args === 'object' ? j.args : {}, id = j.id != null ? String(j.id) : '';
+      const by = j.selected_by === 'model' || j.selected_by === 'user' ? j.selected_by : '';
+      clearTimeout(ts.s4T);
+      let r1, r2 = '';
+      if (j.tool === 'web_fetch') { r1 = '페이지를 읽고 있어요'; r2 = hostOf(a.url) || '웹 페이지'; }
+      else { r1 = '웹에서 찾고 있어요'; const q = typeof a.query === 'string' ? a.query.trim() : ''; r2 = q ? `“${q}”` : '';
+        if (q || by) { const t = { q, by }; ts.tools.push(t); if (id) ts.calls.set(id, t); bubble._ti = { tools: ts.tools, note: null }; } }
+      tsShow(r1, r2);
+      if (by === 'model' && !ts.hintDone && !ts.dead) {
+        let seen = false; try { seen = localStorage.getItem(LS_HINT) === '1'; } catch {}
+        if (!seen) { ts.hintDone = true; try { localStorage.setItem(LS_HINT, '1'); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => { if (!acc.trim()) tsHint(); })); }
+      }
+      tsSlowOff(); if (!ts.slowShown) ts.slowT = setTimeout(() => { const w = bubble._tline; if (!w || ts.slowShown || acc.trim()) return; ts.slowShown = true;
+        const sp = document.createElement('span'); sp.className = 'slow'; sp.setAttribute('aria-hidden', 'true'); sp.textContent = ' · 조금 걸려요'; w.querySelector('.row1').appendChild(sp); }, 6000);
+    }
+    function onWebResult(j) {
+      tsSlowOff(); clearTimeout(ts.s4T);
+      const call = j.id != null ? ts.calls.get(String(j.id)) : null, key = toolFailKey(j);
+      const srcs = Array.isArray(j.sources) ? j.sources : [];
+      if (srcs.length) { const m = new Map((sources || []).map(x => [x.n, x])); srcs.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
+      if (key === 'query_rejected' && call) call.q = '';   // a rejected query is never shown (§4)
+      if (j.error_code === 'duplicate_query') return;       // silent: no line change
+      if (key) {
+        if (!ts.fail) ts.fail = { key, t: Date.now() };
+        if (!(key === 'blocked' && srcs.length)) { tsShow(TOOL_FAIL[key][0]); ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1500); return; }
+      }
+      if (j.error_code === 'tainted') return;
+      if (srcs.length) { const n = Number.isFinite(+j.count) && +j.count > 0 ? +j.count : srcs.length; const d = srcDomain(srcs[0]);
+        tsShow(`출처 ${n}개를 읽고 있어요`, n > 1 && d ? `${d} 외 ${n - 1}곳` : ''); }
+      ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1000);
+    }
+    let wsReq = typeof webOverride === 'string' ? webOverride : webReq();   // 'auto' | 'force' | 'off' | null (read once: a mode change mid-answer applies from the next send)
+    ctl.signal.addEventListener('abort', tsStop, { once: true });   // stop: the line leaves at once (opacity --d-1), no chips/note are made for it
     let liveReader = null;
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
@@ -1144,7 +1335,7 @@ if (typeof document !== 'undefined') (function () {
     kickStream = kick;
     cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
-      acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage;
+      acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage; if (acc.trim()) tsStop();
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
       if (m.status === 'failed') streamErr = { code: m.error_code || 'internal_error', failed: true };
     };
@@ -1158,8 +1349,8 @@ if (typeof document !== 'undefined') (function () {
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
         if (self.EvePim?.isTool(j.tool)) { setWs(EvePim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
-        const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
-        setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
+        if (isWebTool(j.tool)) onWebCall(j);   // unknown tool names are ignored (no line, no chip)
+        return;
       }
       if (j.object === 'chat.completion.tool_result') {
         if (self.EvePim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
@@ -1167,8 +1358,8 @@ if (typeof document !== 'undefined') (function () {
           if (n) EvePim.mount(n, bubble.parentElement);
           return;
         }
-        if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
-        setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
+        if (isWebTool(j.tool)) onWebResult(j);
+        return;
       }
       if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
       if (j.object === 'chat.completion.action_result') { PRO?.actionResult(j); return; }
@@ -1179,7 +1370,7 @@ if (typeof document !== 'undefined') (function () {
       const r = d.reasoning ?? d.reasoning_content;
       if (r) { markThink(); reasoning += r; }
       if (d.content) {
-        acc += d.content;
+        acc += d.content; if (acc.trim()) tsStop();
         if (acc.includes('<think>')) markThink();
         if (reasoning || acc.includes('</think>')) endThink();
       }
@@ -1228,12 +1419,12 @@ if (typeof document !== 'undefined') (function () {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
         method: 'POST', headers: headers('POST'), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
-          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: 'auto' } : {}))
+          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: wsReq } : {}))
       });
       let res = await post(mode === 'server');
       // storage switched off on the gateway mid-session: answer anyway without persistence, show the subtle notice
       if (res.status === 503 && mode === 'server') { const t = await res.clone().text().catch(() => ''); if (t.includes('persistence_disabled')) { persistOff = true; renderSync(); res = await post(false); } }
-      if (res.status === 400 && wsReq) { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = false; setWebOn(false); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
+      if (res.status === 400 && wsReq && wsReq !== 'off') { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = null; setWebMode(null); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         const code = authCode(body);
@@ -1312,9 +1503,12 @@ if (typeof document !== 'undefined') (function () {
     }
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
     const ut = usageText(usage, secs);
+    // AUTO-TOOLS-SPEC §5/§7: queries + a failure note, session-only. No note when cited sources exist (except blocked), none for a stopped/failed reply
+    const tinfo = ts.tools.length || ts.fail ? { tools: ts.tools, note: ts.fail && (!sources?.length || ts.fail.key === 'blocked') ? ts.fail : null } : null; bubble._ti = tinfo;
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
     const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
+    if (tinfo && msg.id) TOOLINFO.set(msg.id, tinfo);
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
     if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
     if (stick) scrollBottom();
@@ -2197,7 +2391,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '1.10.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '1.11.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

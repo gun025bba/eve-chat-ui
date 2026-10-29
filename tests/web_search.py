@@ -43,17 +43,17 @@ with sync_playwright() as p:
     check('off: web_search omitted', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
     menu(); btn.click(); pg.wait_for_timeout(300)
     check('toggle on: aria-checked=true + .on + globe', btn.get_attribute('aria-checked') == 'true' and 'on' in btn.get_attribute('class') and pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')"))
-    check('persisted in localStorage', pg.evaluate("localStorage.getItem('llmchat.webSearch')") == '1')
+    check('persisted in localStorage', pg.evaluate("localStorage.getItem('llmchat.webSearch')") == 'auto')
     pg.reload(); pg.wait_for_timeout(800)
     if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(600)
     check('toggle survives reload', pg.locator('#webBtn').get_attribute('aria-checked') == 'true')
     # streaming auto
     pg.fill('#input', 'ws 질문'); pg.click('#sendBtn'); pg.wait_for_timeout(500)
-    st = pg.locator('.msg.assistant .ws-status').last
-    check('searching status on tool_call', st.is_visible() and '웹 검색 중: eve 속도' in st.inner_text(), st.inner_text() if st.count() else None)
+    st = pg.locator('.msg.assistant .tstat').last
+    check('searching status on tool_call', st.is_visible() and '웹에서 찾고 있어요' in st.inner_text() and '“eve 속도”' in st.inner_text(), st.inner_text() if st.count() else None)
     pg.wait_for_timeout(1000)
-    st2 = pg.evaluate("(document.querySelector('.msg.assistant:last-of-type .ws-status')||{}).textContent||''")
-    check('fetch status shows domain', '읽는 중: example.com' in st2 or '답변' in st2, st2)
+    st2 = pg.evaluate("(document.querySelector('.msg.assistant:last-of-type .tstat')||{}).textContent||''")
+    check('fetch status shows domain', '페이지를 읽고 있어요' in st2 or '출처' in st2 or '답변' in st2, st2)
     check('request sent web_search=auto', db()['state']['lastBody'].get('web_search') == 'auto')
     pg.wait_for_timeout(2200)
     last = pg.locator('.msg.assistant').last
@@ -69,7 +69,7 @@ with sync_playwright() as p:
     check('sources list: 2 safe items (javascript: dropped)', srcs.count() == 2, srcs.count())
     check('source title escaped', '<b>' not in last.locator('.sources').inner_html().replace('&lt;b&gt;', ''))
     check('source domain shown', 'docs.example.org' in last.locator('.sources .src-list').text_content())
-    check('no ws-status after answer', last.locator('.ws-status').count() == 0)
+    check('no tool line after answer', last.locator('.tline, .tstat').count() == 0)
     check('no external requests', all(u.startswith(B) or u.startswith('data:') for u in reqs), [u for u in reqs if not u.startswith(B)])
     # persisted reload
     pg.evaluate("localStorage.removeItem('llmchat.convs')"); pg.reload(); pg.wait_for_timeout(1200)
