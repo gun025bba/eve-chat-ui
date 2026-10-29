@@ -48,7 +48,7 @@ button:active{transform:scale(.96);transition-duration:var(--d-instant)}
 @keyframes msgSend{from{opacity:0;transform:translateY(12px) scale(.98)}}
 .msg.user{align-items:flex-end}
 .msg.user .bubble{background:var(--user-bubble);color:var(--user-fg);padding:10px 16px;border-radius:var(--r-lg);border-bottom-right-radius:6px;max-width:82%;white-space:pre-wrap;overflow-wrap:anywhere}
-.msg.assistant .bubble{min-width:0;overflow-wrap:anywhere}
+.msg.assistant .bubble{position:relative;min-width:0;overflow-wrap:anywhere}
 .bubble>:first-child{margin-top:0}.bubble>:last-child{margin-bottom:0}
 .bubble p{margin:.75em 0}.bubble ul,.bubble ol{padding-left:1.4em;margin:.75em 0}.bubble li{margin:.3em 0}
 .bubble h1,.bubble h2,.bubble h3{font-weight:600;line-height:1.3;margin:1.2em 0 .5em}.bubble h1{font-size:22px}.bubble h2{font-size:20px}.bubble h3{font-size:17px}
@@ -533,18 +533,11 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .msg .stopped::before{content:"";width:8px;height:8px;border-radius:2px;background:currentColor;opacity:.7}
 .md a.img-link::before{content:"🖼 "}
 /* v15 web search: composer toggle, live status, citations, sources */
-.web{position:relative;flex:none;height:32px;min-width:32px;padding:0 9px;border-radius:16px;display:inline-flex;align-items:center;gap:4px;color:var(--label-2);background:transparent;font:600 13px/1 var(--font);transition:background var(--d-fast),color var(--d-fast)}
-.web::before{content:"";position:absolute;inset:-6px}
-.web svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;flex:none}
-.web span{display:none}
-.web.on{background:rgba(10,132,255,.18);color:var(--accent)}
-.web.on span{display:inline}
-.web:active{transform:scale(.94)}
 #input{padding-left:4px}
 /* AUTO-TOOLS-SPEC §3/§4: the one reused tool status line (.tline > .tstat) — opacity/transform only, no blur, no layout animation */
 .tline{margin-top:2px;opacity:0;transform:translateY(4px);transition:opacity var(--d-2) var(--ease-out),transform var(--d-2) var(--ease-out)}
 .tline.in{opacity:1;transform:none}
-.tline.out{position:absolute;pointer-events:none;opacity:0;transform:none;transition:opacity var(--d-1) var(--ease-out)}
+.tline.out{position:absolute;left:0;right:0;pointer-events:none;opacity:0;transform:none;transition:opacity var(--d-1) var(--ease-out)}
 .tstat{min-height:24px;max-width:100%}
 .tstat .row1{display:flex;align-items:center;gap:8px;font:500 15px/22px var(--font);color:var(--sub);min-width:0}
 .tstat .row1 svg{width:16px;height:16px;fill:none;stroke:var(--brand);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;animation:wsspin 1.6s linear infinite}
@@ -554,8 +547,6 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .tstat .tw>span{grid-area:1/1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0;transition:opacity var(--d-1) var(--ease-out)}
 .tstat .tw>span.on{opacity:1}
 .tstat .slow{white-space:nowrap;flex:none}
-.tline .hint{margin:10px 0 0;display:flex;align-items:center;gap:4px;font:400 13px/18px var(--font);color:var(--sub);flex-wrap:wrap}
-.tline .hint button{height:44px;margin:-13px 0;padding:0 8px;border:0;background:none;color:var(--accent);font:600 13px/18px var(--font);cursor:pointer}
 @keyframes wsspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.tstat .row1 svg{animation:none}.tline{transform:none;transition:opacity var(--d-2) linear}.tline.out{transition:opacity var(--d-1) linear}.tstat .tw>span{transition:none}}
 /* §5 the note that stays under a reply when the search failed / found nothing */
@@ -564,8 +555,6 @@ li.skel i+i{width:85%;margin-top:8px;height:12px}
 .tnote>svg{width:16px;height:16px;fill:none;stroke:var(--pend);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px;flex:none}
 .tnote .tb{min-width:0;display:flex;flex-direction:column;align-items:flex-start}
 .tnote b{display:block;font-weight:600;color:var(--label)}
-.tnote .retry{display:inline-flex;align-items:center;height:44px;margin:-6px 0 -10px -2px;padding:0 2px;border:0;background:none;color:var(--accent);font:600 15px/20px var(--font);cursor:pointer}
-.tnote .retry:disabled{opacity:.4;cursor:default}
 /* §7 search-query line at the top of the opened source list / sheet */
 .tq{display:flex;margin:2px 0 6px;font:400 13px/18px var(--font);color:var(--sub);min-width:0}
 .tq span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -815,7 +804,6 @@ body{word-break:keep-all}
 .send:disabled::after{opacity:0}
 .send.stop{background:var(--label)}.send.stop::after{opacity:0}
 .send svg{width:20px;height:20px;stroke-width:2.25}
-.web-btn,#webBtn{width:36px;height:36px;border-radius:50%}
 /* empty state (§1.7) */
 
 /* emerald is Eve-only: proactive origin icon, thinking */
@@ -1000,39 +988,11 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 /* one-line composer (§9.1) */
 #composer{padding-top:24px}
 .field{max-width:560px;min-height:44px;border-radius:22px;padding:0 4px 0 6px;gap:2px;align-items:flex-end;background:var(--material)}
-#input{padding:11px 2px;font:17px/22px var(--font);max-height:120px}
+#input{padding:11px 2px 11px 14px;font:17px/22px var(--font);max-height:120px}
 #input::placeholder{color:var(--label-3)}
-.plus{position:relative;flex:none;width:36px;height:36px;margin-bottom:4px;border-radius:50%;display:grid;place-items:center;color:var(--sub)}
-.plus::before{content:"";position:absolute;inset:-4px}
-.plus .i{width:22px;height:22px}
-.plus .i-globe{display:none}.plus.web-on{background:rgba(10,132,255,.16);color:var(--accent)}.plus.web-on .i-plus{display:none}.plus.web-on .i-globe{display:block}
-.plus:active{transform:none;background:var(--fill)}
 .send{margin-bottom:4px;transition:opacity var(--d-1) var(--ease-out),transform var(--d-1) var(--ease-spring)}
 .send:disabled{opacity:0;pointer-events:none}
-.plus-menu{position:absolute;left:0;bottom:calc(100% + 8px);z-index:6;min-width:208px;padding:4px;border-radius:14px;background:var(--material);box-shadow:inset 0 0 0 .5px var(--hair-strong),var(--shadow-float);
-  transform-origin:left bottom;opacity:0;transform:scale(.85);transition:opacity var(--d-2) var(--ease-out),transform var(--d-2) var(--ease-spring)}
-.plus-menu.show{opacity:1;transform:none}
-.plus-menu[hidden]{display:none}
-#plusMenu #webBtn{display:flex;align-items:center;gap:10px;width:100%;height:44px;min-width:0;padding:0 12px;border-radius:10px;font:500 16px/22px var(--font);color:var(--label);text-align:left;background:none}
-#plusMenu #webBtn:active{background:var(--fill);transform:none}
-#plusMenu #webBtn span{display:block;flex:1;min-width:0}
-#plusMenu #webBtn::before{display:none}
-#plusMenu #webBtn .i{width:20px;height:20px}
-#plusMenu #webBtn .i-check{color:var(--accent);opacity:0}
-#plusMenu #webBtn.on{background:none;color:var(--label)}#plusMenu #webBtn.on .i-check{opacity:1}
-#plusMenu #webBtn[hidden],#tMenu #tWeb[hidden]{display:none}
-/* AUTO-TOOLS-SPEC §6: 3-mode rows (자동 · 항상 검색 · 사용 안 함); the + button shows only the modes that differ from the quiet default */
-.plus .i-goff{display:none}.plus.web-off .i-goff{display:block}.plus.web-off .i-plus{display:none}.plus.web-off{color:var(--sub)}
-.plus-menu.modes{min-width:288px}
-.plus-menu .mode{display:flex;align-items:center;gap:12px;width:100%;min-width:0;min-height:52px;padding:6px 12px;border-radius:10px;text-align:left;color:var(--label);background:none}
-.plus-menu .mode[hidden]{display:none}
-.plus-menu .mode:active{background:var(--fill);transform:none}
-.plus-menu .mode>.i{width:20px;height:20px;flex:none}
-.plus-menu .mode .tt{display:block;flex:1;min-width:0}
-.plus-menu .mode .a{display:block;font:500 16px/22px var(--font);color:var(--label)}
-.plus-menu .mode .b{display:block;font:400 12px/16px var(--font);color:var(--sub)}
-.plus-menu .mode .i-check{color:var(--accent);opacity:0}.plus-menu .mode.on .i-check{opacity:1}
-@media (prefers-reduced-motion:reduce){.plus-menu{transform:none;transition:opacity var(--d-2) linear}.msg.ev.enter{animation:fadeIn var(--d-2) linear both}}
+@media (prefers-reduced-motion:reduce){.msg.ev.enter{animation:fadeIn var(--d-2) linear both}}
 .ev,.rail-now,.ev>*,.cc-stack,.cc-stack>*{min-width:0}
 
 .mchips.fresh{animation:srcFade var(--d-1) var(--ease-out) both}
@@ -1159,7 +1119,7 @@ dialog.src-sheet{max-height:60dvh;padding:0 16px calc(16px + env(safe-area-inset
 #listView.searching #logSearch,#listView.searching #logBack,#listView.searching #openSettings3{opacity:0;pointer-events:none}
 #listView.searching #convList{position:relative;z-index:1;margin-top:8px}
 
-/* 오늘 composer (#tComposer) = the chat composer's rules, id-renamed: #composer→#tComposer #input→#tInput #sendBtn→#tSend #plusBtn→#tPlus #plusMenu→#tMenu #webBtn→#tWeb */
+/* 오늘 composer (#tComposer) = the chat composer's rules, id-renamed: #composer→#tComposer #input→#tInput #sendBtn→#tSend */
 #tComposer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:8px max(16px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
   background:linear-gradient(to top,var(--bg) 55%,transparent)}
 #tInput{flex:1;min-width:0;font:17px/22px var(--font);color:var(--label);background:transparent;border:0;outline:0;resize:none;padding:5px 0;max-height:160px}
@@ -1170,18 +1130,9 @@ body.kb-open #tComposer{padding-bottom:8px}
 #tComposer{padding:10px max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));background:linear-gradient(transparent,var(--bg) 40%)}
 #tInput{padding:7px 2px;font-size:17px}
 #tInput:focus,#tInput:focus-visible{outline:0;box-shadow:none}
-#tWeb{width:36px;height:36px;border-radius:50%}
 #tComposer{padding-top:24px}
-#tInput{padding:11px 2px;font:17px/22px var(--font);max-height:120px}
+#tInput{padding:11px 2px 11px 14px;font:17px/22px var(--font);max-height:120px}
 #tInput::placeholder{color:var(--label-3)}
-#tMenu #tWeb{display:flex;align-items:center;gap:10px;width:100%;height:44px;min-width:0;padding:0 12px;border-radius:10px;font:500 16px/22px var(--font);color:var(--label);text-align:left;background:none}
-#tMenu #tWeb:active{background:var(--fill);transform:none}
-#tMenu #tWeb span{display:block;flex:1;min-width:0}
-#tMenu #tWeb::before{display:none}
-#tMenu #tWeb .i{width:20px;height:20px}
-#tMenu #tWeb .i-check{color:var(--accent);opacity:0}
-#tMenu #tWeb.on{background:none;color:var(--label)}
-#tMenu #tWeb.on .i-check{opacity:1}
 /* nav on 오늘/기록: transparent at rest, --material crossfades in (opacity) once the title has scrolled away (§4) */
 #todayView .navbar,#listView .navbar{background:transparent}
 #todayView .navbar::before,#listView .navbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--material);opacity:0;transition:opacity var(--d-2) var(--ease-out);pointer-events:none}

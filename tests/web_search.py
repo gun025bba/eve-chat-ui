@@ -1,4 +1,4 @@
-"""v15: web search toggle, live search status, [n] citations, sources list, persisted sources, CSP."""
+"""v15 / 2.0.0: no web-search toggle and no web_search request field; live search status, [n] citations, sources list, persisted sources, CSP."""
 from playwright.sync_api import sync_playwright
 import urllib.request, json
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
@@ -22,8 +22,6 @@ with sync_playwright() as p:
     pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
     if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
-    btn = pg.locator('#webBtn')
-    def menu(): pg.click('#plusBtn'); pg.wait_for_timeout(300)   # 1.10.0 B1: the web toggle is the "웹 검색" row of the + menu
     af = pg.evaluate(r"""(()=>{const bad=/name|address|contact|e-?mail|phone|tel|street|city|zip|postal|이름|주소|연락|전화/i;
       const out={}; for (const sel of ['#input','#search','#titleEdit','#sSystem']) { const e=document.querySelector(sel);
         const words=[e.id,e.name,e.placeholder,e.getAttribute('aria-label'),e.className].join(' ');
@@ -32,21 +30,12 @@ with sync_playwright() as p:
       out.composer={ok:t.tagName==='TEXTAREA'&&t.getAttribute('enterkeyhint')==='send'&&t.getAttribute('autocapitalize')==='off'&&t.getAttribute('autocorrect')==='off'&&t.spellcheck===false&&!t.form&&!t.closest('form')&&f.tagName!=='FORM'};
       return out;})()""")
     for k, v in af.items(): check('no contact AutoFill hints: ' + k, v['ok'], v)
-    menu()
-    check('toggle visible in the composer + menu', pg.evaluate("!!document.querySelector('#composer .field #plusMenu #webBtn')") and btn.is_visible())
-    check('toggle default off (aria-checked=false)', btn.get_attribute('aria-checked') == 'false')
-    hit = pg.evaluate("(()=>{const b=document.querySelector('#webBtn'),r=b.getBoundingClientRect();return {w:r.width,h:r.height}})()")
-    check('toggle hit area >= 44', hit['w'] >= 44 and hit['h'] >= 44, hit)
-    pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
-    # off -> request has no web_search
-    pg.fill('#input', 'hello off'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
-    check('off: web_search omitted', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
-    menu(); btn.click(); pg.wait_for_timeout(300)
-    check('toggle on: aria-checked=true + .on + globe', btn.get_attribute('aria-checked') == 'true' and 'on' in btn.get_attribute('class') and pg.evaluate("document.getElementById('plusBtn').classList.contains('web-on')"))
-    check('persisted in localStorage', pg.evaluate("localStorage.getItem('llmchat.webSearch')") == 'auto')
+    check('2.0.0: no web-search toggle / + menu in either composer', pg.evaluate("!document.querySelector('#plusBtn,#plusMenu,#webBtn,#tPlus,#tMenu,#tWeb')"))
+    # the request never carries web_search (the server decides)
+    pg.fill('#input', 'hello plain'); pg.click('#sendBtn'); pg.wait_for_timeout(2000)
+    check('plain message: web_search omitted', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
     pg.reload(); pg.wait_for_timeout(800)
     if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(600)
-    check('toggle survives reload', pg.locator('#webBtn').get_attribute('aria-checked') == 'true')
     # streaming auto
     pg.fill('#input', 'ws 질문'); pg.click('#sendBtn'); pg.wait_for_timeout(500)
     st = pg.locator('.msg.assistant .tstat').last
@@ -54,7 +43,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1000)
     st2 = pg.evaluate("(document.querySelector('.msg.assistant:last-of-type .tstat')||{}).textContent||''")
     check('fetch status shows domain', '페이지를 읽고 있어요' in st2 or '출처' in st2 or '답변' in st2, st2)
-    check('request sent web_search=auto', db()['state']['lastBody'].get('web_search') == 'auto')
+    check('search turn: still no web_search field in the request', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
     pg.wait_for_timeout(2200)
     last = pg.locator('.msg.assistant').last
     cites = last.locator('.md sup.cite a')
@@ -83,14 +72,8 @@ with sync_playwright() as p:
     pg.fill('#input', 'wsnostream q'); pg.click('#sendBtn'); pg.wait_for_timeout(1500)
     last = pg.locator('.msg.assistant').last
     check('non-stream message.sources rendered', last.locator('.sources li').count() == 2 and last.locator('sup.cite').count() >= 2)
-    # disabled on server -> auto-off + retry
-    put('/webdisabled/on')
-    pg.fill('#input', 'hello disabled'); pg.click('#sendBtn'); pg.wait_for_timeout(2500)
-    check('web_search_disabled: toggle turned off', pg.locator('#webBtn').get_attribute('aria-checked') == 'false')
-    check('web_search_disabled: retried without field', 'web_search' not in db()['state']['lastBody'] and 'Hello' in pg.locator('.msg.assistant').last.inner_text())
-    put('/webdisabled/off')
     # local (no persistence) mode also renders
-    put('/persist/off'); menu(); pg.locator('#webBtn').click()
+    put('/persist/off')
     check('CSP: no violations', not (pg.evaluate("window.__csp || []")), pg.evaluate("window.__csp || []"))
     check('no page errors', not errs, errs)
     b.close()

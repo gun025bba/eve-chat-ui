@@ -115,7 +115,7 @@ with sync_playwright() as p:
     put('/webdisabled/off')
     ctx = b.new_context(viewport={'width': 390, 'height': 844}); pg = ctx.new_page(); errs = []
     pg.on('pageerror', lambda e: errs.append(str(e)))
-    pg.add_init_script("localStorage.setItem('llmchat.webSearch','1');localStorage.setItem('eve.mem.introSeen','1')")
+    pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(900); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
     pg.fill('#input', 'ws 질문'); pg.click('#sendBtn')
     seen = {'cite_no_row': False}

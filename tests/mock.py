@@ -411,8 +411,7 @@ class H(SimpleHTTPRequestHandler):
             if tid:
                 th = new_thread(last[:40]) if tid == 'new' else DB['threads'].get(tid)
                 if th and not rep: um = add_msg(th['id'], 'user', last)
-        WS = body.get('web_search') in ('auto', 'force', True)
-        if WS and STATE.get('webdisabled'): return s.j(400, err('web_search_disabled', 'invalid_request_error', 'web search is disabled'))
+        WS = True   # 2.0.0: the browser never sends web_search; the server decides, the mock searches when the text starts with 'ws' / 'wsnostream'
         SRCS = [{"n": 1, "title": "Eve 릴리스 노트", "url": "https://example.com/notes?a=1&b=2", "domain": "example.com", "fetched": True},
                 {"n": 2, "title": "두 번째 출처 <b>bold</b>", "url": "https://docs.example.org/page", "domain": "docs.example.org", "fetched": False},
                 {"n": 3, "title": "bad scheme", "url": "javascript:alert(1)", "domain": "evil", "fetched": False}]
@@ -434,7 +433,11 @@ class H(SimpleHTTPRequestHandler):
                 s.ev({"id": "at-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
                 if th:
                     am = s.save_asst(th, rep, ''.join(txt), ''); am['sources'] = PRO.get('atSources', [])
-                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                    md = {}
+                    if PRO.get('atFresh'): md['fresh'] = PRO['atFresh']   # #134: persisted freshness flag (ok | unverified)
+                    if PRO.get('atTools') is not None: md['tools'] = PRO['atTools']   # #134: tools[] {tool, selected_by, status, error_code?, count?[, query]}
+                    if md: am['metadata'] = md
+                    s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **(md if PRO.get('atPersistedMeta', True) else {})))
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return

@@ -1,4 +1,4 @@
-"""AUTO-TOOLS-SPEC §13 · the tool status line (.tline > .tstat), the first-time hint, failure notes, stop, chips/sheet, escaping, motion.
+"""AUTO-TOOLS-SPEC §13 · the tool status line (.tline > .tstat), failure notes (text only, no action), the note restored after a reload, stop, chips/sheet, escaping, motion.
 Mock scripts (PRO.atScript) replay tool_call / tool_result events; selected_by / count / error_code are the proposed (optional) fields."""
 from at_common import *
 FIVE = [src(i, d) for i, d in enumerate(['news.example.com', 'blog.example.org', 'docs.example.net', 'a.example.com', 'b.example.com'], 1)]
@@ -7,7 +7,7 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     server(auto=True)
     ctx, pg = launch(b)
-    # ── S2 → S3 → S4 → answer (selected_by:model → one-time hint) ──
+    # ── S2 → S3 → S4 → answer ──
     script([S(call(), .3), S(result(sources=FIVE, count=5), 1.2), T(ANS, 2.6)], FIVE[:2])
     send(pg); pg.wait_for_timeout(700)
     ts = tstat(pg)
@@ -15,9 +15,8 @@ with sync_playwright() as p:
     a = pg.evaluate("(()=>{const e=document.querySelector('.tstat');return {role:e.getAttribute('role'),live:e.getAttribute('aria-live'),atomic:e.getAttribute('aria-atomic'),icon:e.querySelector('svg').getAttribute('aria-hidden'),h:e.getBoundingClientRect().height}})()")
     check('.tstat role=status aria-live=polite aria-atomic=true, icon aria-hidden', a['role'] == 'status' and a['live'] == 'polite' and a['atomic'] == 'true' and a['icon'] == 'true', a)
     check('two rows → ≥ 40px', a['h'] >= 40, a)
-    h = pg.evaluate("(()=>{const h=document.querySelector('.tline .hint');if(!h)return null;const bt=h.querySelector('button'),r=bt.getBoundingClientRect();return {t:h.textContent,inLive:!!h.closest('.tstat'),bh:r.height}})()")
-    check('hint shown once: 「Eve가 필요하다고 판단해 검색해요 · 바꾸기」, outside the live region, button ≥ 44', h and 'Eve가 필요하다고 판단해 검색해요' in h['t'] and '바꾸기' in h['t'] and not h['inLive'] and h['bh'] >= 44, h)
-    check('hint flag stored', pg.evaluate("localStorage.getItem('llmchat.autoHintSeen')") == '1')
+    check('2.0.0: no one-time hint, no localStorage key (even for selected_by:model)', pg.locator('.tline .hint, .hint-chg').count() == 0 and pg.evaluate("localStorage.getItem('llmchat.autoHintSeen')") is None)
+    check('2.0.0: the request has no web_search field', 'web_search' not in db()['state']['lastBody'], db()['state']['lastBody'])
     pg.evaluate("window.__t0=document.querySelector('.tstat')")
     check('S3: 출처 5개를 읽고 있어요 · 첫 도메인 외 4곳', wait_tstat(pg, '출처 5개를 읽고 있어요', 4000) and 'news.example.com 외 4곳' in tstat(pg)['r2'], tstat(pg))
     check('the same .tstat node is reused', pg.evaluate("document.querySelector('.tstat')===window.__t0 && document.querySelectorAll('.tstat').length===1"))
@@ -29,19 +28,14 @@ with sync_playwright() as p:
     pg.wait_for_timeout(300)
     check('… and is removed from the DOM', pg.locator('.tline, .tstat').count() == 0)
     check('settles with chips; no note when cited', settle(pg) and pg.locator('.msg.assistant .sources').count() == 1 and pg.locator('.tnote').count() == 0)
-    # second search in the same session → no hint again
     fresh_chat(pg); script([S(call(id='t2', q='두 번째'), .3), S(result(id='t2', sources=FIVE[:2]), 1.2), T(ANS, 1.5)], FIVE[:2]); send(pg); pg.wait_for_timeout(1000)
-    check('second auto search: no hint (flag set)', pg.locator('.tline .hint').count() == 0 and pg.locator('.tstat').count() == 1)
+    check('second search: still no hint', pg.locator('.tline .hint').count() == 0 and pg.locator('.tstat').count() == 1)
     settle(pg)
     ctx.close()
-    # selected_by absent (old server) → no hint, today's flow still works
+    # selected_by absent (old server) → today's flow still works
     ctx, pg = launch(b); script([S(call(by=''), .3), S(result(sources=FIVE[:1]), 1.2), T(ANS, 1.5)], FIVE[:1]); send(pg); pg.wait_for_timeout(800)
-    check('no selected_by → no hint, line still shown', pg.locator('.tline .hint').count() == 0 and (tstat(pg) or {}).get('r1') == '웹에서 찾고 있어요', tstat(pg))
-    check('hint flag NOT set without selected_by', pg.evaluate("localStorage.getItem('llmchat.autoHintSeen')") is None)
+    check('no selected_by → line still shown', ((tstat(pg) or {}).get('r1') == '웹에서 찾고 있어요'), tstat(pg))
     check('N=1 → 출처 1개 and no second row', wait_tstat(pg, '출처 1개를 읽고 있어요', 4000) and tstat(pg)['r2'] == '', tstat(pg)); settle(pg)
-    # selected_by:user → no hint
-    fresh_chat(pg); script([S(call(by='user'), .3), S(result(sources=FIVE[:1]), 1.2), T(ANS, 1.5)], FIVE[:1]); send(pg); pg.wait_for_timeout(800)
-    check('selected_by:user → no hint', pg.locator('.tline .hint').count() == 0); settle(pg)
     ctx.close()
     # ── web_fetch + bad URL, www. stripped ──
     ctx, pg = launch(b)
@@ -88,21 +82,21 @@ with sync_playwright() as p:
     ctx.close()
 
     # ── §5.1 failure notes ──
-    CASES = [  # name, tool_result extras, status-line copy, note title, sub, retry?
-        ('ok, 0 results', dict(status='ok'), '검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요', True),
-        ('timeout', dict(status='timeout'), '검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요', True),
-        ('search_unavailable', dict(status='error', error_code='search_unavailable'), '지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요', True),
-        ('rate_limited', dict(status='error', error_code='rate_limited'), '검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에 다시 찾아 주세요', True),
-        ('budget_exhausted', dict(status='error', error_code='budget_exhausted'), '검색 한도에 도달했어요', '한 번에 할 수 있는 검색을 다 썼어요', '지금까지 찾은 내용으로 답했어요', False),
-        ('blocked', dict(status='blocked', blocked_count=2), '차단된 주소는 열지 않았어요', '일부 페이지는 열지 않았어요', '안전하지 않은 주소라 건너뛰었어요', False),
-        ('kill_switch', dict(status='error', error_code='kill_switch'), '웹 검색이 꺼져 있어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요', False),
-        ('permission_denied', dict(status='error', error_code='permission_denied'), '웹 검색이 꺼져 있어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요', False),
-        ('denied status', dict(status='denied'), '웹 검색이 꺼져 있어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요', False),
-        ('query_rejected', dict(status='error', error_code='query_rejected'), '검색어에 보낼 수 없는 내용이 있어요', '검색하지 않았어요', '개인 정보처럼 보이는 내용은 밖으로 보내지 않아요', False),
-        ('unknown code', dict(status='error', error_code='weird_code_x', message='SECRET internal failure trace'), '검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요', True),
-        ('error without code', dict(status='error', detail='SECRET trace detail'), '검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요', True)]
+    CASES = [  # name, tool_result extras, status-line copy, note title, sub
+        ('ok, 0 results', dict(status='ok'), '검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'),
+        ('timeout', dict(status='timeout'), '검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요'),
+        ('search_unavailable', dict(status='error', error_code='search_unavailable'), '지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요'),
+        ('rate_limited', dict(status='error', error_code='rate_limited'), '검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에는 다시 검색할 수 있어요'),
+        ('budget_exhausted', dict(status='error', error_code='budget_exhausted'), '검색 한도에 도달했어요', '한 번에 할 수 있는 검색을 다 썼어요', '지금까지 찾은 내용으로 답했어요'),
+        ('blocked', dict(status='blocked', blocked_count=2), '차단된 주소는 열지 않았어요', '일부 페이지는 열지 않았어요', '안전하지 않은 주소라 건너뛰었어요'),
+        ('kill_switch', dict(status='error', error_code='kill_switch'), '지금은 검색을 쓸 수 없어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요'),
+        ('permission_denied', dict(status='error', error_code='permission_denied'), '지금은 검색을 쓸 수 없어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요'),
+        ('denied status', dict(status='denied'), '지금은 검색을 쓸 수 없어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요'),
+        ('query_rejected', dict(status='error', error_code='query_rejected'), '검색어에 보낼 수 없는 내용이 있어요', '검색하지 않았어요', '개인 정보처럼 보이는 내용은 밖으로 보내지 않아요'),
+        ('unknown code', dict(status='error', error_code='weird_code_x', message='SECRET internal failure trace'), '검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요'),
+        ('error without code', dict(status='error', detail='SECRET trace detail'), '검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요')]
     ctx, pg = launch(b)
-    for name, extra, line, title, sub, retry in CASES:
+    for name, extra, line, title, sub in CASES:
         fresh_chat(pg)
         script([S(call(id='f1', q='내 번호 010-1234-5678'), .3), S(result(id='f1', **extra), .5), T('답변이에요.', 2.2)])
         send(pg); pg.wait_for_timeout(1200)
@@ -110,10 +104,9 @@ with sync_playwright() as p:
         check(f'{name}: status line copy', wait_tstat(pg, line, 3000), tstat(pg))
         if name == 'query_rejected': check(f'{name}: the rejected query is not shown once rejected', '010' not in (tstat(pg) or {}).get('r2', ''), tstat(pg))
         settle(pg, 12000)
-        n = pg.evaluate("(()=>{const n=document.querySelector('.msg.assistant .tnote');if(!n)return null;const r=n.querySelector('.retry'),a=n.closest('.msg').querySelector('.actions');return {t:n.textContent,role:n.getAttribute('role'),b:n.querySelector('b').textContent,retry:!!r,dis:r&&r.disabled,h:r&&r.getBoundingClientRect().height,before:a?!!(n.compareDocumentPosition(a)&4):null,warn:!!n.querySelector('svg')}})()")
+        n = pg.evaluate("(()=>{const n=document.querySelector('.msg.assistant .tnote');if(!n)return null;const a=n.closest('.msg').querySelector('.actions');return {t:n.textContent,role:n.getAttribute('role'),b:n.querySelector('b').textContent,btn:n.querySelectorAll('button,a,[role=button]').length,color:getComputedStyle(n.querySelector('b')).color,before:a?!!(n.compareDocumentPosition(a)&4):null,warn:!!n.querySelector('svg')}})()")
         check(f'{name}: note title/sub, role=status, above the action row', n and n['b'] == title and sub in n['t'] and n['role'] == 'status' and n['before'] is True, n)
-        check(f'{name}: 「웹에서 다시 찾기」 {"present" if retry else "absent"}', n and n['retry'] == retry and (not retry or (n['h'] or 0) >= 44), n)
-        if name == 'rate_limited': check('rate_limited: retry disabled for the first 10 s', n and n['dis'] is True, n)
+        check(f'{name}: text only — no 「웹에서 다시 찾기」, no button/link/retry in the note', n and n['btn'] == 0 and '다시 찾기' not in n['t'] and pg.locator('.tnote .retry').count() == 0, n)
         check(f'{name}: no server string leaks', pg.locator('.msg.assistant').last.inner_text().find('SECRET') < 0 and 'internal' not in pg.locator('.msg.assistant').last.inner_text())
     # persists after the stream ended; chips absent
     check('note stays after the stream ended', pg.locator('.tnote').count() == 1)
@@ -127,20 +120,44 @@ with sync_playwright() as p:
     check('partial failure with cited sources → no note, chips shown', pg.locator('.tnote').count() == 0 and pg.locator('.msg.assistant .sources').count() == 1)
     fresh_chat(pg); script([S(call(id='b1', q='차단'), .2), S(result(id='b1', status='blocked', blocked_count=1, sources=FIVE[:2]), .3), T(ANS, 2.4)], FIVE[:2]); send(pg); settle(pg, 12000)
     check('blocked + cited sources → note allowed (blocked is the exception)', pg.locator('.tnote').count() == 1 and pg.locator('.msg.assistant .sources').count() == 1)
-    # retry → web_search auto (force is held) + replace_message_id, saved mode unchanged
-    fresh_chat(pg); pg.evaluate("localStorage.removeItem('llmchat.webSearch')")
-    script([S(call(id='r1', q='재시도'), .2), S(result(id='r1', status='timeout'), .3), T('답변이에요.', 1.5)]); send(pg); settle(pg, 12000)
-    pg.click('.tnote .retry'); pg.wait_for_timeout(2500)
-    lb = db()['state']['lastBody']
-    check('retry: web_search sent (auto while force is held) + replace_message_id', lb.get('web_search') == 'auto' and bool(lb.get('replace_message_id')), lb)
-    check('retry: the saved mode did not change', pg.evaluate("localStorage.getItem('llmchat.webSearch')") is None)
     check('no page errors (failures)', not pg.errs, pg.errs)
     ctx.close()
-    # with the force gate open the retry sends "force"
-    server(auto=True); ctx, pg = launch(b, init="window.__eveFlags={forceMode:true};")
-    script([S(call(id='r1', q='재시도'), .2), S(result(id='r1', status='timeout'), .3), T('답변이에요.', 1.5)]); send(pg); settle(pg, 12000)
-    pg.click('.tnote .retry'); pg.wait_for_timeout(2500); lb = db()['state']['lastBody']
-    check('retry with force enabled → web_search:"force" + replace_message_id', lb.get('web_search') == 'force' and bool(lb.get('replace_message_id')), lb)
+    # ── restore after a reload: metadata.fresh:'unverified' → the generic note comes back (text only), nothing else changes ──
+    server(auto=True); ctx, pg = launch(b)
+    put('/pro/set', {'atFresh': 'unverified'})
+    script([S(call(id='u1', q='복원 검색'), .2), S(result(id='u1', sources=FIVE[:1]), .3), T('답변이에요.', 1.2)], FIVE[:1]); send(pg); settle(pg, 12000)
+    put('/pro/set', {'atFresh': None})
+    pg.evaluate("localStorage.removeItem('llmchat.convs')"); pg.reload(); pg.wait_for_timeout(1200)
+    if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(1500)
+    pg.wait_for_timeout(500)
+    n = pg.evaluate("(()=>{const n=document.querySelector('.msg.assistant .tnote');return n?{b:n.querySelector('b').textContent,t:n.textContent,btn:n.querySelectorAll('button,a').length,role:n.getAttribute('role')}:null})()")
+    check('after reload: fresh:unverified → note 「최신 정보를 확인하지 못했어요」, role=status, no action', n and n['b'] == '최신 정보를 확인하지 못했어요' and n['role'] == 'status' and n['btn'] == 0, n)
+    check('after reload: no query line (queries are never stored)', pg.locator('.tq').count() == 0)
+    # reason from metadata.tools[]: last status≠ok → §5.1 copy; tools[] empty → 검색하지 않고…; a joined query shows up in the sheet line
+    def reload_case(tag, fresh, tools, items, srcs=None):
+        server(auto=True); ctx.close(); c2, p2 = launch(b); put('/pro/set', {'atFresh': fresh, 'atTools': tools, 'atPersistedMeta': False})
+        script(items, srcs); send(p2); settle(p2, 12000); put('/pro/set', {'atFresh': None, 'atTools': None, 'atPersistedMeta': True})
+        p2.evaluate("localStorage.removeItem('llmchat.convs')"); p2.reload(); p2.wait_for_timeout(1200)
+        if not p2.is_visible('#input'): p2.evaluate("document.querySelector('#convList li.row .row-main').click()"); p2.wait_for_timeout(1500)
+        p2.wait_for_timeout(500); return c2, p2
+    ctx, pg = reload_case('timeout', 'unverified', [{'tool': 'web_search', 'selected_by': 'model', 'status': 'timeout'}], [S(call(id='w1', q='q'), .2), S(result(id='w1', status='timeout'), .2), T('답변이에요.', 1.0)])
+    nt = pg.evaluate("(()=>{const n=document.querySelector('.msg.assistant .tnote');return n?n.querySelector('b').textContent:null})()")
+    check('reload: tools[] last status=timeout → 「검색 시간이 초과됐어요」', nt == '검색 시간이 초과됐어요', nt)
+    ctx, pg = reload_case('nosearch', 'unverified', [], [T('답변이에요.', 1.0)])
+    nt = pg.evaluate("(()=>{const n=document.querySelector('.msg.assistant .tnote');return n?n.textContent:null})()")
+    check('reload: fresh:unverified + tools[] empty → 「검색하지 않고 학습한 내용으로 답했어요」', nt and '검색하지 않고 학습한 내용으로 답했어요' in nt, nt)
+    ctx, pg = reload_case('query', 'ok', [{'tool': 'web_search', 'selected_by': 'model', 'status': 'ok', 'count': 2, 'query': '서버가 붙인 검색어'}], [S(call(id='w2', q='실시간'), .2), S(result(id='w2', sources=FIVE[:2]), .2), T(ANS, 1.0)], FIVE[:2])
+    pg.locator('.msg.assistant .sources .sc').first.click(); pg.wait_for_timeout(700)
+    tq = pg.evaluate("[...document.querySelectorAll('.tq')].map(e=>e.textContent)")
+    check('reload: a server-joined metadata.tools[].query is shown in the sheet line; fresh:ok → no note', pg.locator('.tnote').count() == 0 and len(tq) == 1 and '서버가 붙인 검색어' in tq[0] and 'Eve가 필요하다고 판단해 검색했어요' in tq[0], tq)
+    # live: persisted.fresh is the authority over the tool_result
+    server(auto=True); ctx.close(); ctx, pg = launch(b); put('/pro/set', {'atFresh': 'ok', 'atTools': []})
+    script([S(call(id='l1', q='q'), .2), S(result(id='l1', status='timeout'), .2), T('답변이에요.', 1.0)]); send(pg); settle(pg, 12000)
+    check('live: persisted.fresh:ok wins over a failed tool_result → no note', pg.locator('.tnote').count() == 0)
+    server(auto=True); fresh_chat(pg); put('/pro/set', {'atFresh': 'unverified', 'atTools': []})
+    script([S(call(id='l2', q='q'), .2), S(result(id='l2', sources=FIVE[:2]), .2), T(ANS, 1.0)], FIVE[:2]); send(pg); settle(pg, 12000)
+    check('live: persisted.fresh:unverified shows the note even with cited sources', pg.locator('.tnote').count() == 1 and pg.locator('.msg.assistant .sources').count() == 1)
+    put('/pro/set', {'atFresh': None, 'atTools': None})
     ctx.close()
 
     # ── stop: the line goes at once, no chips/note, …/cancel called ──
