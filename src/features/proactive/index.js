@@ -1,291 +1,25 @@
 import { el } from '../../shared/dom.js';
-/* Eve 선톡 P1 UI (eve-chat-ui-design PROACTIVE-MEMORY-SPEC v2 @6221745 + eve-serving PR #12 contract, Part A + §C):
- * in-thread proactive messages, unread dot/pill + title/app badge, read-on-view via outbox,
- * the shared .confirm-card, and Settings › 선톡. Server calls go through proactive-api.js only.
- * Security: a confirm token is fetched only when approve is pressed (POST reissue → approve, contract §3.5.4), held in a local variable, never stored/logged; SSE tokens are ignored;
- * push payloads are never rendered (sw.js shows fixed text). */
+import createPresentation from './model.js';
+import createConfirmCards from './confirm-card.js';
 export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
-  const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-  const PUSH_HOSTS = ['web.push.apple.com'];          // exact host, mirrors the server allowlist (PM §2.2.1)
-  const POLL_MS = 60000, LS_PUSH = 'eve.push', LS_KID = 'eve.push.kid';
-  const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;   // Eve sprite (design a197571)
-  const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;          // glyphs not in the sprite
-  const IC = {
-    sparkle: icon('sparkle'), eye: icon('eye'), uturn: icon('followup'), 'sun-horizon': icon('sun-horizon'), bell: icon('bell'),
-    wrench: svg('<path d="M14.7 6.3a4 4 0 0 0 5 5L13 18l-3 3-4-4 3-3 6.7-6.7a4 4 0 0 0-1-1z"/>'),
-    brain: icon('memory'), trash: icon('trash'), warn: icon('warning'), check: icon('check'), err: icon('info')
-  };
-  const T = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' });
-  const DAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
-  function when(ms) {                                  // spec A2: 오늘 / 어제 / 이번 주 요일 / M월 D일
-    const d = new Date(ms), now = new Date(), t = T.format(d);
-    const day0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const diff = Math.round((day0(now) - day0(d)) / 864e5);
-    if (diff === 0) return t; if (diff === 1) return '어제 ' + t;
-    if (diff > 1 && diff < 7) return DAYS[d.getDay()] + ' ' + t;
-    return `${d.getMonth() + 1}월 ${d.getDate()}일 ${t}`;
+  const shared = { system: { proactive: true, tools: true, memoryRO: false }, cards: new Map(), seq: 0, live: null };
+  const model = createPresentation({ proactiveAPI, Pim });
+  function say(text) {
+    if (!shared.live) {
+      shared.live = el('div', 'sr-only'); shared.live.setAttribute('role', 'status');
+      shared.live.id = 'proLive'; document.body.appendChild(shared.live);
+    }
+    shared.live.textContent = ''; setTimeout(() => { shared.live.textContent = text; }, 30);
   }
-  const hm = s => { const m = /^(\d{2}):(\d{2})$/.exec(s || ''); if (!m) return s || ''; const d = new Date(2000, 0, 1, +m[1], +m[2]); return T.format(d); };
-  let live = null;                                     // hidden role=status region (spec C5/A7)
-  function say(text) { if (!live) { live = el('div', 'sr-only'); live.setAttribute('role', 'status'); live.id = 'proLive'; document.body.appendChild(live); } live.textContent = ''; setTimeout(() => { live.textContent = text; }, 30); }
+  const cardController = createConfirmCards({ model, Pim, shared, say });
+  const context = { proactiveAPI, Pim, briefing, shared, say, model, cardController };
+  return { init: h => init(context, h), ...cardController, ULID: model.ULID, when: model.when };
+}
 
-  /* ================= §C shared .confirm-card (spec v2 C1–C4) ================= */
-  const F = () => proactiveAPI.FIELDS;         // all server field names live in proactive-api.js
-  const cards = new Map();                             // action_id -> card element
-  let SYS = { proactive: true, tools: true, memoryRO: false };   // GET /v1/settings system.* (read-only)
-  const sanitize = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
-  function variantOf(x) {                              // spec C4
-    if (x.tool === 'memory.propose') return x.op === 'delete' ? 'forget' : 'remember';
-    if (x.tool === 'proactive.propose_followup') return 'proactive';
-    return 'tool';
-  }
-  // danger (spec §F-1): only send verbs and delete ops are red; write stays accent
-  const dangerOf = (x, variant) => variant === 'forget' || x.op === 'delete' || x.verbs.includes('send') || x.verbs.includes('delete');
-  const DENIED = { secret_detected: '비밀번호나 키처럼 보여서 진행하지 않았어요', cap_exceeded: '허용된 한도를 넘어서 진행하지 않았어요', tainted: '외부 내용이 섞인 요청이라 진행하지 않았어요',
-    scope_denied: '이 작업은 할 수 있는 권한이 없어요', item_gone: '그사이 지워진 항목이 있어서 진행하지 않았어요',
-    conflict: '이미 처리된 요청이에요', payload_mismatch: '내용이 바뀌어서 진행하지 않았어요', expired: '시간이 지나 진행하지 않았어요', not_found: '대상을 찾을 수 없어요', kill_switch: '지금은 이 기능을 쓸 수 없어요', writes_disabled: '지금은 쓰기가 꺼져 있어서 진행하지 않았어요', memory_read_only: '지금은 메모리를 바꿀 수 없어요', invalid: '요청 내용이 올바르지 않아 진행하지 않았어요' };
-  const CROSS = '다른 서버에 연결돼 있어 여기서는 승인할 수 없어요. 설정에서 서버 주소를 비우면 돼요';
-  const RTF = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }), YTF = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  function shortDate(iso) {                            // spec B2: 오늘 / N일 전 / 10월 21일 / 2025년 3월 2일
-    const d = new Date(iso); if (isNaN(d)) return '';
-    const now = new Date(), day0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), diff = Math.round((day0(now) - day0(d)) / 864e5);
-    if (diff <= 0) return '오늘'; if (diff < 7) return diff + '일 전';
-    return (d.getFullYear() === now.getFullYear() ? RTF : YTF).format(d);
-  }
-  /* 1.10.0 pim write cards (eve-serving #78: reminders_add / reminders_complete). Same .confirm-card; only the rows and error copy are pim-aware. */
-  const PIM = x => x.scopes.some(c => /^(reminders|calendar)\./.test(c));
-  const CAL = x => x.scopes.some(c => /^calendar\./.test(c));
-  const OUTCOME_UNKNOWN = x => (CAL(x) ? '일정이 만들어졌는지' : '리마인더가 만들어졌는지') + ' 확인하지 못했어요. ' + (CAL(x) ? '캘린더' : '미리 알림') + ' 앱에서 확인해 주세요. 다시 시도하면 중복될 수 있어서 다시 보내지 않아요';
-  const EXEC_ERR = { pim_unavailable: 'Mac의 캘린더 연동에 연결하지 못했어요. 잠시 후 다시 시도해 주세요', permission_denied: '캘린더·리마인더 접근이 허용되지 않았어요. Mac 설정을 확인해 주세요', timeout: '응답이 늦어서 실행하지 못했어요. 잠시 후 다시 시도해 주세요', invalid_arguments: '요청 내용이 올바르지 않아 진행하지 않았어요' };
-  /* PIM confirm rows (eve-serving #66 §11.4): one shared card, fixed row names 제목·시간·목록/캘린더·장소·메모. `display` is server-made (Asia/Seoul) and shown as given;
-     id / method / verb and the raw start·end·all_day·calendar_id are execution detail, never rows. */
-  const PIM_HIDE = new Set(['verb', 'method', 'id', 'start', 'end', 'all_day', 'calendar_id', 'due', 'display', 'title', 'list', 'calendar', 'location', 'notes']);
-  function pimRows(x) {
-    const v = x.view || {}, cal = CAL(x), rows = [], s = k => (typeof v[k] === 'string' && v[k] !== '' ? v[k] : null);
-    const add = (k, label, text, raw) => rows.push([k, label, text, raw == null || raw === text ? null : raw]);
-    add('title', '제목', s('title') || '(제목 없음)');
-    let when = s('display');
-    if (!when) { if (cal && s('start')) when = Pim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = Pim.fmtDue(v.due); }
-    if (when) add('when', '시간', when); else if (!cal && ('due' in v || 'display' in v)) add('when', '시간', '기한 없음');
-    if (cal) add('calendar', '캘린더', s('calendar') || (v.calendar_id == null ? '기본 캘린더' : '선택한 캘린더'));
-    else if ('list' in v || x.tool === 'reminders_add') add('list', '목록', s('list') || '기본 목록');
-    if (s('location')) add('location', '장소', v.location);
-    if (s('notes')) add('notes', '메모', v.notes);
-    Object.keys(v).filter(k => !PIM_HIDE.has(k)).forEach(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); add(k, k, raw); });   // unknown extra keys stay visible (never silently dropped)
-    return rows;
-  }
-  const VERB_LABEL = { add: '추가', update: '변경', send: '보내기', delete: '삭제', run: '실행' };
-  const VERB_DONE = { add: '추가했어요', update: '변경했어요', send: '보냈어요', delete: '삭제했어요', run: '실행했어요' };
-  const verbOf = x => typeof x.verb === 'string' && Object.hasOwn(VERB_LABEL, x.verb) ? x.verb : 'run';   // own keys only ('constructor', '__proto__' → run)   // architect: payload_view.verb; unknown → run
-  const VAR = {
-    remember: { ic: 'brain', title: () => '메모리에 저장할까요?', primary: () => '저장', secondary: '취소', done: () => '저장했어요' },
-    forget: { ic: 'trash', title: x => x.ambiguous ? '어떤 걸 지울까요?' : '메모리에서 지울까요?', primary: (x, n) => `${n}개 지우기`, secondary: '취소', done: (x, n) => `${n}개 지웠어요` },
-    proactive: { ic: 'bell', title: () => '다시 알려 드릴까요?', primary: () => '알림 예약', secondary: '괜찮아요', done: x => x.display ? `${x.display}에 알려 드릴게요` : '알림을 예약했어요' },
-    tool: { ic: 'wrench', title: x => x.summary || x.tool || '작업을 실행할까요?', primary: x => VERB_LABEL[verbOf(x)], secondary: '취소', done: x => VERB_DONE[verbOf(x)] }
-  };
-  const EXPIRED = '시간이 지나 취소됐어요';
-  const deniedText = c => DENIED[c] || (c ? DENIED.invalid : '진행하지 않았어요');   // SSE denied without code → generic; unknown API code → invalid
-  let seq = 0;
-  function renderConfirmCard(action, opts) {
-    const P = opts.P, a = sanitize(action), x = F().action(action), id = x.id;
-    const variant = variantOf(x), V = VAR[variant], danger = dangerOf(x, variant), n = ++seq;
-    const retries = opts.retries || 0;               // "다시 요청" count, carried across in-place replacement
-    const card = el('div', 'confirm-card'); card.dataset.variant = variant; card.dataset.aid = id || '';
-    card.setAttribute('role', 'group'); card.setAttribute('aria-labelledby', 'cct' + n);
-    if (id) cards.set(id, card);
-    const head = el('div', 'cc-head'); head.insertAdjacentHTML('beforeend', IC[V.ic]);
-    const title = el('span', 'cc-title', V.title(x)); title.id = 'cct' + n; head.appendChild(title); card.appendChild(head);
-    const result = el('p', 'cc-result'); result.tabIndex = -1; result.hidden = true;
-    if (x.status === 'denied') {                       // spec C3 denied: one line, no body, no buttons
-      card.dataset.state = 'denied'; head.remove(); result.hidden = false;
-      result.insertAdjacentHTML('beforeend', IC.err); result.appendChild(el('span', null, deniedText(x.errorCode)));
-      card.appendChild(result); card.removeAttribute('aria-labelledby'); card.setAttribute('aria-label', result.textContent); say(result.textContent);
-      return card;
-    }
-    const desc = [];
-    if (x.tainted) { const t = el('p', 'cc-taint'); t.id = 'ccw' + n; t.insertAdjacentHTML('beforeend', IC.warn); t.appendChild(el('span', null, '외부 콘텐츠를 읽은 뒤 제안된 작업이에요')); card.appendChild(t); desc.push(t.id); }
-    if (x.actor === 'scheduler') card.appendChild(el('p', 'cc-prov', (x.jobName ? x.jobName + '에서' : 'Eve 예약 작업에서') + ' · 예약 작업'));
-    const body = el('div', 'cc-body'); body.id = 'ccb' + n; desc.push(body.id);
-    const boxes = [];
-    if (variant === 'remember') { const it = x.items[0] || {}; body.appendChild(el('p', 'cc-quote', '“' + (it.text || x.summary) + '”')); if (it.kind) body.appendChild(el('p', 'cc-kind', it.kind)); }
-    else if (variant === 'forget') {                   // meta = kind · updated_at (spec f01cd23 §F-3)
-      const ul = el('ul', 'cc-items');
-      x.items.forEach(it => {
-        const li = el('li'), lab = el('label', 'cc-item'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !x.ambiguous; cb.dataset.iid = it.id || '';
-        const tx = el('span', 'cc-item-text'); tx.appendChild(el('span', null, it.text));
-        const meta = el('span', 'cc-kind'); if (it.kind) meta.append(it.kind);
-        if (it.updatedAt && shortDate(it.updatedAt)) { if (it.kind) meta.append(' · '); const tm = el('time', null, shortDate(it.updatedAt)); tm.dateTime = it.updatedAt; meta.appendChild(tm); }
-        if (meta.textContent) tx.appendChild(meta);
-        lab.append(cb, tx); li.appendChild(lab); ul.appendChild(li); boxes.push(cb);
-        cb.addEventListener('change', () => paintPrimary());
-      });
-      body.appendChild(ul);
-    }
-    else if (variant === 'proactive') {
-      body.appendChild(el('p', 'cc-summary', x.summary));
-      if (x.display) { const w = el('time', 'cc-when', x.display); if (x.whenAt) w.dateTime = x.whenAt; body.appendChild(w); }   // display as given (Asia/Seoul, CT Q12)
-      body.appendChild(el('p', 'cc-where', '이 대화에서'));
-    }
-    else {
-      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && Pim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
-      ks.forEach(([k, label, text, raw], i) => {
-        const dt = el('dt', null, label), dd = el('dd', null, text);
-        if (raw) dd.title = raw;
-        dt.dataset.k = k; if (i >= 6) dt.hidden = dd.hidden = true; dl.append(dt, dd);
-      });
-      if (ks.length) body.appendChild(dl);
-      if (ks.length > 6) { const more = el('button', 'cc-more', '모두 보기'); more.type = 'button'; more.onclick = () => { dl.querySelectorAll('[hidden]').forEach(e => { e.hidden = false; }); more.remove(); }; body.appendChild(more); }
-    }
-    card.appendChild(body); card.setAttribute('aria-describedby', desc.join(' '));
-    const acts = el('div', 'cc-actions');
-    const no = el('button', 'cc-secondary', V.secondary), yes = el('button', 'cc-primary' + (danger ? ' cc-danger' : ''), '');
-    no.type = yes.type = 'button'; if (x.tainted) yes.setAttribute('aria-describedby', 'ccw' + n);
-    acts.append(no, yes); card.appendChild(acts);
-    const again = el('button', 'cc-again', '다시 요청'); again.type = 'button'; again.hidden = true;
-    const resRow = el('div', 'cc-result-row'); resRow.append(result, again); card.appendChild(resRow);
-    const meta = el('p', 'cc-meta'); card.appendChild(meta);
-    const checked = () => boxes.filter(b => b.checked);
-    const cross = () => !P.sameOrigin();          // custom base on another origin: no token / approve calls (no CORS)
-    const blocked = () => cross() || (variant === 'tool' && !SYS.tools) || ((variant === 'remember' || variant === 'forget') && SYS.memoryRO);
-    function paintPrimary() { yes.textContent = V.primary(x, checked().length); if (state === 'pending') yes.disabled = !P.online() || blocked() || (variant === 'forget' && !checked().length); }
-    let timer = 0, state = '', retryFn = null, gone = !!opts.gone;   // gone: revise returned 410 (past 24h)
-    const expired = () => x.expiresAt && x.expiresAt <= Date.now();
-    function setState(s, msg, opt = {}) {
-      state = s; card.dataset.state = s;
-      const settled = ['confirmed', 'declined', 'expired', 'error', 'denied'].includes(s), busy = s === 'preparing' || s === 'revising' || s === 'checking';
-      const hadFocus = card.contains(document.activeElement) && document.activeElement.tagName === 'BUTTON';
-      yes.disabled = no.disabled = s !== 'pending' || !P.online();
-      boxes.forEach(b => { b.disabled = s !== 'pending'; });
-      card.setAttribute('aria-busy', String(s === 'submitting' || busy));
-      yes.classList.toggle('loading', busy || (s === 'submitting' && opt.which !== 'no')); no.classList.toggle('loading', s === 'submitting' && opt.which === 'no');
-      if (busy) yes.textContent = s === 'checking' ? '확인 중…' : '준비 중…'; else paintPrimary();
-      if (s === 'pending') no.disabled = !P.online() || cross();
-      acts.hidden = settled && !(s === 'error' && opt.retry);
-      if (s === 'error' && opt.retry) { no.hidden = true; yes.textContent = '다시 시도'; yes.disabled = false; yes.classList.remove('cc-danger'); } else { no.hidden = false; yes.classList.toggle('cc-danger', danger); }
-      result.hidden = !settled; result.textContent = '';
-      again.hidden = !(s === 'expired' && !gone && P.online());
-      if (settled) {
-        result.insertAdjacentHTML('beforeend', s === 'error' || s === 'denied' ? IC.err : s === 'confirmed' ? IC.check : '');
-        if (s === 'denied') { [head, body, card.querySelector('.cc-taint'), card.querySelector('.cc-prov')].forEach(e => e && (e.hidden = true)); }
-        result.appendChild(el('span', null, msg || ''));
-        if (s !== 'expired') clearInterval(timer); meta.textContent = '';
-        if (msg) say(msg);
-        if (hadFocus) result.focus();
-      }
-      if (s === 'pending' && cross()) meta.textContent = CROSS;
-      else if (!settled && !P.online()) meta.textContent = '연결되면 확인할 수 있어요';
-      else if (s === 'pending' && blocked()) meta.textContent = variant === 'tool' ? '지금은 실행할 수 없어요' : '지금은 메모리를 바꿀 수 없어요';
-      if (opts.onSettled && settled) opts.onSettled(id, s);
-    }
-    function tick() {                                  // proposal expiry only (expires_at); no token countdown/auto-reissue (contract §3.5.4)
-      if (state !== 'pending') return;
-      if (expired()) { setState('expired', EXPIRED); return; }
-      if (!P.online()) { meta.textContent = '연결되면 확인할 수 있어요'; return; }
-      if (cross()) meta.textContent = CROSS;
-    }
-    function settleErr(e, retry) {
-      if (!e.http) return setState('error', '연결이 끊겼어요', { retry });   // network only: retryable
-      if (e.outcomeUnknown === true || (e.outcomeUnknown === undefined && !e.code && (e.http === 502 || e.http === 504))) { retryFn = null; return setState('error', OUTCOME_UNKNOWN(x)); }   // #78 502 outcome_unknown: the card is consumed server-side → no retry, no re-approve, no recheck
-      if (e.outcomeUnknown === false && e.code !== 'writes_disabled' && e.code !== 'not_found' && e.code !== 'kill_switch' && e.code !== 'item_gone')   // #78 502, card released: nothing was written, a fresh reissue → approve is safe
-        return setState('error', EXEC_ERR[e.code] || '실행하지 못했어요. 잠시 후 다시 시도해 주세요', { retry });
-      if (e.code === 'expired') return setState('expired', EXPIRED);          // branch on body.error_code, never on HTTP status
-      if (e.code === 'internal_error') return setState('error', '저장하지 못했어요. 잠시 후 다시 시도해 주세요', { retry });   // 500 fail-closed: nothing changed, fresh reissue → approve is safe
-      if (e.code === 'memory_read_only') { SYS.memoryRO = true; }
-      if (e.code === 'conflict') return recheck(() => setState('denied', DENIED.conflict));   // 1.1.1: load the real outcome first
-      return setState('denied', deniedText(e.code || 'invalid'));
-    }
-    async function revise(itemIds, nextRetries) {     // partial forget / 다시 요청 → new proposal replaces this card in place
-      setState('revising');
-      try {
-        const next = await P.api.revise(id, itemIds);
-        if (!next || !next.action_id) throw Object.assign(new Error('bad'), { http: 400 });
-        cards.delete(id); clearInterval(timer);   // any token in the revise response is ignored: approve fetches its own
-        return card._replace(next, nextRetries);
-      } catch (e) {
-        if (!e.http) { retryFn = () => revise(itemIds, nextRetries); return setState('error', '연결이 끊겼어요', { retry: retryFn }); }
-        if (e.code === 'expired') { gone = true; return setState('expired', EXPIRED); }   // 24h from the root proposal: hide 다시 요청
-        setState('denied', deniedText(e.code || 'invalid'));
-      }
-    }
-    again.onclick = () => {
-      const ids = x.items.map(i => i.id).filter(Boolean);   // same item_ids; proposals without item ids → empty body
-      revise(ids.length ? ids : undefined, retries + 1); return;
-    };
-    yes.onclick = async () => {
-      if (state === 'error') { const f = retryFn; retryFn = null; return f ? f() : null; }
-      if (state !== 'pending' || !P.online() || blocked()) return;
-      if (expired()) return setState('expired', EXPIRED);
-      if (variant === 'forget' && checked().length < boxes.length) {   // some unchecked → revise to the subset first
-        if (!checked().length) return;
-        return revise(checked().map(b => b.dataset.iid).filter(Boolean), retries);
-      }
-      if (cross()) return;
-      // §3.5.4: token only on press — POST reissue, then approve at once. Token lives in this local only; never stored or logged.
-      setState('submitting', '', { which: 'yes' });
-      let tok;
-      try { const r = await P.api.reissue(id); tok = r && r.confirm_token; }
-      catch (e) { retryFn = () => { setState('pending'); yes.onclick(); }; return settleErr(e, retryFn); }   // approve not sent yet: retry is safe
-      if (!tok) return setState('error', '실행하지 못했어요');
-      try {
-        const r = await P.api.approve(id, tok, x.hash); tok = null;
-        if (r && r.status === 'failed') setState('error', '실행하지 못했어요'); else setState('confirmed', V.done(x, checked().length || x.items.length));
-      } catch (e) {
-        tok = null;
-        if (!e.http) return recheck();                 // may have executed server-side: never blind-retry approve (security review Low 4)
-        retryFn = () => { setState('pending'); yes.onclick(); }; settleErr(e, retryFn);
-      }
-    };
-    async function recheck(onFail) {                         // GET /v1/actions/{id} (fallback: pending list) to learn the real outcome
-      setState('checking'); meta.textContent = '결과를 확인하는 중이에요'; say('결과를 확인하는 중이에요');
-      for (let i = 0; i < 6; i++) {
-        if (i) await new Promise(r => setTimeout(r, Math.min(8000, 1000 * 2 ** i)));
-        if (!P.online()) continue;
-        let st = null;
-        try { const r = await P.api.getAction(id); st = r && r.status; }
-        catch (e) {
-          if (!e.http) continue;
-          try { const l = await P.api.pendingActions(); st = (l && l.data || []).some(z => z.action_id === id) ? 'pending' : 'unknown'; } catch (e2) { if (!e2.http) continue; st = 'unknown'; }
-        }
-        meta.textContent = '';
-        if (st === 'executing') continue;                 // 1.1.1: still running, keep polling
-        if (st === 'executed') return setState('confirmed', V.done(x, checked().length || x.items.length));
-        if (st === 'pending') return setState('pending');   // not executed: user may press again (fresh reissue → approve)
-        if (st === 'rejected') return setState('declined', '취소했어요');
-        if (st === 'expired') return setState('expired', EXPIRED);
-        if (st === 'failed') return setState('error', '실행하지 못했어요');
-        if (onFail) return onFail();
-        return setState('error', '결과를 확인하지 못했어요. 대화를 새로고침해 확인해 주세요');
-      }
-      meta.textContent = ''; if (onFail) return onFail(); setState('error', '결과를 확인하지 못했어요. 연결되면 다시 확인할게요', { retry: recheck });
-    }
-    no.onclick = async () => {
-      if (state !== 'pending') return;
-      setState('submitting', '', { which: 'no' });
-      try { await P.api.reject(id); setState('declined', '취소했어요'); }
-      catch (e) { if (!e.http) { retryFn = () => { setState('pending'); }; setState('error', '연결이 끊겼어요', { retry: retryFn }); } else settleErr(e); }
-    };
-    const st = x.status;
-    if (st === 'executed') setState('confirmed', V.done(x, x.items.length));
-    else if (st === 'rejected') setState('declined', '취소했어요');
-    else if (st === 'expired' || expired()) setState('expired', EXPIRED);
-    else if (st === 'failed') setState('error', '실행하지 못했어요');
-    else if (st && st !== 'pending') setState('declined', '이미 처리된 요청이에요');
-    else setState('pending');                          // no token fetched on render/viewport (§3.5.4)
-    timer = setInterval(tick, 1000); tick();
-    card._setState = setState;
-    card._replace = (next, r) => { const c2 = renderConfirmCard(next, Object.assign({}, opts, { retries: r == null ? retries : r })); card.replaceWith(c2); return c2; };
-    if (!st || st === 'pending') say('확인이 필요해요: ' + V.title(x));
-    return card;
-  }
-  function setCardState(id, s, msg) { const c = cards.get(id); if (c && c._setState) c._setState(s, msg); }
-  function actionResult(j) {
-    const map = { executed: ['confirmed', '실행했어요'], rejected: ['declined', '취소했어요'], expired: ['expired', EXPIRED], failed: ['error', '실행하지 못했어요'] };
-    const c = cards.get(j.action_id); if (!c || !c._setState || ['confirmed', 'declined', 'expired', 'error', 'denied'].includes(c.dataset.state)) return;
-    const m = map[j.status] || map.failed; c._setState(m[0], m[1]);
-  }
-
-  /* ================= Part A: proactive messages ================= */
-  function init(h) {
+  function init(context, h) {
+  const { proactiveAPI, Pim, briefing, shared, say, model, cardController } = context;
+  const { F, IC, LS_KID, LS_PUSH, POLL_MS, PUSH_HOSTS, ULID, VERB_LABEL, hm, sanitize, variantOf, verbOf } = model;
+  const { renderConfirmCard, actionResult } = cardController;
     const api = proactiveAPI.make(h.api, h.sameOrigin || (() => true));
     const P = { api, online: h.online, sameOrigin: h.sameOrigin || (() => true) };
     let sysLoaded = false, notif = new Map(), supported = true, pollT = null, pendingNid = null, total = 0, lastTotal = 0;
@@ -303,7 +37,7 @@ export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
     }
     async function refresh() {
       if (!supported || !h.isServer() || !h.online()) return badge();
-      if (!sysLoaded) { sysLoaded = true; api.getSettings().then(j => { SYS = F().system(j); }).catch(() => { sysLoaded = false; }); }
+      if (!sysLoaded) { sysLoaded = true; api.getSettings().then(j => { shared.system = F().system(j); }).catch(() => { sysLoaded = false; }); }
       try {
         const j = await api.unreadThreads(); const m = new Map();   // GET /v1/threads?unread=true → server unread_count per thread
         (j && j.data || []).forEach(t => { const n = F().unread(t); if (t && t.id && n > 0) m.set(t.id, n); });
@@ -366,7 +100,7 @@ export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
       s = el('div', 'cc-stack'); const act = after.querySelector(':scope > .actions'); if (act) act.before(s); else after.appendChild(s); return s;
     }
     function mountCard(a, after) {
-      if (cards.has(a.action_id) && document.body.contains(cards.get(a.action_id))) return;
+      if (shared.cards.has(a.action_id) && document.body.contains(shared.cards.get(a.action_id))) return;
       const host = ccHost(after);   // §8.2: inside the Eve event body (under the text, 8px), not a sibling row
       host.appendChild(renderConfirmCard(a, { P, onSettled: (id, s) => { a.status = { confirmed: 'executed', declined: 'rejected', expired: 'expired', error: 'failed' }[s]; } }));
     }
@@ -407,7 +141,7 @@ export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
         try {
           const j = await api.pendingActions();
           (j && j.data || []).filter(a => a.thread_id === c.id).forEach(a => {
-            if (cards.has(a.action_id) && document.body.contains(cards.get(a.action_id))) return;
+            if (shared.cards.has(a.action_id) && document.body.contains(shared.cards.get(a.action_id))) return;
             const anchor = (a.message_id && document.querySelector(`.msg[data-mid="${CSS.escape(a.message_id)}"]`)) || [...document.querySelectorAll('#messages > .msg, .msg')].pop();
             if (anchor) mountCard(sanitize(a), anchor);
           });
@@ -453,11 +187,11 @@ export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
       if (!h.isServer()) { sw.disabled = true; more.hidden = true; note.textContent = '서버에 연결되면 설정할 수 있어요.'; return; }
       sw.disabled = true; note.textContent = 'Eve가 브리핑이나 알림을 먼저 보낼 수 있어요. 하루 최대 3번.';
       try {
-        srv = await api.getSettings() || {}; SYS = F().system(srv); delete srv.system;   // system.* is read-only: never PATCHed
-        sw.disabled = !SYS.proactive; paint();
+        srv = await api.getSettings() || {}; shared.system = F().system(srv); delete srv.system;   // system.* is read-only: never PATCHed
+        sw.disabled = !shared.system.proactive; paint();
         bSec.hidden = !(srv.briefing && typeof srv.briefing === 'object' && P.sameOrigin());
-        if (!SYS.proactive) { more.hidden = true; note.textContent = '지금은 이 기능을 쓸 수 없어요'; }
-        msw.disabled = SYS.memoryRO;
+        if (!shared.system.proactive) { more.hidden = true; note.textContent = '지금은 이 기능을 쓸 수 없어요'; }
+        msw.disabled = shared.system.memoryRO;
         if (!vapidOK && h.isStandalone()) api.vapidKey().then(k => { if (k && k.key) { vapidOK = true; paint(); } }).catch(() => {});
       }
       catch (e) { srv = null; sw.checked = false; more.hidden = true; note.textContent = api.unsupported(e) ? '지금은 이 기능을 쓸 수 없어요' : '설정을 불러오지 못했어요.'; }
@@ -543,5 +277,3 @@ export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
     }
     return { pendingList, briefingEnabled, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
   }
-  return { init, renderConfirmCard, setCardState, ULID, when };
-}

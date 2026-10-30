@@ -7,3 +7,10 @@ def source_path(path):
     candidate = Path(path).resolve()
     legacy = ROOT / SOURCES.get(candidate.name, 'src/legacy/' + candidate.name)
     return legacy if candidate.parent == ROOT and not candidate.exists() and legacy.is_file() else candidate
+
+def source_text(path):
+    candidate = source_path(path)
+    if candidate == ROOT / 'src/features/proactive/index.js':
+        parts = [candidate.parent / 'model.js', candidate.parent / 'confirm-card.js', candidate]
+        return '\n'.join(part.read_text() for part in parts if part.exists())
+    return candidate.read_text()

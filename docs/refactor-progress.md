@@ -46,3 +46,14 @@
 - llmchat.outbox 키와 {op,key,payload,tries,nextAt} 저장 형식, 2~60초 백오프·429/5xx·피드백 보정 동작을 유지한다.
 - Node 계약 테스트로 헤더·204·신원 상실·outcome_unknown·토큰 scrub·쓰기 본문·중복 병합·동시 재생 금지를 검증한다.
 - legacy app 파일 초과 1,829→1,766줄, 긴 줄 462→444, 함수 초과 2,275→2,208. 새 innerHTML/!important·shared 승격·의존성 없음.
+
+## R2c — 선톡 모델·확인 카드·흐름 분리
+
+- 기반: R2b #51. proactive 모듈을 model, confirm-card, index 세 파일로 분리한다.
+- 카드 맵·ID·시스템 설정·접근성 알림은 한 인스턴스가 소유하고 의존성으로 전달한다. API·본문·토큰 처리·DOM 순서를 유지한다.
+- 547줄 초과 파일을 없애고 파일 초과 합계 247줄, 함수 초과 합계 474줄을 줄였다. 긴 줄·innerHTML·!important 증가는 없다.
+- source_text가 분리된 선톡 소스 전체를 읽도록 테스트를 보완했다. 아이콘 정적 검사는 R1에서 이동한 실제 TS 구현과 import를 확인한다.
+- 정적 검사와 Node 10개 통과. 선톡 98개, PIM 확인 카드 19개, 메모리 58개, 후속 동작 47개, 모션·아이콘 16개 및 Chromium/WebKit 스모크를 검증한다.
+- R2a 전체 회귀는 53개 Python+SW 중 5개 스위트 실패였다. motion_icons의 오래된 소스 위치 단언은 여기서 수정한다.
+- ios_polish/native의 기존 로컬 실패와 b3_strip/stop_csp 실패는 변경 전 코드와 별도 비교 중이다. CI 통과로 보고하지 않는다.
+- 새 의존성·shared 승격 없음. 확인 카드에 닿으므로 보안 리뷰 대상으로 유지한다.

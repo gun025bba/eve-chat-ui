@@ -1,4 +1,4 @@
-from assets_common import source_path
+from assets_common import source_path, source_text
 from version_common import VERSION, versioned
 # 1.2.2 motion + icons (design a197571 REFRESH-SPEC P0)
 import os, re
@@ -7,14 +7,15 @@ B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
 R = []
 def check(name, ok, extra=''): R.append(bool(ok)); print(('PASS' if ok else 'FAIL'), name, extra)
 D = os.path.join(os.path.dirname(__file__), '..')
-css = open(source_path(os.path.join(D, 'styles.css'))).read(); js = open(source_path(os.path.join(D, 'app.js'))).read(); pjs = open(source_path(os.path.join(D, 'proactive.js'))).read()
+css = open(source_path(os.path.join(D, 'styles.css'))).read(); js = open(source_path(os.path.join(D, 'app.js'))).read(); pjs = source_text(os.path.join(D, 'proactive.js'))
+icon_source = source_text(os.path.join(D, 'src/lib/icons.ts'))
 check('tokens 120/200/320/450 + ease-standard', all(t in css for t in ['--d-1:120ms', '--d-2:200ms', '--d-3:320ms', '--d-4:450ms', '--ease-standard:cubic-bezier(.32,.72,0,1)']))
 check('no transition:all / shadow / radius / filter / height / grid-template transitions', not re.search(r'transition(-property)?:[^;}]*\b(all|box-shadow|border-radius|filter|height|grid-template-rows|top|left)\b', css))
 check('ctx dim without blur', not re.search(r'#ctx\{[^}]*backdrop-filter', css))
 check('no global svg rule; .i rule', not re.search(r'(^|[}\n])svg\{width', css) and '.i{width:22px' in css)
 check('reduced motion: 200ms opacity (not .01ms)', '.01ms' not in css and 'transition-property:opacity!important' in css)
 check('tail contain:content; keyboard via --kb translate', '.md .tail{contain:content}' in css and 'calc(-1 * var(--kb))' in css)
-check('icon() helper replaces inline ICON/MI/proactive strings', "const icon = (n" in js and "icon('copy')" in js and "icon('sparkle')" in pjs and 'ICON = {' in js)
+check('icon() helper replaces inline ICON/MI/proactive strings', 'export function icon(' in icon_source and '../lib/icons.js' in js and "icon('copy')" in js and "icon('sparkle')" in pjs and 'ICON = {' in js)
 check('streaming scroll throttled 100ms', 'scrollBottomThrottled' in js and '100 - (performance.now() - sbLast)' in js)
 errs = []
 with sync_playwright() as p:
