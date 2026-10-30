@@ -49,3 +49,9 @@ def wait_tstat(pg, text, ms=7000):
 def settle(pg, ms=9000):
     try: pg.wait_for_function("()=>!document.querySelector('#sendBtn.stop')&&!document.querySelector('.msg.assistant .tline')&&!![...document.querySelectorAll('.msg.assistant')].pop()?.querySelector('.actions')", timeout=ms); pg.wait_for_timeout(350); return True
     except Exception: return False
+def reload_last(pg):
+    """drop the local cache and reload: the last thread's messages come back from the (mock) server"""
+    pg.evaluate("localStorage.removeItem('llmchat.convs')"); pg.reload(); pg.wait_for_timeout(1200)
+    if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(1500)
+    pg.wait_for_timeout(500)
+def storage(pg): return pg.evaluate("Object.keys(localStorage).map(k=>localStorage.getItem(k)).join(' ')")

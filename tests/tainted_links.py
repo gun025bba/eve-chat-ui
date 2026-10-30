@@ -5,10 +5,6 @@ SRC = [OK, src(2, 'docs.example.org')]
 BODY = '자세히는 [공식](https://example.com/news/a?x=1) 와 [문서](https://docs.example.org/p2) 참고[1]. [피싱](https://evil.example/login?u=1) ![로고](https://evil.example/pixel.png) 끝.'
 def links(pg): return pg.evaluate("[...document.querySelectorAll('.msg.assistant .md a:not(.cite a)')].map(a=>a.getAttribute('href'))")
 def md_text(pg): return pg.evaluate("[...document.querySelectorAll('.msg.assistant .md')].pop().textContent")
-def reload_last(pg):
-    pg.evaluate("localStorage.removeItem('llmchat.convs')"); pg.reload(); pg.wait_for_timeout(1200)
-    if not pg.is_visible('#input'): pg.evaluate("document.querySelector('#convList li.row .row-main').click()"); pg.wait_for_timeout(1500)
-    pg.wait_for_timeout(500)
 WEB = [{'tool': 'web_search', 'selected_by': 'model', 'status': 'ok', 'count': 2}]
 with sync_playwright() as p:
     b = p.chromium.launch()
