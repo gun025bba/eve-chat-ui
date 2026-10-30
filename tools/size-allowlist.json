@@ -11,7 +11,7 @@
   "src/features/pim/index.js": {"lines":0,"longLines":30,"functions":97,"innerHTML":0,"important":0},
   "src/features/proactive/index.js": {"lines":247,"longLines":130,"functions":810,"innerHTML":0,"important":0},
   "src/features/today/index.js": {"lines":0,"longLines":52,"functions":149,"innerHTML":3,"important":0},
-  "src/legacy/app.js": {"lines":1829,"longLines":462,"functions":2275,"innerHTML":35,"important":0},
+  "src/legacy/app.js": {"lines":1766,"longLines":444,"functions":2208,"innerHTML":35,"important":0},
   "styles.css": {"lines":910,"longLines":294,"functions":0,"innerHTML":0,"important":30},
   "sw.js": {"lines":0,"longLines":11,"functions":0,"innerHTML":0,"important":0}
 }

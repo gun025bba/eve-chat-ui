@@ -38,3 +38,11 @@
 - 클래식 진입점은 app.js 하나이고 산출물은 52→44개다. 제거한 8개 보조 스크립트는 app.js에 포함된다.
 - SW fetch/lifecycle 코드는 유지하고 43개 산출물 프리캐시를 자동 생성한다. 새 의존성·innerHTML·!important 없음.
 - 남은 R2는 threads/outbox API·상태 분리와 큰 proactive 모듈 분해다. 프레임워크·화면 전환은 아직 하지 않는다.
+
+## R2b — HTTP·thread 모델과 outbox 상태
+
+- 기반: R2a #50의 PIM 별칭 충돌 수정 포함. HTTP/인증 분류·요청 헤더·메시지/스레드 매핑·쓰기 경로를 api/로 옮긴다.
+- conversations/outbox가 재시도 큐·타이머·실패 수를 소유한다. app은 mode getter·렌더/오류 콜백을 주입한다.
+- llmchat.outbox 키와 {op,key,payload,tries,nextAt} 저장 형식, 2~60초 백오프·429/5xx·피드백 보정 동작을 유지한다.
+- Node 계약 테스트로 헤더·204·신원 상실·outcome_unknown·토큰 scrub·쓰기 본문·중복 병합·동시 재생 금지를 검증한다.
+- legacy app 파일 초과 1,829→1,766줄, 긴 줄 462→444, 함수 초과 2,275→2,208. 새 innerHTML/!important·shared 승격·의존성 없음.
