@@ -15,11 +15,12 @@ with full_csp(), sync_playwright() as p:
         if engine.name=='webkit' and os.environ.get('EVE_WEBKIT')!='1': continue
         for path in ('/auth/on','/reset','/db/reset','/persist/on','/pro/reset'): put(path)
         put('/b1/seed', {'title':'메시지 구성 요소','memory':True,'messages':[
-            {'role':'assistant','reasoning':'생각 <img> & 과정','content':'답변[1]','sources':SOURCES,'memory_refs':REFS,'metadata':{'tools':TOOLS}},
+            {'role':'assistant','reasoning':'생각 <img> & 과정','content':'답변[1]와 추가[8]','sources':SOURCES,'memory_refs':REFS,'metadata':{'tools':TOOLS}},
             {'role':'assistant','content':'확인되지 않은 답변[1]','sources':SOURCES[:2],'metadata':{'fresh':'unverified','tools':[{'tool':'web_search','status':'timeout','error_code':'timeout'}]}},
             {'role':'assistant','content':'출처와 기억이 없는 답변'},
         ]})
         browser=engine.launch(); context=new_ctx(browser,service_workers='block'); watch_csp(context)
+        context.route('https://**',lambda route:route.abort())
         page=context.new_page(); errors=[]; page.on('pageerror',lambda error:errors.append(str(error)))
         page.goto(B+'/ui/#/log'); page.bring_to_front(); page.wait_for_timeout(1200)
         page.locator('#convList li.row').first.click(); page.locator('.tnote .tb').wait_for()
@@ -60,6 +61,17 @@ with full_csp(), sync_playwright() as p:
         assert page.locator('#srcSheet .tq').inner_text().startswith('검색어') and page.locator('#srcSheet img, #srcSheet script').count()==0
         print('PASS',engine.name,'all-sources sheet clones actual component template content')
         page.locator('#srcSheet .src-close').click(); page.wait_for_function("()=>!document.querySelector('#srcSheet').open")
+        first.locator('sup.cite a[data-n="8"]').click()
+        assert page.locator('#srcSheet .src-item[data-n="8"]').evaluate("node=>node.classList.contains('hl')")
+        page.keyboard.press('Escape'); page.wait_for_function("()=>!document.querySelector('#srcSheet').open&&!document.body.classList.contains('sheet-open')")
+        print('PASS',engine.name,'hidden citation opens all sources, highlights target and closes on Escape')
+        first.locator('.src-all').click(); page.mouse.click(1,1)
+        page.wait_for_function("()=>!document.querySelector('#srcSheet').open&&!document.body.classList.contains('sheet-open')")
+        print('PASS',engine.name,'modal backdrop closes and resets body state')
+        first.locator('.fav img').evaluate("image=>image.src='/ui/missing-favicon.svg'")
+        first.locator('.fav img').wait_for(state='detached')
+        assert first.locator('.fav.mono').count()==2
+        print('PASS',engine.name,'failed favicon falls back to its monogram')
         assert not errors and not page.evaluate('window.__csp||[]'),errors
         print('PASS',engine.name,'no CSP violations or lifecycle errors')
         browser.close()
