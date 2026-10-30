@@ -1,6 +1,6 @@
 {
   "./": {"files":6},
-  "index.html": {"lines":5,"longLines":109,"functions":0,"innerHTML":0,"important":0},
+  "index.html": {"lines":1,"longLines":107,"functions":0,"innerHTML":0,"important":0},
   "offline.css": {"lines":0,"longLines":4,"functions":0,"innerHTML":0,"important":0},
   "offline.html": {"lines":0,"longLines":1,"functions":0,"innerHTML":0,"important":0},
   "src/api/memory.js": {"lines":0,"longLines":9,"functions":17,"innerHTML":0,"important":0},
@@ -13,7 +13,7 @@
   "src/features/proactive/index.js": {"lines":0,"longLines":65,"functions":201,"innerHTML":0,"important":0},
   "src/features/proactive/model.js": {"lines":0,"longLines":23,"functions":0,"innerHTML":0,"important":0},
   "src/features/today/index.js": {"lines":0,"longLines":52,"functions":149,"innerHTML":3,"important":0},
-  "src/legacy/app.js": {"lines":1757,"longLines":434,"functions":2195,"innerHTML":35,"important":0},
+  "src/legacy/app.js": {"lines":1704,"longLines":427,"functions":2141,"innerHTML":35,"important":0},
   "styles.css": {"lines":910,"longLines":294,"functions":0,"innerHTML":0,"important":30},
   "sw.js": {"lines":0,"longLines":11,"functions":0,"innerHTML":0,"important":0}
 }

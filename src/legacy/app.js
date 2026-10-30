@@ -1,3 +1,4 @@
+import { SHEET_EASE, sheetDrag, animateOut } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
 import { createGatewayRequests } from '../api/gateway.js';
 import { createConversationState } from '../features/conversations/state.js';
@@ -24,9 +25,10 @@ function renderSources(sources, tools) {
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename }) {
   const $ = s => document.querySelector(s);
   const { showToast, hideToast } = Toast;
+  const { openMini, closeMini } = Sheets;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
@@ -1727,39 +1729,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast }) {
 
   /* ---------- sheets (§6) ---------- */
   const dlg = $('#settings'), sform = $('#settingsForm');
-  const SHEET_EASE = 'cubic-bezier(.32,.72,0,1)';
-  function sheetDrag(sheet, scrollEl, onClose) {
-    let s = null;
-    sheet.addEventListener('touchstart', e => {
-      const t = e.touches[0], r = sheet.getBoundingClientRect();
-      const onHead = t.clientY - r.top < 56 || e.target.closest('.grabber,.sheet-head');
-      if (!onHead && (scrollEl ? scrollEl.scrollTop > 0 : true)) return;
-      if (e.target.closest('input,textarea,select') && !onHead) return;
-      s = { y0: t.clientY, t0: performance.now(), yl: t.clientY, tl: performance.now(), v: 0, dy: 0, h: sheet.offsetHeight, lock: null, x0: t.clientX, head: !!onHead };
-    }, { passive: true });
-    sheet.addEventListener('touchmove', e => {
-      if (!s) return; const t = e.touches[0], dy = t.clientY - s.y0;
-      if (!s.lock) { if (Math.hypot(dy, t.clientX - s.x0) < 6) return; s.lock = Math.abs(dy) > Math.abs(t.clientX - s.x0) && (dy > 0 || s.head) ? 'y' : 'n'; if (s.lock === 'y') sheet.style.transition = 'none'; }
-      if (s.lock !== 'y') return; e.preventDefault();
-      const now = performance.now(); s.v = (t.clientY - s.yl) / Math.max(1, now - s.tl); s.yl = t.clientY; s.tl = now;
-      s.dy = dy; const y = dy < 0 ? dy * .2 : dy;
-      sheet.style.transform = `translateY(${y}px)`;
-      document.body.style.setProperty('--sheet-p', String(1 - Math.max(0, dy) / s.h));
-    }, { passive: false });
-    const end = () => {
-      if (!s) return; const st = s; s = null; if (st.lock !== 'y') return;
-      const v = performance.now() - st.tl > 100 ? 0 : st.v;   // release velocity, not average
-      document.body.style.removeProperty('--sheet-p');
-      if (st.dy > st.h * .3 || v > .6) onClose(true);
-      else { sheet.style.transition = `transform 300ms cubic-bezier(.34,1.36,.64,1)`; sheet.style.transform = ''; }
-    };
-    sheet.addEventListener('touchend', end); sheet.addEventListener('touchcancel', end);
-  }
-  function animateOut(sheet, done) {
-    sheet.style.transition = `transform 300ms ${SHEET_EASE}`; sheet.style.transform = 'translateY(100%)';
-    sheet.classList.add('closing');
-    setTimeout(() => { sheet.classList.remove('closing'); sheet.style.transition = sheet.style.transform = ''; done(); }, 300);
-  }
   let snap = '';
   const formState = () => JSON.stringify([$('#sBase').value, $('#sModel').value, $('#sSystem').value, $('#sShowThink').checked, $('#sNoThink').checked]);
   function closeSettings(dragged) {
@@ -1851,29 +1820,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast }) {
   $('#installBtn').onclick = async () => { if (!bip) return; bip.prompt(); const r = await bip.userChoice.catch(() => null); bip = null; if (r?.outcome === 'accepted') localStorage.setItem('a2hs.installed', '1'); closeA2HS(r?.outcome !== 'accepted'); };
 
   /* ---------- mini sheets: rename / 👎 reason / migration ---------- */
-  const minis = new Map();
-  function openMini(sh, opts = {}) {
-    if (!sh.hidden) return;
-    const scrim = document.createElement('div'); scrim.className = 'sheet-scrim'; scrim.onclick = () => { if (!sh.dataset.lock) (opts.onDismiss || (() => closeMini(sh)))(); };
-    document.body.appendChild(scrim); minis.set(sh, scrim);
-    sh.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => { sh.classList.add('show'); scrim.classList.add('show'); }));
-  }
-  function closeMini(sh) {
-    if (sh.hidden) return; const scrim = minis.get(sh); minis.delete(sh);
-    if (document.activeElement && sh.contains(document.activeElement)) document.activeElement.blur();
-    sh.classList.remove('show'); scrim?.classList.remove('show');
-    sh.style.transition = `transform 300ms ${SHEET_EASE}`; sh.style.transform = 'translateY(110%)';
-    setTimeout(() => { sh.hidden = true; sh.style.transition = sh.style.transform = ''; scrim?.remove(); }, 300);
-  }
-  ['#renameSheet'].forEach(id => sheetDrag($(id), null, () => closeMini($(id))));
-  // rename from chat title (THREADS-SPEC §2.3)
-  function openRenameSheet(c) {
-    if (!c) return; const sh = $('#renameSheet'), inp = $('#titleEdit');
-    inp.value = c.title; openMini(sh); setTimeout(() => { inp.focus(); inp.select(); }, 60);
-    const ok = () => { const v = inp.value.trim(); closeMini(sh); if (v && v !== c.title) updateThread(c, { title: v }); };
-    $('#renameSave').onclick = ok; $('#renameCancel').onclick = () => closeMini(sh);
-    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ok(); } if (e.key === 'Escape') closeMini(sh); };
-  }
+  function openRenameSheet(c) { if (c) Rename.open(c, title => updateThread(c, { title })); }
   $('#titleWrap').addEventListener('click', () => { const c = cur(); if (c && (c.messages.length || c.srv) && !c.archived) openRenameSheet(c); });
   $('#archRestore').onclick = () => { const c = cur(); if (c) restoreConv(c); };
 
