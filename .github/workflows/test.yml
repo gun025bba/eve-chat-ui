@@ -9,10 +9,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # a newer push to the same pull request cancels the older, now useless run; main, release/** and manual runs are never cancelled
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  # The ~67 browser suites used to run one after the other in ONE job (about 35 minutes). They are split over parallel shards (tests/run_all.sh
+  # SHARD_INDEX/SHARD_COUNT); every shard starts its own mock.py on its own runner. Same suites, same checks; a failing suite is still re-run once.
+  suites:
+    name: suites (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,6 +32,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
@@ -31,9 +45,25 @@ jobs:
           sudo apt-get remove -y fonts-wqy-zenhei fonts-wqy-microhei || true
           sudo apt-get install -y --no-install-recommends fonts-nanum fonts-noto-core
           sudo fc-cache -f
-      - name: Run all suites (mock.py + every tests/*.py + sw_push.js, sequentially)
+      - name: Run this shard (mock.py + its share of tests/*.py; sw_push.js in the last shard)
         env:
           PYTHON: python
           EVE_PORT: '8899'
           TZ: Asia/Seoul
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: '8'
         run: bash tests/run_all.sh
+
+  # The single required check. Its name `test` is what the main-protect ruleset and release-tag.sh look for, so it stays one job: it passes only if every shard passed.
+  test:
+    if: ${{ always() }}
+    needs: suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All shards passed
+        env:
+          RESULT: ${{ needs.suites.result }}
+        run: |
+          echo "shards: $RESULT"
+          [ "$RESULT" = success ]
