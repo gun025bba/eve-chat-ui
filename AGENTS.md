@@ -1,6 +1,6 @@
 # AGENTS.md — eve-web (프런트엔드)
 
-Eve 채팅 UI PWA예요. Vite + TypeScript로 빌드하며, 앱 진입점에서 API·feature 모듈을 조립하며 기존 UI 동작을 유지해요. 백엔드(eve-serving 게이트웨이)는 `dist/` 산출물을 `/ui/`로 서빙해야 해요. 런타임 의존성은 아직 없고 개발 도구는 정확한 버전과 락파일로 고정해요. 자세한 내용은 [README.md](README.md)를 보세요.
+Eve 채팅 UI PWA예요. Vite + TypeScript로 빌드하며, 앱 진입점에서 API·feature 모듈을 조립하며 기존 UI 동작을 유지해요. 백엔드(eve-serving 게이트웨이)는 `dist/` 산출물을 `/ui/`로 서빙해야 해요. 런타임 의존성은 Preact 11.1.0 하나이며 개발 도구와 함께 정확한 버전·락파일로 고정해요. 자세한 내용은 [README.md](README.md)를 보세요.
 
 ## 실행·테스트
 ```bash

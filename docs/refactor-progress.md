@@ -73,3 +73,15 @@
 - GET에도 붙던 X-Eve-Request, 쿠키 옵션·Last-Event-ID·AbortSignal, persistence_disabled 재전송 때 thread/replace 생략을 그대로 유지한다.
 - Node 13개가 요청 경로·인코딩·메서드·헤더·본문을 검증한다. SW 프리캐시·CSP 산출물 게이트도 통과한다.
 - ratchet 긴 줄 합계 1,206→1,198, 함수 초과 3,268→3,265줄. 파일 초과·innerHTML·!important 증가 없음. 신규 의존성·shared 승격 없음.
+
+## R3a — Preact 공존과 토스트
+
+- 기반: R2e #54. Preact 11.1.0 하나를 정확히 고정하고 설치 스크립트 없이 추가했다. Preact의 전이 런타임 의존성과 install/postinstall 스크립트는 없다.
+- main의 독립 마운트에 토스트만 올린다. 기존 DOM ID·클래스·role·콜백·rAF 표시·300ms 숨김·자동 종료 타이머를 유지한다.
+- 모델/사용자 문구는 JSX 텍스트로만 렌더하고 CSS는 기존 외부 파일을 그대로 쓴다. shared 컴포넌트 사전 승격은 없다.
+- TSX의 .js import도 타입 소스로 해석하도록 import 게이트와 순환 검사 fixture를 보완하고 마지막 ambient EvePim 예외를 없앴다.
+- Node 14개, Chromium/WebKit 토스트 14개, 대화 35·피드백 62·스모크 2·셸 브리지 21 단언 통과. WebKit은 테스트 탭을 전경으로 가져와 검증한다.
+- 이전 산출물과 dark/light × 320/390/768 토스트 PNG 6개가 바이트 단위로 일치했다.
+- app.js 293.85→309.58 kB, gzip 84.67→90.48 kB. 요청 수·배포 목록·프리캐시 정책은 유지한다.
+- ratchet 파일 초과 2,679→2,672, 긴 줄 1,198→1,195, 함수 초과 3,265→3,258. 신규 innerHTML/!important 0.
+- 새 런타임 의존성·텍스트 경계이므로 보안 리뷰 대상이다. npm audit은 취약점 0이었으며 보안 승인을 대신하지 않는다.

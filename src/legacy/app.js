@@ -24,8 +24,9 @@ function renderSources(sources, tools) {
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast }) {
   const $ = s => document.querySelector(s);
+  const { showToast, hideToast } = Toast;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
@@ -1963,14 +1964,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const setOffline = off => { chatView.classList.toggle('offline', off); app.classList.toggle('offline', off); };
   window.addEventListener('online', () => { setOffline(false); flushOutbox(); kickStream?.(); initServer(); }); window.addEventListener('offline', () => setOffline(true));
   setOffline(navigator.onLine === false);
-  const toast = $('#toast'); let toastT = 0;
-  function showToast(text, act, fn, ms) {
-    $('#toastText').textContent = text; const b = $('#toastAct'); b.textContent = act || ''; b.hidden = !act; b.onclick = () => { hideToast(); fn && fn(); };
-    toast.hidden = false; requestAnimationFrame(() => toast.classList.add('show'));
-    clearTimeout(toastT); if (ms) toastT = setTimeout(hideToast, ms);
-  }
-  function hideToast() { toast.classList.remove('show'); setTimeout(() => { if (!toast.classList.contains('show')) toast.hidden = true; }, 300); }
-
   /* ---------- state restore (§10) ---------- */
   function saveDraft() { if (!cv.currentId) return; const v = input.value; if (v) localStorage.setItem(LS.draft + cv.currentId, v); else localStorage.removeItem(LS.draft + cv.currentId); }
   function loadDraft() { input.value = (cv.currentId && localStorage.getItem(LS.draft + cv.currentId)) || ''; grow(); }
