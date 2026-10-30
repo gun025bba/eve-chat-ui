@@ -3,6 +3,7 @@ import memoryAPI from './api/memory.js';
 import createProactiveAPI from './api/proactive.js';
 import briefing from './features/briefing/index.js';
 import { mountRename } from './features/conversations/rename.js';
+import { mountInstall } from './features/install/index.js';
 import createMemory from './features/memory/index.js';
 import pim from './features/pim/index.js';
 import createProactive from './features/proactive/index.js';
@@ -28,7 +29,11 @@ const renameRoot = document.getElementById('renameRoot');
 if (!renameRoot) throw new Error('Missing rename mount');
 const sheets = createMiniSheets();
 const rename = mountRename(renameRoot, sheets);
+const installRoot = document.getElementById('installRoot');
+if (!installRoot) throw new Error('Missing install mount');
+const install = mountInstall(installRoot);
 boot({
+  Install: install,
   Sheets: sheets,
   Rename: rename,
   Toast: toast,
