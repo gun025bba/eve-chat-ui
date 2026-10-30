@@ -90,7 +90,7 @@ with sync_playwright() as p:
     late = (kst_now().hour, kst_now().minute) > (11, 45)
     check('back → Today shows the new conversation as the newest 나 item' if late else 'back → Today counts the new conversation (older than the latest five at this hour) in the 더 보기 row',
           rt(pg) == 'today' and (('오늘 할 일 정리해줘' in pg.text_content('#todayList')) if late else more_n() == m0 + 1), (late, m0, more_n()))
-    pg.locator('#tPlus').click(); pg.wait_for_timeout(300); check('Today + menu has 웹 검색', pg.is_visible('#tMenu') and '웹 검색' in pg.text_content('#tMenu'))
+    check('Today composer has no + / web-search control', pg.locator('#tPlus').count() == 0 and pg.locator('#tMenu').count() == 0)
     pg.keyboard.press('Escape'); ctx.close()
     # ---- 9) forbidden elements (§1/§13): centered logo, "무엇을 도와드릴까요?", suggestion cards — nowhere
     reset(); rich(); older(); ctx, pg = newpg(b); goto_today(pg)

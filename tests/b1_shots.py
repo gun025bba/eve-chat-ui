@@ -39,7 +39,7 @@ with sync_playwright() as p:
         go('S04'); shot(pg, '04-confirm-pending')
         pg.locator('.confirm-card .cc-primary').click(); pg.wait_for_timeout(1200); shot(pg, '04-confirm-confirmed')
         go('S01'); pg.fill('#input', 'slow stream'); pg.click('#sendBtn'); pg.wait_for_timeout(1500)
-        pg.fill('#input', '다음에는\n이것도 알아봐 줘\n그리고 정리해서 알려줘'); pg.click('#plusBtn'); pg.wait_for_timeout(600); shot(pg, '05-streaming-multiline-plus-menu')
+        pg.fill('#input', '다음에는\n이것도 알아봐 줘\n그리고 정리해서 알려줘'); pg.wait_for_timeout(600); shot(pg, '05-streaming-multiline')
         pg.keyboard.press('Escape'); pg.click('#sendBtn'); pg.wait_for_timeout(500)   # stop the stream
         ctx.close()
         ctx = mk(320); pg = ctx.new_page(); go('S06'); pg.screenshot(path=f'{OUT}/06-320-five-chips-{scheme}.png')

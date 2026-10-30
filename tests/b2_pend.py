@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 from b2_common import *
 R = []; errs = []
 def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '' if ok else x)
-def isoz(mins=0, secs=0): return (datetime.now(timezone.utc) + timedelta(minutes=mins, seconds=secs)).strftime('%Y-%m-%dT%H:%M:%SZ')
+def isoz(mins=0, secs=0): return (datetime.now(timezone.utc) + clock_skew() + timedelta(minutes=mins, seconds=secs)).strftime('%Y-%m-%dT%H:%M:%SZ')
 def act(n, title=None, verb='add', exp=60 * 24, created=None, tool='calendar_add_event', display=None, scopes=None, **kw):
     pv = {'verb': verb}
     if title: pv['title'] = title

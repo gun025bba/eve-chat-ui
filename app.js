@@ -130,13 +130,62 @@ function citeMap(sources) {
 }
 function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
 function srcFavicon(c) { const u = c.favicon || c.icon; if (typeof u !== 'string') return ''; if (/^data:image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|webp|gif|jpeg);base64,/i.test(u)) return u; return /^\/(?!\/)[\w\-./?=&%]+$/.test(u) ? u : ''; } // server-provided only: data: or same-origin path (CSP img-src 'self' data:)
-function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url;
-  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${d}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(d)}</span></a></li>`; }
+/* AUTO-TOOLS-SPEC §7: published (optional, server-provided) → 오늘 · 어제 · M월 d일 (this year) · yyyy년 M월 d일; anything unparsable → no date */
+function srcDate(p, now = new Date()) {
+  if (typeof p !== 'string' || !p) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p), d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(p);
+  if (isNaN(d)) return '';
+  const day = x => Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()), diff = Math.round((day(now) - day(d)) / 864e5);
+  if (diff === 0) return '오늘'; if (diff === 1) return '어제';
+  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url, dt = srcDate(c.published), sd = dt ? `${d} · ${dt}` : d;
+  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${sd}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(sd)}</span></a></li>`; }
+/* §7 `.tq`: one line per web_search query (max 3) at the top of the opened list / sheet; reason only when selected_by is known. Absent info (reload) → '' */
+function renderToolQueries(tools) {
+  const qs = (Array.isArray(tools) ? tools : []).filter(t => t && typeof t.q === 'string' && t.q.trim()).slice(0, 3);
+  if (!qs.length) return '';
+  const by = qs.find(t => t.by === 'model')?.by, why = by === 'model' ? 'Eve가 필요하다고 판단해 검색했어요' : '';
+  return qs.map((t, i) => `<div class="tq"><span>검색어 <q>${escapeHtml(t.q)}</q>${i === 0 && why ? ` · ${why}` : ''}</span></div>`).join('');
+}
+/* AUTO-TOOLS-SPEC §5.1: web tool failure → fixed copy by key (never a server string). [status line, note title, note sub]  — the note is text only (no action) */
+const TOOL_FAIL = {
+  empty:            ['검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'],
+  timeout:          ['검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요'],
+  search_unavailable: ['지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요'],
+  rate_limited:     ['검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에는 다시 검색할 수 있어요'],
+  budget_exhausted: ['검색 한도에 도달했어요', '한 번에 할 수 있는 검색을 다 썼어요', '지금까지 찾은 내용으로 답했어요'],
+  blocked:          ['차단된 주소는 열지 않았어요', '일부 페이지는 열지 않았어요', '안전하지 않은 주소라 건너뛰었어요'],
+  denied:           ['지금은 검색을 쓸 수 없어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요'],
+  query_rejected:   ['검색어에 보낼 수 없는 내용이 있어요', '검색하지 않았어요', '개인 정보처럼 보이는 내용은 밖으로 보내지 않아요'],
+  nosearch:         ['', '최신 정보를 확인하지 못했어요', '검색하지 않고 학습한 내용으로 답했어요'],
+  unknown:          ['검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요']
+};
+/* tool_result (web tools only) → a TOOL_FAIL key, or null when nothing is wrong / nothing is to be shown (duplicate_query, tainted). Reads optional fields defensively. */
+function toolFailKey(j) {
+  const code = typeof j?.error_code === 'string' ? j.error_code : '', st = typeof j?.status === 'string' ? j.status : 'ok';
+  if (code === 'duplicate_query' || code === 'tainted') return null;
+  if (code === 'permission_denied' || code === 'scope_denied' || code === 'kill_switch') return 'denied';
+  if (TOOL_FAIL[code] && code !== 'empty' && code !== 'unknown') return code;
+  if (code === 'invalid_arguments' || code) return 'unknown';
+  if (st === 'ok') { const n = Number.isFinite(+j.count) && j.count != null ? +j.count : (Array.isArray(j.sources) ? j.sources.length : null); return n === 0 || (n == null && +j.blocked_count > 0) ? 'empty' : null; }   // 6.0.0: blocked_count = items the server dropped as suspect; nothing usable left → the empty note
+  if (st === 'timeout') return 'timeout'; if (st === 'blocked') return 'blocked'; if (st === 'denied') return 'denied';
+  return 'unknown';
+}
+/* #134 messages.metadata / persisted: tools[] {tool, selected_by, status, error_code?, count?, query? (only if the server joins it)} → the shape the UI keeps */
+const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => ({ tool: x.tool, q: typeof x.query === 'string' ? x.query.trim() : '', by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count })) : null;
+/* AUTO-TOOLS-SPEC v2 §5: the note comes back from the stored fresh:'unverified'; the reason from tools[] (last status≠ok → §5.1 copy; tools[] empty → 검색하지 않고…; otherwise the generic copy). No fresh / 'ok' → none. */
+function freshNote(m) {
+  if (m?.fresh !== 'unverified') return null;
+  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().find(x => x && x.status && x.status !== 'ok');
+  return { key: (bad && toolFailKey({ status: bad.status, error_code: bad.error_code, count: bad.count })) || (t && !t.length ? 'nosearch' : 'unknown') };
+}
 let _srcSeq = 0;
 // 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
 // >6 sources → list shows 5 + 모두 보기 (bottom sheet). Chips are per domain; +N counts sources whose domain has no chip.
-function renderSources(sources) {
+function renderSources(sources, tools) {
   const m = citeMap(sources); if (!m) return '';
+  const tq = renderToolQueries(tools);
   const all = [...m.entries()].sort((a, b) => a[0] - b[0]);
   const doms = [];
   for (const [, c] of all) { const d = srcDomain(c); if (!doms.some(x => x.d === d)) doms.push({ d, u: srcFavicon(c) }); }
@@ -147,8 +196,8 @@ function renderSources(sources) {
   const chip = ({ d, u }) => `<button type="button" class="sc" aria-expanded="false" aria-controls="${id}" aria-label="${escapeHtml(`출처 ${d}`)}"><span class="sc-in">${fav(d, u)}<span class="sc-n">${escapeHtml(d)}</span></span></button>`;
   const more = rest ? `<button type="button" class="sc sc-more" aria-expanded="false" aria-controls="${id}" aria-label="출처 ${rest}개 더 보기"><span class="sc-in">+${rest}</span></button>` : '';
   return `<section class="sources" aria-label="출처"><div class="src-row">${shown.map(chip).join('')}${more}</div>`
-    + `<div class="src-list" id="${id}" hidden><ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
-    + `<template class="src-all-tpl"><ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
+    + `<div class="src-list" id="${id}" hidden>${tq}<ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
+    + `<template class="src-all-tpl">${tq}<ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
 }
 function renderMarkdown(src, sources) {
   _cites = citeMap(sources);
@@ -169,7 +218,7 @@ function renderMd(src) {
   });
   return out.join('');
 }
-if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, escapeHtml, stableCut, stripStopMark };
+if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {
@@ -217,32 +266,9 @@ if (typeof document !== 'undefined') (function () {
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  /* web search toggle (persisted; on => web_search:'auto') */
-  const LS_WEB = 'llmchat.webSearch';
-  const webOn = () => localStorage.getItem(LS_WEB) === '1';
-  /* 1.10.0 B1 (DIRECTION-B §9.1): the web-search toggle lives in the + menu; scale(.85→1) spring from the + corner, no blur.
-     B2: the same menu exists on the chat composer and on the 오늘 composer; they share one persisted setting. */
-  const PLUS = [['#plusBtn', '#plusMenu', '#webBtn'], ['#tPlus', '#tMenu', '#tWeb']].map(([p, m, w]) => ({ btn: $(p), menu: $(m), web: $(w), sel: `${m}, ${p}` }));
-  const plusBtn = PLUS[0].btn, plusMenu = PLUS[0].menu, webBtn = PLUS[0].web;
-  function setWebOn(on) {
-    if (on) localStorage.setItem(LS_WEB, '1'); else localStorage.removeItem(LS_WEB);
-    PLUS.forEach(({ btn, web }) => { web.setAttribute('aria-checked', String(on)); web.classList.toggle('on', on); btn.classList.toggle('web-on', on); btn.setAttribute('aria-label', on ? '더하기 · 웹 검색 켜짐' : '더하기'); btn.title = on ? '웹 검색 켜짐' : ''; });
-  }
-  setWebOn(webOn());
-  function setPlusMenu(open, P = PLUS[0]) {
-    const { btn, menu, web } = P;
-    if (open === menu.classList.contains('show')) return;   // logical state: a tap during the close transition re-opens
-    btn.setAttribute('aria-expanded', String(open));
-    if (open) { if (menu.hidden) { menu.hidden = false; menu.classList.remove('show'); void menu.offsetWidth; } menu.classList.add('show');   /* re-opening mid-close just adds .show back: no reset to 0, no one-frame jump */ web.focus({ preventScroll: true }); }
-    else { menu.classList.remove('show'); let fin = false, t = 0; const done = () => { if (fin) return; fin = true; clearTimeout(t); menu.removeEventListener('transitionend', onEnd); if (!menu.classList.contains('show')) menu.hidden = true; }; const onEnd = e => { if (e.target === menu) done(); };
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else { menu.addEventListener('transitionend', onEnd); t = setTimeout(done, 200); } }   /* hidden once the close transition ends, or after 200ms (--d-2) if it never fires */
-  }
-  PLUS.forEach(P => {
-    P.btn.addEventListener('click', e => { e.stopPropagation(); setPlusMenu(!P.menu.classList.contains('show'), P); });
-    document.addEventListener('pointerdown', e => { if (!P.menu.hidden && !e.target.closest(P.sel)) setPlusMenu(false, P); }, true);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !P.menu.hidden) { e.preventDefault(); e.stopPropagation(); setPlusMenu(false, P); P.btn.focus({ preventScroll: true }); } }, true);
-    P.web.addEventListener('click', () => { const on = !webOn(); setWebOn(on); if (navigator.vibrate) try { navigator.vibrate(8); } catch {} setPlusMenu(false, P); showToast(on ? '웹 검색 켜짐 · 필요할 때 검색해요' : '웹 검색 꺼짐', '', null, 1400); });
-  });
+  /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
+     web-search toggle / mode menu in the composer any more. The two old localStorage keys (mode, one-time hint) are removed once. */
+  try { localStorage.removeItem('llmchat.webSearch'); localStorage.removeItem('llmchat.autoHintSeen'); } catch {}
 
   /* ---------- viewport / keyboard (NATIVE §9) ---------- */
   const root = document.documentElement.style;
@@ -335,6 +361,7 @@ if (typeof document !== 'undefined') (function () {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
+    { const f = m.metadata?.fresh ?? m.fresh; if (f === 'unverified' || f === 'ok') o.fresh = f; const tl = mapTools(m.metadata?.tools ?? m.tools); if (tl) o.tools = tl; }   // #134: the note (and a joined query) come back after a reload
     { const r = self.EveProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
@@ -762,9 +789,9 @@ if (typeof document !== 'undefined') (function () {
       if (!thinking && !det.dataset.user && !settings.showThink && det.open) det.open = false;
     }
     const md = bubble.querySelector('.md');
-    if (!answer.trim()) return !md && (!!bubble.querySelector('.typing') || (!!det && thinking));
+    if (!answer.trim()) return !md && (!!bubble.querySelector('.typing,.tline') || (!!det && thinking));
     if (!md) { // first answer token: append answer container without touching the think block
-      bubble.querySelectorAll('.typing,.warming,.ws-status').forEach(n => n.remove());
+      bubble.querySelectorAll('.typing,.warming').forEach(n => n.remove()); bubble._tsDrop?.();   // the tool line fades out (opacity --d-1) and leaves the flow
       const nm = document.createElement('div'); nm.className = 'md cursor'; nm.innerHTML = '<div class="stable"></div><div class="tail"></div>';
       bubble.appendChild(nm); bubble._cut = 0; return patchLive(bubble, think, answer, thinking);
     }
@@ -778,13 +805,25 @@ if (typeof document !== 'undefined') (function () {
     if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
+  /* AUTO-TOOLS-SPEC §5/§7: what the web tools did for a reply — {tools:[{q,by}], note:{key,t}} — kept in memory for this session only (message id → info; never written to storage, so queries do not persist) */
+  const TOOLINFO = new Map();
+  const renderToolNote = n => n && TOOL_FAIL[n.key] ? `<div class="tnote" role="status" aria-live="polite" data-key="${n.key}" data-t="${n.t || 0}"></div>` : '';   // empty container first; the text is filled next frame so assistive tech announces it
+  function fillToolNote(bubble) {
+    const n = bubble.querySelector('.tnote[data-key]'); if (!n) return;
+    requestAnimationFrame(() => {
+      if (!n.isConnected || n.firstChild) return;
+      const [, title, sub] = TOOL_FAIL[n.dataset.key] || TOOL_FAIL.unknown;
+      n.innerHTML = `${ICON.warn}<div class="tb"><b>${title}</b><span>${sub}</span></div>`;
+    });
+  }
   /* "참고한 기억" chips (DIRECTION-B §8.1): only when the message carries memory_refs and memory is on; text via escapeHtml only */
   function renderMemRefs(m) {
     const refs = m?.memoryRefs; if (!refs?.length || !MEM?.active?.()) return '';
     const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
     return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
   }
-  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });   // memory chip → settings sheet #memoryView (openMemoryView, B3)
+  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });
+   // memory chip → settings sheet #memoryView (openMemoryView, B3)
   function fillAssistant(bubble, text, opts = {}) {
     const { think, answer, thinking } = splitThink(stripStopMark(text));
     const live = !!opts.live;
@@ -800,17 +839,20 @@ if (typeof document !== 'undefined') (function () {
     }
     const waiting = live && !answer.trim() && (think === null || !thinking);
     const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
-    if (waiting && bubble._ws) html += `<div class="ws-status" role="status">${ICON.globe}<span>${escapeHtml(bubble._ws)}</span></div>`;
+    if (waiting && bubble._tline) { /* the persistent .tline node is re-attached below */ }
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs)}${renderMemRefs(opts.msg)}`;
+    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
+    if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
     bubble.innerHTML = html;
+    if (live && bubble._tline && !answer.trim()) { bubble.appendChild(bubble._tline); requestAnimationFrame(() => bubble._tline?.classList.add('in')); }
     if (wasLive && !live) bubble._freshAt = performance.now();
     { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
       if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
+    fillToolNote(bubble);
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
@@ -1117,7 +1159,7 @@ if (typeof document !== 'undefined') (function () {
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
     const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
-    let sources = null; const ws = webOn(); bubble._ws = ''; bubble._sources = null;
+    let sources = null; bubble._tline = null; bubble._ti = null; bubble._sources = null;
     let confs = null, acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
@@ -1131,11 +1173,82 @@ if (typeof document !== 'undefined') (function () {
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
-    const finish = () => { clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const finish = () => { tsStop(); clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
-    const setWs = t => { bubble._ws = t; if (!acc.trim()) { bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom(); } };
-    let wsReq = ws;
+    /* ---- the tool status line (AUTO-TOOLS-SPEC §3/§4/§9): ONE reused .tline > .tstat[role=status] per reply; text swaps cross-fade (opacity only),
+       web updates are throttled to ≥1 s apart (the latest wins), a PIM tool's own copy shows at once; the line leaves the flow on the first answer token / on stop ---- */
+    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, tools: [], calls: new Map(), fail: null };
+    const reduceM = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function tsSwap(wrap, text) {
+      const cur = wrap.querySelector('span.on:last-child') || wrap.lastElementChild;
+      if (!text) { wrap.replaceChildren(); return; }
+      if (cur && cur.textContent === text) return;
+      const n = document.createElement('span'); n.textContent = text;
+      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), 160); } else if (cur) cur.remove();
+      wrap.appendChild(n); requestAnimationFrame(() => n.classList.add('on'));
+    }
+    function tsFill(w, r1, r2) {
+      tsSwap(w.querySelector('.t1'), r1); const row2 = w.querySelector('.row2'); row2.hidden = !r2; tsSwap(w.querySelector('.t2'), r2 || '');
+    }
+    function tsApply() {
+      ts.timer = 0; const want = ts.want; ts.want = null; if (!want || ts.dead || acc.trim()) return;
+      let w = bubble._tline;
+      if (!w || !w.isConnected) {
+        if (!w) { w = bubble._tline = document.createElement('div'); w.className = 'tline';
+          w.innerHTML = `<div class="tstat" role="status" aria-live="polite" aria-atomic="true"><div class="row1">${icon('globe-spark')}<span class="tw t1"></span></div><div class="row2" hidden><span class="tw t2"></span></div></div>`; }
+        bubble._live = false; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottom();
+        ts.applied = performance.now(); requestAnimationFrame(() => { if (bubble._tline === w) tsFill(w, want.r1, want.r2); });   // container first, text on the next frame
+        return;
+      }
+      ts.applied = performance.now(); tsFill(w, want.r1, want.r2);
+    }
+    const tsShow = (r1, r2 = '', now = false) => {
+      if (ts.dead || acc.trim()) return;
+      ts.want = { r1, r2 }; clearTimeout(ts.timer); ts.timer = 0;
+      const wait = now || !ts.applied ? 0 : Math.max(0, ts.applied + 1000 - performance.now());
+      if (wait) ts.timer = setTimeout(tsApply, wait); else tsApply();
+    };
+    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; };
+    const tsRemove = () => {
+      clearTimeout(ts.timer); ts.timer = 0; ts.want = null; clearTimeout(ts.s4T); tsSlowOff();
+      const w = bubble._tline; bubble._tline = null; if (!w) return;
+      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), 160); }
+    };
+    bubble._tsDrop = tsRemove;
+    const tsStop = () => { ts.dead = true; tsRemove(); };
+    const setWs = t => { tsShow(t, '', true); };   // PIM tools (calendar/reminders): own copy, no throttle, never the web wording
+    const hostOf = u => { try { return u ? new URL(u).hostname.replace(/^www\./i, '') : ''; } catch { return ''; } };
+    const isWebTool = t => t === 'web_search' || t === 'web_fetch';
+    function onWebCall(j) {
+      const a = j.args && typeof j.args === 'object' ? j.args : {}, id = j.id != null ? String(j.id) : '';
+      const by = j.selected_by === 'model' || j.selected_by === 'user' ? j.selected_by : '';
+      clearTimeout(ts.s4T);
+      let r1, r2 = '';
+      if (j.tool === 'web_fetch') { r1 = '페이지를 읽고 있어요'; r2 = hostOf(a.url) || '웹 페이지'; }
+      else { r1 = '웹에서 찾고 있어요'; const q = typeof a.query === 'string' ? a.query.trim() : ''; r2 = q ? `“${q}”` : '';
+        if (q || by) { const t = { q, by }; ts.tools.push(t); if (id) ts.calls.set(id, t); bubble._ti = { tools: ts.tools, note: null }; } }
+      tsShow(r1, r2);
+      tsSlowOff(); if (!ts.slowShown) ts.slowT = setTimeout(() => { const w = bubble._tline; if (!w || ts.slowShown || acc.trim()) return; ts.slowShown = true;
+        const sp = document.createElement('span'); sp.className = 'slow'; sp.setAttribute('aria-hidden', 'true'); sp.textContent = ' · 조금 걸려요'; w.querySelector('.row1').appendChild(sp); }, 6000);
+    }
+    function onWebResult(j) {
+      tsSlowOff(); clearTimeout(ts.s4T);
+      const call = j.id != null ? ts.calls.get(String(j.id)) : null, key = toolFailKey(j);
+      const srcs = Array.isArray(j.sources) ? j.sources : [];
+      if (srcs.length) { const m = new Map((sources || []).map(x => [x.n, x])); srcs.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
+      if (key === 'query_rejected' && call) call.q = '';   // a rejected query is never shown (§4)
+      if (j.error_code === 'duplicate_query') return;       // silent: no line change
+      if (key) {
+        if (!ts.fail) ts.fail = { key, t: Date.now() };
+        if (!(key === 'blocked' && srcs.length)) { tsShow(TOOL_FAIL[key][0]); ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1500); return; }
+      }
+      if (j.error_code === 'tainted') return;
+      if (srcs.length) { const n = Number.isFinite(+j.count) && +j.count > 0 ? +j.count : srcs.length; const d = srcDomain(srcs[0]);
+        tsShow(`출처 ${n}개를 읽고 있어요`, n > 1 && d ? `${d} 외 ${n - 1}곳` : ''); }
+      ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1000);
+    }
+    ctl.signal.addEventListener('abort', tsStop, { once: true });   // stop: the line leaves at once (opacity --d-1), no chips/note are made for it
     let liveReader = null;
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
@@ -1144,7 +1257,7 @@ if (typeof document !== 'undefined') (function () {
     kickStream = kick;
     cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
-      acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage;
+      acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage; if (acc.trim()) tsStop();
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
       if (m.status === 'failed') streamErr = { code: m.error_code || 'internal_error', failed: true };
     };
@@ -1158,8 +1271,8 @@ if (typeof document !== 'undefined') (function () {
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
         if (self.EvePim?.isTool(j.tool)) { setWs(EvePim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
-        const a = j.args || {}; let d = ''; try { d = a.url ? new URL(a.url).hostname.replace(/^www\./, '') : ''; } catch {}
-        setWs(j.tool === 'web_fetch' ? `읽는 중: ${d || '웹 페이지'}` : (a.query ? `웹 검색 중: ${a.query}` : '웹 검색 중…')); return;
+        if (isWebTool(j.tool)) onWebCall(j);   // unknown tool names are ignored (no line, no chip)
+        return;
       }
       if (j.object === 'chat.completion.tool_result') {
         if (self.EvePim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
@@ -1167,8 +1280,8 @@ if (typeof document !== 'undefined') (function () {
           if (n) EvePim.mount(n, bubble.parentElement);
           return;
         }
-        if (Array.isArray(j.sources)) { const m = new Map((sources || []).map(x => [x.n, x])); j.sources.forEach(x => m.set(x.n, x)); sources = [...m.values()]; bubble._sources = sources; }
-        setWs(j.status && j.status !== 'ok' && !(j.sources || []).length ? '검색 결과 없이 답변 작성 중…' : '답변 작성 중…'); return;
+        if (isWebTool(j.tool)) onWebResult(j);
+        return;
       }
       if (j.object === 'chat.completion.confirmation') { if (PRO) (confs = confs || []).push(PRO.streamCard(j, bubble.parentElement)); return; }
       if (j.object === 'chat.completion.action_result') { PRO?.actionResult(j); return; }
@@ -1179,7 +1292,7 @@ if (typeof document !== 'undefined') (function () {
       const r = d.reasoning ?? d.reasoning_content;
       if (r) { markThink(); reasoning += r; }
       if (d.content) {
-        acc += d.content;
+        acc += d.content; if (acc.trim()) tsStop();
         if (acc.includes('<think>')) markThink();
         if (reasoning || acc.includes('</think>')) endThink();
       }
@@ -1228,12 +1341,11 @@ if (typeof document !== 'undefined') (function () {
       const post = keep => fetch(apiBase() + '/v1/chat/completions', {
         method: 'POST', headers: headers('POST'), signal: ctl.signal,
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
-          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}, wsReq ? { web_search: 'auto' } : {}))
+          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}))
       });
       let res = await post(mode === 'server');
       // storage switched off on the gateway mid-session: answer anyway without persistence, show the subtle notice
       if (res.status === 503 && mode === 'server') { const t = await res.clone().text().catch(() => ''); if (t.includes('persistence_disabled')) { persistOff = true; renderSync(); res = await post(false); } }
-      if (res.status === 400 && wsReq) { const t = await res.clone().text().catch(() => ''); if (t.includes('web_search_disabled')) { wsReq = false; setWebOn(false); showToast('서버에서 웹 검색이 꺼져 있어요', '', null, 2500); res = await post(mode === 'server' && !persistOff); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         const code = authCode(body);
@@ -1312,9 +1424,15 @@ if (typeof document !== 'undefined') (function () {
     }
     const secs = +((performance.now() - t0) / 1000).toFixed(1);
     const ut = usageText(usage, secs);
+    // AUTO-TOOLS-SPEC §5/§7: queries + a failure note, session-only. No note when cited sources exist (except blocked), none for a stopped/failed reply
+    const pf = persisted?.fresh ?? persisted?.metadata?.fresh, ptools = mapTools(persisted?.tools ?? persisted?.metadata?.tools);   // persisted.fresh is the authority; without it the tool_result decides
+    let note = ts.fail && (!sources?.length || ts.fail.key === 'blocked') ? ts.fail : null;
+    if (pf === 'ok') note = null; else if (pf === 'unverified') note = ts.fail || freshNote({ fresh: 'unverified', tools: ptools });
+    const tinfo = ts.tools.length || note ? { tools: ts.tools, note } : null; bubble._ti = tinfo;
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
-    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs;
+    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs; if (pf === 'ok' || pf === 'unverified') msg.fresh = pf; if (ptools) msg.tools = ptools;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
+    if (tinfo && msg.id) TOOLINFO.set(msg.id, tinfo);
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
     if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
     if (stick) scrollBottom();
@@ -2197,7 +2315,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '1.10.2'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '2.0.0'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

@@ -31,20 +31,6 @@ with sync_playwright() as p:
         ok_txt = pg.evaluate("(() => { const e = document.querySelector('#logView .text-btn, .navbar .icon, .nav-back'); return e ? getComputedStyle(e).color : '' })()")
         check(f'{scheme}: nav text/icon accent stays --accent', ok_txt == acc, (ok_txt, acc)); ctx.close()
     check('no other background:var(--accent) left on solid buttons (.send, .primary and chips keep it; only the four above moved)', len(re.findall(r'--accent-fill', CSS)) >= 6)
-    # ---- b) + menu closes on transitionend (or 200ms)
-    reset(); rich(); ctx, pg = newpg(b, errs); goto_today(pg); open_thread(pg, '코드 리뷰'); pg.wait_for_timeout(500)
-    btn = '#tPlus' if pg.locator('#tPlus').is_visible() else '#plusBtn'; menu = '#tMenu' if btn == '#tPlus' else '#plusMenu'
-    check('source: no setTimeout(done, 160) any more; transitionend + 200ms fallback', 'setTimeout(done, 160)' not in APP and "addEventListener('transitionend', onEnd)" in APP and 'setTimeout(done, 200)' in APP)
-    pg.click(btn); pg.wait_for_timeout(400)
-    pg.evaluate(f"window.__t0 = performance.now(); window.__ev = 0; document.querySelector('{menu}').addEventListener('transitionend', () => window.__ev++)")
-    pg.click(btn)
-    for _ in range(100):   # polled with evaluate (wait_for_function evals a string; the mock may still carry a CSP flag from an earlier suite)
-        if pg.evaluate(f"document.querySelector('{menu}').hidden"): break
-        pg.wait_for_timeout(10)
-    dt = pg.evaluate('performance.now() - window.__t0')
-    check(f'closes: hidden when the 200ms transition has ended, not before ({dt:.0f}ms, 150–330)', 150 <= dt <= 330, dt)
-    pg.click(btn); pg.wait_for_timeout(400); pg.click(btn); pg.wait_for_timeout(30); pg.click(btn); pg.wait_for_timeout(500)
-    check('close then quick re-open: stays open (no late hide)', not pg.evaluate(f"document.querySelector('{menu}').hidden")); pg.keyboard.press('Escape'); ctx.close()
     # ---- c) chips fade token, f) nav easing, j) button transition
     ctx, pg = newpg(b, errs); goto_today(pg)
     check('c) .mchips.fresh uses var(--d-1) var(--ease-out)', '.mchips.fresh{animation:srcFade var(--d-1) var(--ease-out) both}' in CSS)
@@ -108,7 +94,7 @@ with sync_playwright() as p:
         ctx, pg = newpg(b, errs); goto_today(pg); pg.wait_for_timeout(500)
         check(f'k) {label} → 오늘 일정 cell {"shown" if want else "hidden"}', ('sch' in keys(pg)) == want, keys(pg)); ctx.close()
     check('k) TODO for the architect is left in app.js', 'TODO(architect)' in APP and 'briefing.enabled' in APP)
-    # ---- a2) .primary / .mem-intro-ok on --accent-fill, c2) .sources.fresh token, b2) reopen without a jump
+    # ---- a2) .primary / .mem-intro-ok on --accent-fill, c2) .sources.fresh token, reopen without a jump
     for scheme in ('dark', 'light'):
         ctx, pg = newpg(b, errs, scheme=scheme); goto_today(pg)
         o = pg.evaluate("""(() => { const out = {}; for (const c of ['primary', 'mem-intro-ok']) { const e = document.createElement('button'); e.className = c; document.body.appendChild(e); const cs = getComputedStyle(e); out[c] = [cs.backgroundColor, cs.color]; e.remove() } return out })()""")
@@ -118,13 +104,5 @@ with sync_playwright() as p:
             check(f'{scheme} a2) .{c}: white on --accent-fill = {cr}:1 (was {"3.7" if scheme == "dark" else "4.0"}:1) ≥ 4.5', o[c][0] == want and o[c][1] == 'rgb(255, 255, 255)' and cr >= 4.5, o[c])
         ctx.close()
     check('c2) .sources.fresh uses var(--d-1) var(--ease-out); no 120ms literal left in animations', '.sources.fresh{animation:srcFade var(--d-1) var(--ease-out) both}' in CSS and 'srcFade 120ms' not in CSS)
-    reset(); rich(); ctx, pg = newpg(b, errs); goto_today(pg); open_thread(pg, '코드 리뷰'); pg.wait_for_timeout(500)
-    btn = '#tPlus' if pg.locator('#tPlus').is_visible() else '#plusBtn'; menu = '#tMenu' if btn == '#tPlus' else '#plusMenu'
-    pg.click(btn); pg.wait_for_timeout(400)
-    r = pg.evaluate(f"""new Promise(res => {{ const m = document.querySelector('{menu}'), b = document.querySelector('{btn}'); b.click();
-      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => {{ const before = parseFloat(getComputedStyle(m).opacity); b.click(); requestAnimationFrame(() => {{ const after = parseFloat(getComputedStyle(m).opacity); requestAnimationFrame(() => res({{ before, after, shown: m.classList.contains('show'), hidden: m.hidden }})) }}) }})))
-    }})""")
-    check('b2) re-opening mid-close does not reset to opacity 0 (no one-frame jump)', r['shown'] and not r['hidden'] and r['after'] >= r['before'] - .02 and r['before'] < 1, r)
-    pg.wait_for_timeout(500); check('b2) …and the menu stays open', not pg.evaluate(f"document.querySelector('{menu}').hidden")); ctx.close()
     check('no page errors', not errs, errs); b.close()
 print(f'{sum(R)}/{len(R)} checks'); raise SystemExit(0 if all(R) else 1)

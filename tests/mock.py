@@ -200,6 +200,7 @@ class H(SimpleHTTPRequestHandler):
                 out = dict(PRO['settings'], system=PRO['system'])
                 if PRO.get('memMode') in ('off', 'availOff'): out['system'] = dict(out['system'], memory_available=False)
                 if PRO.get('memNoKey'): out.pop('memory', None)   # missing memory key → off
+                if PRO.get('toolsAuto') is not None: out['tools'] = {'auto': bool(PRO['toolsAuto'])}   # AUTO-TOOLS-SPEC §6.4 (tools.auto)
                 s.j(200, out); return True
             if path == '/v1/actions' and PRO.get('actFail'): s.j(PRO['actFail'], err('internal_error', 'server_error', 'x')); return True   # B3: list failing (503 → strip shows "–")
             if path == '/v1/actions':
@@ -313,7 +314,7 @@ class H(SimpleHTTPRequestHandler):
             return
         if s.path == '/__db': return s.j(200, {'threads': list(DB['threads'].values()), 'messages': list(DB['messages'].values()), 'state': {k: v for k, v in STATE.items()}})
         if s.path == '/v1/models':
-            if s.auth(): s.j(200, {"data": [{"id": "mlx-community/Qwen3-30B-A3B-4bit"}]})
+            if s.auth(): s.j(200, {"data": [{"id": "mlx-community/Qwen3-30B-A3B-4bit"}], "capabilities": {"web_search": True, "web_search_default": "auto", "auto_tool_selection": True}})   # backend 6.0.0 (#158): the request field web_search is ignored
             return
         mres = re.fullmatch(r'/v1/threads/([^/]+)/messages/([^/]+)/stream', urlparse(s.path).path)
         if mres:
@@ -410,8 +411,7 @@ class H(SimpleHTTPRequestHandler):
             if tid:
                 th = new_thread(last[:40]) if tid == 'new' else DB['threads'].get(tid)
                 if th and not rep: um = add_msg(th['id'], 'user', last)
-        WS = body.get('web_search') in ('auto', 'force', True)
-        if WS and STATE.get('webdisabled'): return s.j(400, err('web_search_disabled', 'invalid_request_error', 'web search is disabled'))
+        WS = True   # 2.0.0: the browser never sends web_search; the server decides, the mock searches when the text starts with 'ws' / 'wsnostream'
         SRCS = [{"n": 1, "title": "Eve 릴리스 노트", "url": "https://example.com/notes?a=1&b=2", "domain": "example.com", "fetched": True},
                 {"n": 2, "title": "두 번째 출처 <b>bold</b>", "url": "https://docs.example.org/page", "domain": "docs.example.org", "fetched": False},
                 {"n": 3, "title": "bad scheme", "url": "javascript:alert(1)", "domain": "evil", "fetched": False}]
@@ -420,19 +420,42 @@ class H(SimpleHTTPRequestHandler):
             out = {"id": "x", "object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": WSTEXT, "sources": SRCS[:2]}}]}
             if th: am = s.save_asst(th, rep, WSTEXT, ''); am['sources'] = SRCS[:2]; out.update(thread_id=th['id'], message_id=am['id'])
             return s.j(200, out)
+        if last.startswith('atscript') or last.endswith('\u2063'):   # AUTO-TOOLS-SPEC §13: replay PRO['atScript'] = [{d: seconds to wait, ev: {...}[, name: 'eve.meta']} | {d, text: '답변…'}] then a normal finish (persisted + [DONE]); the request body is in STATE['lastBody']
+            s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
+            try:
+                if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
+                txt = []
+                for it in PRO.get('atScript', []):
+                    time.sleep(it.get('d', 0))
+                    if 'text' in it: txt.append(it['text']); s.ev({"id": "at-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": it['text']}, "finish_reason": None}]})
+                    elif it.get('name'): s.wfile.write(f"event: {it['name']}\ndata: {json.dumps(it['ev'])}\n\n".encode()); s.wfile.flush(); time.sleep(0.08)
+                    else: s.ev(it['ev'])
+                s.ev({"id": "at-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+                if th:
+                    am = s.save_asst(th, rep, ''.join(txt), ''); am['sources'] = PRO.get('atSources', [])
+                    md = {}
+                    if PRO.get('atFresh'): md['fresh'] = PRO['atFresh']   # #134: persisted freshness flag (ok | unverified)
+                    if PRO.get('atTools') is not None: md['tools'] = PRO['atTools']   # #134: tools[] {tool, selected_by, status, error_code?, count?[, query]}
+                    if md: am['metadata'] = md
+                    s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **(md if PRO.get('atPersistedMeta', True) else {})))
+                s.wfile.write(b'data: [DONE]\n\n')
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if WS and last.startswith('ws'):
             s.send_response(200); s.send_header('Content-Type', 'text/event-stream'); s.end_headers()
             try:
                 if th: s.ev({"object": "chat.completion.chunk", "choices": [], "thread_id": th['id'], "user_message_id": um['id'] if um else None})
                 s.ev({"object": "chat.completion.tool_call", "id": "tc_1", "tool": "web_search", "args": {"query": "eve 속도"}, "round": 1}); time.sleep(0.8)
-                s.ev({"object": "chat.completion.tool_result", "id": "tc_1", "tool": "web_search", "status": "ok", "sources": SRCS[:2]}); time.sleep(0.3)
+                s.ev({"object": "chat.completion.tool_result", "id": "tc_1", "tool": "web_search", "status": "ok", "count": 2, "blocked_count": 0, "sources": SRCS[:2]}); time.sleep(0.3)
                 s.ev({"object": "chat.completion.tool_call", "id": "tc_2", "tool": "web_fetch", "args": {"url": "https://www.example.com/notes"}, "round": 2}); time.sleep(0.8)
-                s.ev({"object": "chat.completion.tool_result", "id": "tc_2", "tool": "web_fetch", "status": "ok", "sources": SRCS[:1]}); time.sleep(0.6)
+                s.ev({"object": "chat.completion.tool_result", "id": "tc_2", "tool": "web_fetch", "status": "ok", "count": 1, "blocked_count": 0, "sources": SRCS[:1]}); time.sleep(0.6)
                 s.ev({"id": "web-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": WSTEXT}, "finish_reason": "stop"}]})
                 s.ev({"object": "chat.completion.sources", "sources": SRCS, "cited": [1, 2]})
                 if th:
                     am = s.save_asst(th, rep, WSTEXT, ''); am['sources'] = SRCS[:2]
-                    s.ev({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None})
+                    wmd = {"fresh": "ok", "tools": [{"tool": "web_search", "selected_by": "model", "status": "ok", "count": 2}, {"tool": "web_fetch", "selected_by": "model", "status": "ok", "count": 1}]}   # backend 6.0.0 (#158): query-free tools[]
+                    am['metadata'] = wmd
+                    s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **wmd))
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return

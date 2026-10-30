@@ -15,7 +15,7 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1');localStorage.setItem('llmchat.settings',JSON.stringify({base:'',model:'mlx-community/Qwen3-30B-A3B-4bit'}))")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(800)
         if scheme == 'dark':
-            check('version 1.10.2', pg.evaluate('__app.version') == '1.10.2')
+            check('version 2.0.0', pg.evaluate('__app.version') == '2.0.0')
             t = pg.evaluate("""(()=>{const r=getComputedStyle(document.documentElement),g=n=>r.getPropertyValue(n).trim();
               return [g('--r-xs'),g('--r-sm'),g('--r-md'),g('--r-lg'),g('--r-xl'),g('--layer-1'),g('--layer-2'),g('--hair'),g('--hair-strong'),g('--s1'),g('--s2')]})()""")
             check('radii 6/10/16/20/26 + two layers + hairlines + 4/8 spacing', t[:5] == ['6px','10px','16px','20px','26px'] and t[5].upper() == '#1C1C1E' and t[6].upper() == '#2C2C2E' and t[7] and t[8] and t[9:] == ['4px','8px'], t)
@@ -39,7 +39,7 @@ with sync_playwright() as p:
         check(f'[{scheme}] answers 16/24, user text 16/24 plain (B1 timeline: no bubble)', m['af'] == '16px' and m['al'] == '24px' and m['uf'] == '16px' and m['ul'] == '24px' and m['ur'] == ['0px', '0px'], m)
         hd = pg.evaluate("[...document.querySelectorAll('.navbar,#topbar')].map(n=>getComputedStyle(n).backdropFilter||'none')")
         check(f'[{scheme}] headers keep 1.3.2 (no backdrop-filter)', all(x == 'none' for x in hd), hd)
-        tt = pg.evaluate("[...document.querySelectorAll('#chatView .navbar button,#chatView .navbar .icon,#plusBtn')].filter(e=>e.offsetParent).map(e=>{const r=e.getBoundingClientRect(),b=getComputedStyle(e,'::before');const ex=b.content!=='none'&&b.position==='absolute'?-2*parseFloat(b.left||0):0;return [e.id||e.className,Math.round(r.width+ex),Math.round(r.height+ex)]})")
+        tt = pg.evaluate("[...document.querySelectorAll('#chatView .navbar button,#chatView .navbar .icon')].filter(e=>e.offsetParent).map(e=>{const r=e.getBoundingClientRect(),b=getComputedStyle(e,'::before');const ex=b.content!=='none'&&b.position==='absolute'?-2*parseFloat(b.left||0):0;return [e.id||e.className,Math.round(r.width+ex),Math.round(r.height+ex)]})")
         check(f'[{scheme}] tap targets >= 44', all(w >= 44 and h >= 44 for _, w, h in tt), tt)
         if scheme == 'dark':
             pg.evaluate("document.querySelector('#openSettings,#settingsBtn')?.click()"); pg.wait_for_timeout(800)

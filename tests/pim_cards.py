@@ -24,7 +24,7 @@ with sync_playwright() as p:
     def fresh():
         put('/pro/reset'); pg.goto(B + '/ui/#/'); pg.reload(); pg.wait_for_timeout(1200)
         if pg.evaluate("document.getElementById('app').dataset.route") != 'chat': pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
-    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .ws-status')].pop()||{}).textContent||''")
+    def status(): return pg.evaluate("([...document.querySelectorAll('.msg.assistant .tline:not(.out) .tstat')].pop()||{}).textContent||''")
     def ask(text):
         fresh(); pg.fill('#input', text); pg.click('#sendBtn')
 
@@ -101,7 +101,7 @@ with sync_playwright() as p:
 
     # ---- web search copy untouched
     ask('ws 질문'); pg.wait_for_timeout(500)
-    check('web tools keep the web copy', '웹 검색 중' in status() or status() == '', status())
+    check('web tools keep the web copy', '웹에서 찾고 있어요' in status() or status() == '', status())
 
     # ---- every error code copy
     copy = pg.evaluate("(['pim_unavailable','permission_denied','scope_denied','kill_switch','timeout','invalid_arguments','not_found','writes_disabled','secret_detected','__proto__','constructor'].map(c => [c, EvePim.errText(c)]))")

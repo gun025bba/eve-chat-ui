@@ -18,7 +18,7 @@ errs = []
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark').new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1500)
-    check('version 1.10.2', pg.evaluate('__app.version') == '1.10.2')
+    check('version 2.0.0', pg.evaluate('__app.version') == '2.0.0')
     check('sprite inlined first in body', pg.evaluate("document.body.firstElementChild.id === 'eveSprite' && !!document.getElementById('i-settings')"))
     check('settings uses sliders icon', pg.evaluate("!!document.querySelector('#openSettings use[href=\"#i-settings\"]')"))
     w = pg.evaluate("Math.round(document.querySelector('#openSettings svg').getBoundingClientRect().width)")

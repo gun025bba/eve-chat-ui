@@ -34,7 +34,7 @@ with sync_playwright() as p:
 
     # 1) flag off → nothing
     setup(); ctx, pg = launch(flag=False)
-    check('version 1.10.2', pg.evaluate('__app.version') == '1.10.2' and 'v1.10.2' in pg.text_content('#appVersion'))
+    check('version 2.0.0', pg.evaluate('__app.version') == '2.0.0' and 'v2.0.0' in pg.text_content('#appVersion'))
     check('flag off → no sheet, no seen', not shown(pg) and seenLocal(pg) is None and not uiPatches()); ctx.close()
 
     # 2) memory.enabled false → no sheet, no seen
@@ -123,7 +123,7 @@ with sync_playwright() as p:
     check('reduced motion → no transform, opacity transition only', shown(pg) and rm[0] == 'none' and rm[1] == 'opacity' and rm[2] == '1', rm); ctx.close()
 
 
-    # 13) 1.10.2: localStorage is written ONLY after the server answered 200 to PATCH {ui:{memory_intro_seen:true}}
+    # 13) 2.0.0: localStorage is written ONLY after the server answered 200 to PATCH {ui:{memory_intro_seen:true}}
     attempts = lambda: len(uiPatches())
     toast_vis = lambda pg: pg.evaluate("(() => { const t = document.getElementById('toast'); return t && t.classList.contains('show') ? { text: t.innerText } : null })()")
     err_vis = lambda pg: pg.evaluate("(() => { const t = document.getElementById('memIntroErr'); if (!t.classList.contains('on') || getComputedStyle(t).opacity !== '1') return null; const r = t.getBoundingClientRect(), s = document.getElementById('memIntro').getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { text: t.innerText, role: t.getAttribute('role'), inSheet: r.top >= s.top && r.bottom <= s.bottom, onTop: !!e && t.contains(e) } })()")
@@ -131,18 +131,18 @@ with sync_playwright() as p:
     check('PATCH 400 at show: sheet stays, localStorage NOT written, no error shown yet', shown(pg) and seenLocal(pg) is None and attempts() == 1 and err_vis(pg) is None, (seenLocal(pg), attempts()))
     pg.evaluate("window.__g = () => { const e = document.getElementById('memIntroErr'), r = e.getBoundingClientRect(), cs = getComputedStyle(e); return { sheetTop: document.getElementById('memIntro').getBoundingClientRect().top, okTop: document.getElementById('memIntroOk').getBoundingClientRect().top, h: r.height, lh: parseFloat(cs.lineHeight), mb: parseFloat(cs.marginBottom), op: cs.opacity } }")
     g0 = pg.evaluate("__g()")
-    check('1.10.2: error line reserves its space while invisible (one 1.25rem line ≈ 20px + 10px margin), opacity 0', abs(g0['h'] - g0['lh']) < .01 and 20 <= g0['h'] <= 22 and g0['mb'] == 10 and g0['op'] == '0', g0)
+    check('2.0.0: error line reserves its space while invisible (one 1.25rem line ≈ 20px + 10px margin), opacity 0', abs(g0['h'] - g0['lh']) < .01 and 20 <= g0['h'] <= 22 and g0['mb'] == 10 and g0['op'] == '0', g0)
     pg.click('#memIntroOk'); pg.wait_for_timeout(900); tv = err_vis(pg)
     check('좋아요 retries the PATCH; still 400 → sheet kept, error line (role=alert) inside the sheet, visible, localStorage still unset, button usable', shown(pg) and attempts() == 2 and seenLocal(pg) is None and tv and '저장하지 못했어요' in tv['text'] and tv['role'] == 'alert' and tv['inSheet'] and tv['onTop'] and not pg.is_disabled('#memIntroOk'), (attempts(), seenLocal(pg), tv))
     g1 = pg.evaluate("__g()")
-    check('1.10.2: showing the error does not move the sheet top or the 좋아요 button (no jump), opacity 1', g1['sheetTop'] == g0['sheetTop'] and g1['okTop'] == g0['okTop'] and g1['h'] == g0['h'] and g1['op'] == '1', (g0, g1))
+    check('2.0.0: showing the error does not move the sheet top or the 좋아요 button (no jump), opacity 1', g1['sheetTop'] == g0['sheetTop'] and g1['okTop'] == g0['okTop'] and g1['h'] == g0['h'] and g1['op'] == '1', (g0, g1))
     pg.evaluate("window.__ops = []; (function f() { window.__ops.push(parseFloat(getComputedStyle(document.getElementById('memIntroErr')).opacity)); window.__raf = requestAnimationFrame(f); })()")
     pg.click('#memIntroOk'); pg.wait_for_timeout(900); ops = pg.evaluate("cancelAnimationFrame(window.__raf), window.__ops")
-    check('1.10.2: retry that fails again keeps the error line fully visible throughout (no flicker), sheet top unchanged', attempts() == 3 and len(ops) > 5 and min(ops) == 1 and pg.evaluate("__g().sheetTop") == g0['sheetTop'], (attempts(), min(ops), len(ops)))
+    check('2.0.0: retry that fails again keeps the error line fully visible throughout (no flicker), sheet top unchanged', attempts() == 3 and len(ops) > 5 and min(ops) == 1 and pg.evaluate("__g().sheetTop") == g0['sheetTop'], (attempts(), min(ops), len(ops)))
     put('/pro/set', {'uiKey': True}); pg.click('#memIntroOk'); pg.wait_for_timeout(900)
     check('server now accepts → 좋아요 closes, localStorage written only now, server flag set, error line gone', not shown(pg) and pg.evaluate("!document.getElementById('memIntroErr').classList.contains('on')") and seenLocal(pg) == '1' and pro()['settings'].get('ui') == {'memory_intro_seen': True}, (seenLocal(pg), pro()['settings'].get('ui')))
     pg.reload(); pg.wait_for_timeout(2200); check('… and never shown again', not shown(pg)); ctx.close()
-    # 1.10.2: 200 + non-JSON body on the PATCH does not count as saved (same as a failure: sheet stays, localStorage unset, error line)
+    # 2.0.0: 200 + non-JSON body on the PATCH does not count as saved (same as a failure: sheet stays, localStorage unset, error line)
     setup(); put('/pro/set', {'uiKey': True, 'patchNonJson': True}); ctx, pg = launch(wait=0); pg.wait_for_function("window.__app && __app.state().mode==='server'"); pg.wait_for_selector('#memIntro', state='visible', timeout=4000); pg.wait_for_timeout(500)
     check('PATCH 200 text/html at show: sheet stays, localStorage NOT written', shown(pg) and seenLocal(pg) is None and attempts() == 1 and err_vis(pg) is None, (seenLocal(pg), attempts()))
     pg.click('#memIntroOk'); pg.wait_for_timeout(900); tv = err_vis(pg)
