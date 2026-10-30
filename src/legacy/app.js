@@ -25,12 +25,13 @@ function renderSources(sources, tools) {
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install, Auth }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install, Auth, Migration }) {
   const $ = s => document.querySelector(s);
   const { showToast, hideToast } = Toast;
   const { openMini, closeMini } = Sheets;
   const { maybeA2HS, openA2HS } = Install;
   const { showAuthNotice, checkAuth } = Auth;
+  const { maybeMigrate } = Migration;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
@@ -39,7 +40,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), up: icon('thumb-up'), down: icon('thumb-down'), trash: icon('trash')
   };
   const LS = { settings: 'llmchat.settings', convs: 'llmchat.convs', current: 'llmchat.current', route: 'llmchat.route', scroll: 'llmchat.scroll', draft: 'llmchat.draft:',
-    mode: 'llmchat.mode', srv: 'llmchat.srvcache', pins: 'llmchat.pins', outbox: 'llmchat.outbox', migrated: 'llmchat.migrated', snooze: 'llmchat.migrateSnooze', bak: 'llmchat.convs.bak', fbSkip: 'llmchat.fbSkip' };
+    mode: 'llmchat.mode', srv: 'llmchat.srvcache', pins: 'llmchat.pins', outbox: 'llmchat.outbox', fbSkip: 'llmchat.fbSkip' };
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
@@ -211,7 +212,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   }
 
   /* ---------- outbox (offline-first writes, backoff 2..60s, THREADS-SPEC §0) ---------- */
-  let migrateProg = null;
   const runOp = createOperations(api);
   const { state: outboxState, saveOutbox, enqueue, scheduleOutbox, flushOutbox, write } = createOutbox({
     mode: () => cv.mode, load, save, storageKey: LS.outbox, runOp, isNet,
@@ -221,7 +221,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   function renderSync() {
     const el = $('#syncStatus'); if (!el) return;
     let html = '';
-    if (migrateProg) html = `<span class="spin"></span>대화 옮기는 중 ${migrateProg.done}/${migrateProg.total}`;
+    if (Migration.progress) html = `<span class="spin"></span>대화 옮기는 중 ${Migration.progress.done}/${Migration.progress.total}`;
     else if (cv.persistOff) html = cv.mode === 'local' ? '서버 저장이 꺼져 있어 이 기기에만 저장돼요' : '서버 저장이 일시적으로 꺼져 있어요';
     else if (outboxState.failed) html = `<i class="dot bad"></i>${outboxState.failed}개 저장 실패 · <button type="button" class="sync-retry">다시 시도</button>`;
     else if (outboxState.items.length) html = `<i class="dot"></i>변경 사항 ${outboxState.items.length}개 대기 중`;
@@ -1694,7 +1694,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const baseWarn = () => { $('#sBaseWarn').hidden = !crossOrigin(normBase($('#sBase').value)); };   // other origin: all calls go there, approve blocked
   $('#sBase').addEventListener('input', baseWarn);
   function openSettings() {
-    renderSync(); { const mg = localStorage.getItem(LS.migrated); $('#sMigrateRow').hidden = !(cv.mode === 'server' && localConvs().length && (!mg || mg === 'skip')); }
+    renderSync(); $('#sMigrateRow').hidden = !Migration.canOffer();
     $('#sBase').value = settings.base; $('#sSystem').value = settings.system; baseWarn();
     $('#sShowThink').checked = settings.showThink; $('#sNoThink').checked = !!settings.noThink;
     setModelOptions([]); $('#sStatus').textContent = '';
@@ -1704,7 +1704,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     renderWho(); loadModels(); $('#sModelInfo').textContent = shortModel() || '—'; PRO?.openSettings(); MEM?.openSettings();
   }
   $('#openSettings').onclick = openSettings; $('#openSettings3').onclick = openSettings;
-  $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
+  $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); Migration.restart(); });
   $('#sSyncNow').onclick = () => { outboxState.items.forEach(o => o.nextAt = 0); outboxState.failed = 0; flushOutbox(); initServer(); };
   $('#loadModels').onclick = loadModels;
   $('#cancelSettings').onclick = () => closeSettings();
@@ -1723,88 +1723,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   $('#titleWrap').addEventListener('click', () => { const c = cur(); if (c && (c.messages.length || c.srv) && !c.archived) openRenameSheet(c); });
   $('#archRestore').onclick = () => { const c = cur(); if (c) restoreConv(c); };
 
-  /* migration: local → server, once (THREADS-SPEC §4) */
-  const localConvs = () => load(LS.convs, []).filter(c => c.messages?.length);
-  function migrateEligible() {
-    if (cv.mode !== 'server' || localStorage.getItem(LS.migrated)) return false;
-    const sn = load(LS.snooze, { until: 0, n: 0 }); if (sn.n >= 3 || Date.now() < sn.until) return false;
-    return localConvs().length > 0;
-  }
-  let migrateAsked = false;
-  function maybeMigrate() {
-    if (migrateAsked || !migrateEligible()) return;
-    const show = () => { if (migrateAsked || app.dataset.route !== 'list' && !wide.matches || controller || dlg.open) return; migrateAsked = true; setTimeout(openMigrate, 1000); };
-    if (app.dataset.route === 'list' || wide.matches) show(); else { const mo = new MutationObserver(() => { if (app.dataset.route === 'list') { mo.disconnect(); show(); } }); mo.observe(app, { attributes: true, attributeFilter: ['data-route'] }); }
-  }
-  function toImport(c) {
-    const base = (c.created || c.updated || Date.now()) - c.messages.length * 1000;
-    return { client_id: 'local:' + c.id, title: c.title || '대화', created_at: new Date(base).toISOString(), archived: !!c.archived,
-      messages: c.messages.filter(m => m.role === 'user' || m.role === 'assistant').map((m, i) => {
-        const o = { client_id: `local:${c.id}:${i}`, role: m.role, created_at: new Date(m.created || base + i * 1000).toISOString() };
-        if (m.role === 'assistant') { const st = splitThink(m.content || ''); o.content = st.answer; if (st.think) o.reasoning = st.think; o.model = settings.model || DEFAULT_MODEL; }
-        else o.content = m.content || '';
-        return o;
-      }) };
-  }
-  let migFailed = [];
-  function migView(v, data = {}) {
-    const sh = $('#migrateSheet'); sh.dataset.view = v;
-    if (v === 'ask') {
-      const l = localConvs(), n = l.reduce((a, c) => a + c.messages.length, 0), kb = new Blob([localStorage.getItem(LS.convs) || '']).size / 1024;
-      $('#migSub').textContent = `이 기기에 있는 대화 ${l.length}개를 서버로 옮기면 다른 기기에서도 이어서 볼 수 있어요.`;
-      $('#migStats').textContent = `대화 ${l.length}개 · 메시지 ${n}개 · 약 ${kb >= 1024 ? (kb / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(kb)) + 'KB'}`;
-    }
-    if (v === 'progress') { const p = data.done / Math.max(1, data.total); $('#migRing').style.strokeDashoffset = String(138 * (1 - p)); $('#migProgText').textContent = `${data.total}개 중 ${data.done}개 저장 중…`; $('#migBar').style.width = (p * 100) + '%'; }
-    if (v === 'done') $('#migDoneText').textContent = `대화 ${data.ok}개를 옮겼어요`;
-    if (v === 'partial') {
-      $('#migPartText').textContent = data.ok ? `${data.ok}개를 옮겼어요. ${data.fail.length}개는 실패했어요` : '지금은 옮길 수 없어요';
-      $('#migFailList').innerHTML = data.fail.slice(0, 3).map(f => `<li><b>${escapeHtml(f.title)}</b><small>${escapeHtml(f.reason)}</small></li>`).join('') + (data.fail.length > 3 ? `<li class="more">+${data.fail.length - 3}</li>` : '');
-    }
-  }
-  function openMigrate() { migView('ask'); openMini($('#migrateSheet'), { onDismiss: snoozeMigrate }); }
-  function snoozeMigrate() { const sn = load(LS.snooze, { until: 0, n: 0 }); save(LS.snooze, { until: Date.now() + 3 * 864e5, n: sn.n + 1 }); closeMini($('#migrateSheet')); }
-  async function runMigration(only) {
-    const sh = $('#migrateSheet'); sh.dataset.lock = '1';
-    const all = localConvs(), todo = only ? all.filter(c => only.includes(c.id)) : all;
-    migrateProg = { done: 0, total: todo.length }; migView('progress', migrateProg); renderSync();
-    const ok = new Set(), fail = [];
-    for (let i = 0; i < todo.length; i += 5) {      // batches of 5 (also kept under ~4.5MB)
-      let batch = todo.slice(i, i + 5);
-      const send = async items => {
-        const body = JSON.stringify({ threads: items.map(toImport) });
-        if (new Blob([body]).size > 4.5e6 && items.length > 1) { const h = Math.ceil(items.length / 2); await send(items.slice(0, h)); return send(items.slice(h)); }
-        try {
-          const j = await threadsAPI.importThreads(body);
-          const res = j?.results || (j?.mapping || []).map(m => ({ client_id: m.client_id, thread_id: m.id, status: 'created' }));
-          items.forEach(c => { const r = res.find(x => x.client_id === 'local:' + c.id); if (r && (r.status === 'created' || r.status === 'exists' || r.thread_id)) ok.add(c.id); else fail.push({ id: c.id, title: c.title, reason: r?.error?.message || r?.status || '응답에 결과가 없어요' }); });
-        } catch (e) {
-          // the whole batch is rejected on 400/413: bisect so one bad conversation doesn't fail its neighbours
-          if ((e.http === 400 || e.http === 413) && items.length > 1) { const h = Math.ceil(items.length / 2); await send(items.slice(0, h)); return send(items.slice(h)); }
-          items.forEach(c => fail.push({ id: c.id, title: c.title, reason: isNet(e) ? '네트워크 연결 없음' : e.http === 413 ? '대화가 너무 커요' : e.message }));
-        }
-      };
-      await send(batch);
-      migrateProg.done = Math.min(todo.length, i + batch.length); migView('progress', migrateProg); renderSync();
-    }
-    migrateProg = null; delete sh.dataset.lock; renderSync();
-    const prevOk = all.length - todo.length;   // retry: earlier items already succeeded
-    migFailed = fail.map(f => f.id);
-    if (!fail.length) {
-      localStorage.setItem(LS.migrated, String(Date.now()));
-      save(LS.bak, { at: Date.now(), data: load(LS.convs, []) }); localStorage.removeItem(LS.convs);
-      migView('done', { ok: ok.size + prevOk }); initServer();
-    } else migView('partial', { ok: ok.size + prevOk, fail });
-    if (sh.hidden && fail.length) showToast(`${fail.length}개 대화를 옮기지 못했어요`, '다시 시도', () => { openMini(sh); runMigration(migFailed); }, 5000);
-  }
-  $('#migGo').onclick = () => runMigration();
-  $('#migLater').onclick = snoozeMigrate;
-  $('#migSkip').onclick = () => { localStorage.setItem(LS.migrated, 'skip'); closeMini($('#migrateSheet')); };
-  $('#migBg').onclick = () => closeMini($('#migrateSheet'));
-  $('#migDone').onclick = () => closeMini($('#migrateSheet'));
-  $('#migRetry').onclick = () => runMigration(migFailed);
-  $('#migLater2').onclick = () => closeMini($('#migrateSheet'));
-  // purge the 7-day backup
-  { const b = load(LS.bak, null); if (b && Date.now() - b.at > 7 * 864e5) localStorage.removeItem(LS.bak); }
+  Migration.init({ localKey: LS.convs, load, save, api: threadsAPI, model: () => settings.model || DEFAULT_MODEL,
+    isServer: () => cv.mode === 'server', isNet, route: () => app.dataset.route, wide: () => wide.matches,
+    busy: () => !!controller || dlg.open, app, renderSync, initServer, showToast });
 
   /* ---------- offline banner / toast ---------- */
   const setOffline = off => { chatView.classList.toggle('offline', off); app.classList.toggle('offline', off); };

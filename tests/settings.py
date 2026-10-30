@@ -1,16 +1,18 @@
 """Settings component preserves native dialog and persisted form semantics."""
 import os
 from playwright.sync_api import sync_playwright
+from assets_common import full_csp, watch_csp
 from b1_common import B, reset
 from version_common import VERSION
 
-with sync_playwright() as p:
+with full_csp(), sync_playwright() as p:
     for engine in (p.chromium, p.webkit):
         if engine.name == 'webkit' and os.environ.get('EVE_WEBKIT') != '1':
             continue
         reset()
         browser = engine.launch()
         context = browser.new_context(viewport={'width': 390, 'height': 844}, service_workers='block')
+        watch_csp(context)
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda e: errors.append(str(e)))
@@ -50,4 +52,5 @@ with sync_playwright() as p:
         assert not page.locator('#settings img, #settings style, #settings script').count()
         assert not errors, errors
         print('PASS', engine.name, 'Escape closes without markup injection or page errors')
+        assert not page.evaluate('window.__csp || []')
         browser.close()

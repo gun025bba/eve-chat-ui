@@ -1,9 +1,10 @@
 """Install component retains platform copy, manual snooze and prompt ownership."""
 import os
 from playwright.sync_api import sync_playwright
+from assets_common import full_csp, watch_csp
 from b1_common import B, reset
 
-with sync_playwright() as p:
+with full_csp(), sync_playwright() as p:
     for engine in (p.chromium, p.webkit):
         if engine.name == 'webkit' and os.environ.get('EVE_WEBKIT') != '1':
             continue
@@ -14,6 +15,7 @@ with sync_playwright() as p:
             if platform != 'desktop':
                 options['user_agent'] = 'Mozilla/5.0 (' + platform + '; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Safari/604.1'
             context = browser.new_context(**options)
+            watch_csp(context)
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
@@ -52,4 +54,5 @@ with sync_playwright() as p:
             assert not page.locator('.sheet-scrim').count()
             assert not errors, errors
             print('PASS', engine.name, platform, 'closing removes scrim without page errors')
+            assert not page.evaluate('window.__csp || []')
             browser.close()
