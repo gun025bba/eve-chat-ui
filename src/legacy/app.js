@@ -1,3 +1,4 @@
+import { createConversationState } from '../features/conversations/state.js';
 import { createClient, authCode, isAuthFail, headers, normBase } from '../api/client.js';
 import { createThreadModels, toMs, scrubAction } from '../api/thread-models.js';
 import { createOperations } from '../api/operations.js';
@@ -47,16 +48,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     ['llmchat.key', 'apiKey', 'api_key'].forEach(k => localStorage.removeItem(k));
   }
   // Storage mode: 'server' = threads API (GET /v1/threads ok), 'local' = this device only (503 persistence_disabled / no API).
-  let mode = load(LS.mode, 'local') === 'server' ? 'server' : 'local';
-  let convs = mode === 'server' ? load(LS.srv, []) : load(LS.convs, []);
-  let archivedList = [];            // archive screen contents
-  let nextCursor = null, threadsLoading = false, persistOff = false;
-  let currentId = load(LS.current, null);
+  const cv = createConversationState({ load, keys: LS });
   let controller = null;
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const cur = () => convs.find(c => c.id === currentId) || archivedList.find(c => c.id === currentId);
-  const persist = () => { try { save(mode === 'server' ? LS.srv : LS.convs, convs); } catch {} save(LS.current, currentId); };
+  const cur = () => cv.convs.find(c => c.id === cv.currentId) || cv.archivedList.find(c => c.id === cv.currentId);
+  const persist = () => { try { save(cv.mode === 'server' ? LS.srv : LS.convs, cv.convs); } catch {} save(LS.current, cv.currentId); };
   const apiBase = () => normBase(settings.base);
   // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
   // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
@@ -136,7 +133,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   // drop stored confirm-card contents (pending_actions) — on sign-out / identity loss (security review Low 2)
   function clearCards() {
     let n = 0; const strip = list => (list || []).forEach(c => (c.messages || []).forEach(m => { if (m.pendingActions) { delete m.pendingActions; n++; } }));
-    strip(convs); try { const s = load(LS.srv, []); strip(s); save(LS.srv, s); } catch {}
+    strip(cv.convs); try { const s = load(LS.srv, []); strip(s); save(LS.srv, s); } catch {}
     if (n) persist(); return n;
   }
   const { fromServerMsg, fromServerThread } = createThreadModels({ fields: ProactiveAPI?.FIELDS, pinSet, usageText });
@@ -144,41 +141,41 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const logSkel = () => coldStart && listLoading && Date.now() - loadT0 >= 250;
   let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
   async function initServer() {
-    listLoading = true; loadT0 = Date.now(); coldStart = !convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
+    listLoading = true; loadT0 = Date.now(); coldStart = !cv.convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
     try {
       const j = await api('/v1/threads?limit=20&archived=false');
-      const prev = mode === 'server' ? convs : [];
-      const wasLocal = mode !== 'server';
-      mode = 'server'; save(LS.mode, 'server'); persistOff = false;
-      const liveC = mode === 'server' && controller && genId && cur()?.id === genId ? cur() : null;   // 1.10.2: an answer is streaming into this thread: keep its object and its live bubble
+      const prev = cv.mode === 'server' ? cv.convs : [];
+      const wasLocal = cv.mode !== 'server';
+      cv.mode = 'server'; save(LS.mode, 'server'); cv.persistOff = false;
+      const liveC = cv.mode === 'server' && controller && genId && cur()?.id === genId ? cur() : null;   // 1.10.2: an answer is streaming into this thread: keep its object and its live bubble
       const mapped = (j.data || []).map(t => { const o = prev.find(p => p.id === t.id); return liveC && o === liveC ? Object.assign(o, { title: t.title || o.title, archived: !!t.archived, srv: true, pinned: pinSet().has(t.id) }) : fromServerThread(t, o); });
-      convs = prev.filter(c => c.fresh).concat(mapped); nextCursor = j.next_cursor || null;
-      if (wasLocal || (currentId && !cur())) currentId = cur() ? currentId : null;
+      cv.convs = prev.filter(c => c.fresh).concat(mapped); cv.nextCursor = j.next_cursor || null;
+      if (wasLocal || (cv.currentId && !cur())) cv.currentId = cur() ? cv.currentId : null;
       persist(); if (liveC && cur() === liveC) renderList(); else renderAll(); loadDraft();
       if (cur() && !(liveC && cur() === liveC)) ensureMessages(cur());
       maybeMigrate(); flushOutbox(); fillListIfShort(); serverReady = true; PRO?.refresh(); pendRefresh(true); memRefresh(true); briefRefresh(true); MEM?.intro?.();
     } catch (e) {
       if (e.code === 'persistence_disabled' || e.http === 404 || (e.http === 503 && !e.code)) {
-        persistOff = true;
-        if (mode === 'server') { clearCards(); mode = 'local'; convs = load(LS.convs, []); if (!cur()) currentId = convs[0]?.id || null; renderAll(); loadDraft(); }
+        cv.persistOff = true;
+        if (cv.mode === 'server') { clearCards(); cv.mode = 'local'; cv.convs = load(LS.convs, []); if (!cur()) cv.currentId = cv.convs[0]?.id || null; renderAll(); loadDraft(); }
         save(LS.mode, 'local');
       }
-      if (!persistOff) listError = true;
+      if (!cv.persistOff) listError = true;
       renderSync();
     } finally { const wasCold = coldStart && listLoading; listLoading = false; todayDirty(); if (wasCold) renderList(); }
   }
   async function loadMoreThreads() {
-    if (mode !== 'server' || !nextCursor || threadsLoading || listQuery()) return;
-    threadsLoading = true; renderList();
+    if (cv.mode !== 'server' || !cv.nextCursor || cv.threadsLoading || listQuery()) return;
+    cv.threadsLoading = true; renderList();
     try {
-      const j = await api('/v1/threads?limit=20&archived=false&cursor=' + encodeURIComponent(nextCursor));
-      (j.data || []).forEach(t => { if (!convs.some(c => c.id === t.id)) convs.push(fromServerThread(t)); });
-      nextCursor = j.next_cursor || null; persist();
-    } catch {} finally { threadsLoading = false; renderList(); fillListIfShort(); }
+      const j = await api('/v1/threads?limit=20&archived=false&cursor=' + encodeURIComponent(cv.nextCursor));
+      (j.data || []).forEach(t => { if (!cv.convs.some(c => c.id === t.id)) cv.convs.push(fromServerThread(t)); });
+      cv.nextCursor = j.next_cursor || null; persist();
+    } catch {} finally { cv.threadsLoading = false; renderList(); fillListIfShort(); }
   }
-  function fillListIfShort() { requestAnimationFrame(() => { if (nextCursor && scroller.scrollHeight - scroller.clientHeight < 400) loadMoreThreads(); }); }
+  function fillListIfShort() { requestAnimationFrame(() => { if (cv.nextCursor && scroller.scrollHeight - scroller.clientHeight < 400) loadMoreThreads(); }); }
   async function ensureMessages(c) {
-    if (mode !== 'server' || !c || !c.srv || c.fresh || c.loaded || c.loading) return;
+    if (cv.mode !== 'server' || !c || !c.srv || c.fresh || c.loaded || c.loading) return;
     c.loading = true; if (c === cur() && !c.messages.length) box.innerHTML = '<div class="older loading"><span class="spin"></span></div>';
     try {
       const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=50`);
@@ -190,7 +187,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     finally { c.loading = false; if (c === cur()) renderMessages(); }
   }
   async function loadOlder() {
-    const c = cur(); if (!c || !c.hasMore || c.loadingOlder || mode !== 'server' || !c.messages[0]?.id) return;
+    const c = cur(); if (!c || !c.hasMore || c.loadingOlder || cv.mode !== 'server' || !c.messages[0]?.id) return;
     c.loadingOlder = true;
     try {
       const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=50&before=${encodeURIComponent(c.messages[0].id)}`);
@@ -202,7 +199,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function adoptThreadId(c, id) {
     if (!id || c.id === id) { if (c) c.fresh = false; return; }
     const old = c.id; c.id = id; c.fresh = false; c.srv = true;
-    if (currentId === old) { currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id, from: chatFrom }, '', '#/t/' + id); }
+    if (cv.currentId === old) { cv.currentId = id; if (app.dataset.route === 'chat') history.replaceState({ route: 'chat', id, from: chatFrom }, '', '#/t/' + id); }
     if (genId === old) genId = id;
     const d = localStorage.getItem(LS.draft + old); if (d) { localStorage.setItem(LS.draft + id, d); localStorage.removeItem(LS.draft + old); }
     persist();
@@ -212,7 +209,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   let migrateProg = null;
   const runOp = createOperations(api);
   const { state: outboxState, saveOutbox, enqueue, scheduleOutbox, flushOutbox, write } = createOutbox({
-    mode: () => mode, load, save, storageKey: LS.outbox, runOp, isNet,
+    mode: () => cv.mode, load, save, storageKey: LS.outbox, runOp, isNet,
     renderSync: () => renderSync(), fbReasonRejected: id => fbReasonRejected(id),
     showToast: (...args) => showToast(...args)
   });
@@ -220,35 +217,35 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const el = $('#syncStatus'); if (!el) return;
     let html = '';
     if (migrateProg) html = `<span class="spin"></span>대화 옮기는 중 ${migrateProg.done}/${migrateProg.total}`;
-    else if (persistOff) html = mode === 'local' ? '서버 저장이 꺼져 있어 이 기기에만 저장돼요' : '서버 저장이 일시적으로 꺼져 있어요';
+    else if (cv.persistOff) html = cv.mode === 'local' ? '서버 저장이 꺼져 있어 이 기기에만 저장돼요' : '서버 저장이 일시적으로 꺼져 있어요';
     else if (outboxState.failed) html = `<i class="dot bad"></i>${outboxState.failed}개 저장 실패 · <button type="button" class="sync-retry">다시 시도</button>`;
     else if (outboxState.items.length) html = `<i class="dot"></i>변경 사항 ${outboxState.items.length}개 대기 중`;
     el.innerHTML = html; el.hidden = !html;
     el.querySelector('.sync-retry')?.addEventListener('click', () => { outboxState.failed = 0; outboxState.items.forEach(o => o.nextAt = 0); flushOutbox(); });
-    const ss = $('#sSync'); if (ss) ss.textContent = mode === 'server' ? (outboxState.items.length ? `대기 ${outboxState.items.length}개` : '서버에 저장 중') : '이 기기에만 저장';
+    const ss = $('#sSync'); if (ss) ss.textContent = cv.mode === 'server' ? (outboxState.items.length ? `대기 ${outboxState.items.length}개` : '서버에 저장 중') : '이 기기에만 저장';
   }
 
   /* ---------- conversation list (NATIVE §3, THREADS-SPEC §2) ---------- */
   const CHEV_R = icon('chevron-right', 'chev');
   let genId = null;
-  const blankConv = () => ({ id: (mode === 'server' ? 'tmp-' : '') + uid(), title: '새 대화', messages: [], updated: Date.now(), fresh: mode === 'server' });
+  const blankConv = () => ({ id: (cv.mode === 'server' ? 'tmp-' : '') + uid(), title: '새 대화', messages: [], updated: Date.now(), fresh: cv.mode === 'server' });
   function newConv() {
     const c0 = cur();
     if (c0 && !c0.messages.length && !controller && !c0.archived) { openConv(c0.id); if (!isTouch) input.focus(); return; } // reuse empty chat
     if (controller) controller.abort();
     saveDraft();
     const c = blankConv();
-    convs.unshift(c); currentId = c.id; persist(); input.value = ''; grow(); renderAll(); go('chat'); if (!isTouch) input.focus();
+    cv.convs.unshift(c); cv.currentId = c.id; persist(); input.value = ''; grow(); renderAll(); go('chat'); if (!isTouch) input.focus();
   }
   function openConv(id) {
-    if (id !== currentId) { saveDraft(); currentId = id; persist(); renderAll(); loadDraft(); }
+    if (id !== cv.currentId) { saveDraft(); cv.currentId = id; persist(); renderAll(); loadDraft(); }
     else renderMessages();
     ensureMessages(cur());
     go('chat');
   }
   function updateThread(c, patch) {
     const before = { title: c.title }; Object.assign(c, patch); persist(); renderList(); if (c === cur()) setConvTitle(c.title);
-    if (mode === 'server' && !c.fresh) write('patch', 'patch:' + c.id, { id: c.id, patch }, () => { Object.assign(c, before); persist(); renderAll(); }, '이름을 저장하지 못했어요');
+    if (cv.mode === 'server' && !c.fresh) write('patch', 'patch:' + c.id, { id: c.id, patch }, () => { Object.assign(c, before); persist(); renderAll(); }, '이름을 저장하지 못했어요');
   }
   function startRename(row, c) {
     if (!row) return openRenameSheet(c);
@@ -268,33 +265,33 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   let pendingArchive = null;
   function commitArchive() {
     const p = pendingArchive; if (!p) return; pendingArchive = null; clearTimeout(p.timer);
-    if (mode === 'server' && !p.c.fresh) write('archive', 'archive:' + p.c.id, { id: p.c.id }, () => { convs.splice(Math.min(p.idx, convs.length), 0, p.c); p.c.archived = false; persist(); renderList(); }, '보관하지 못했어요');
-    else if (mode === 'local') { p.c.archived = true; if (!convs.includes(p.c)) convs.splice(Math.min(p.idx, convs.length), 0, p.c); persist(); }
+    if (cv.mode === 'server' && !p.c.fresh) write('archive', 'archive:' + p.c.id, { id: p.c.id }, () => { cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, p.c); p.c.archived = false; persist(); renderList(); }, '보관하지 못했어요');
+    else if (cv.mode === 'local') { p.c.archived = true; if (!cv.convs.includes(p.c)) cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, p.c); persist(); }
   }
   function archiveConv(c) {
     if (pendingArchive) commitArchive();
     if (genId === c.id && controller) controller.abort();
-    const idx = convs.indexOf(c); if (idx < 0) return;
-    convs.splice(idx, 1); c.archived = true;
-    if (currentId === c.id) { currentId = convs.find(x => !x.archived)?.id || null; loadDraft(); }
+    const idx = cv.convs.indexOf(c); if (idx < 0) return;
+    cv.convs.splice(idx, 1); c.archived = true;
+    if (cv.currentId === c.id) { cv.currentId = cv.convs.find(x => !x.archived)?.id || null; loadDraft(); }
     persist(); renderAll(); buzz(15);
     pendingArchive = { c, idx, timer: setTimeout(() => { hideToast(); commitArchive(); }, 2800) };
     showToast('보관됨', '되돌리기', () => {
       const p = pendingArchive; if (!p || p.c !== c) return; clearTimeout(p.timer); pendingArchive = null;
-      c.archived = false; convs.splice(Math.min(p.idx, convs.length), 0, c); persist(); renderList();
+      c.archived = false; cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, c); persist(); renderList();
       const r = $(`#convList li.row[data-id="${CSS.escape(c.id)}"]`); r?.classList.add('expanding'); setTimeout(() => r?.classList.remove('expanding'), 300);
     }, 2800);
   }
   function deleteConv(c) {   // permanent delete: local mode only (backend DELETE = archive)
     if (genId === c.id && controller) controller.abort();
-    convs = convs.filter(x => x.id !== c.id); archivedList = archivedList.filter(x => x.id !== c.id); localStorage.removeItem(LS.draft + c.id);
-    if (currentId === c.id) { currentId = convs[0]?.id || null; loadDraft(); }
+    cv.convs = cv.convs.filter(x => x.id !== c.id); cv.archivedList = cv.archivedList.filter(x => x.id !== c.id); localStorage.removeItem(LS.draft + c.id);
+    if (cv.currentId === c.id) { cv.currentId = cv.convs[0]?.id || null; loadDraft(); }
     persist(); renderAll(); renderArchive(); buzz(15);
   }
   async function restoreConv(c) {
-    archivedList = archivedList.filter(x => x !== c); c.archived = false;
-    if (mode === 'local') { if (!convs.includes(c)) convs.push(c); }
-    else { convs.push(c); write('patch', 'patch:' + c.id, { id: c.id, patch: { archived: false } }, () => { convs = convs.filter(x => x !== c); c.archived = true; archivedList.unshift(c); persist(); renderAll(); renderArchive(); }, '복원하지 못했어요'); }
+    cv.archivedList = cv.archivedList.filter(x => x !== c); c.archived = false;
+    if (cv.mode === 'local') { if (!cv.convs.includes(c)) cv.convs.push(c); }
+    else { cv.convs.push(c); write('patch', 'patch:' + c.id, { id: c.id, patch: { archived: false } }, () => { cv.convs = cv.convs.filter(x => x !== c); c.archived = true; cv.archivedList.unshift(c); persist(); renderAll(); renderArchive(); }, '복원하지 못했어요'); }
     persist(); renderList(); renderArchive(); if (c === cur()) renderMessages(); showToast('복원됨', '', null, 1600);
   }
   function groupLabel(t) {
@@ -324,9 +321,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const hasPro = c => (c.unread || 0) > 0 || (c.messages || []).some(m => m.origin === 'proactive');
   /* 1.10.0 B2 (DIRECTION-B §9.2): a row is  time(36px) · title + preview · [pill] [Eve mark]; rows of one day share a group card */
   function rowEl(c, cls = '', opts = {}) {
-    const li = document.createElement('li'); li.className = 'row' + cls + (c.id === currentId ? ' active' : ''); li.dataset.id = c.id;
+    const li = document.createElement('li'); li.className = 'row' + cls + (c.id === cv.currentId ? ' active' : ''); li.dataset.id = c.id;
     const arch = cls.includes('archived');
-    li.innerHTML = `<div class="row-actions">${arch ? '<button type="button" class="ra-restore" tabindex="-1">복원</button>' + (mode === 'local' ? '<button type="button" class="ra-del" tabindex="-1">삭제</button>' : '') : '<button type="button" class="ra-rename" tabindex="-1">이름 변경</button><button type="button" class="ra-archive" tabindex="-1">보관</button>'}</div>
+    li.innerHTML = `<div class="row-actions">${arch ? '<button type="button" class="ra-restore" tabindex="-1">복원</button>' + (cv.mode === 'local' ? '<button type="button" class="ra-del" tabindex="-1">삭제</button>' : '') : '<button type="button" class="ra-rename" tabindex="-1">이름 변경</button><button type="button" class="ra-archive" tabindex="-1">보관</button>'}</div>
       <div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub"></div></div></div>`;
     li.querySelector('.row-title').textContent = (c.pinned ? '📌 ' : '') + c.title;
     const tm = li.querySelector('time'), ts = c.updated || Date.now(); tm.textContent = opts.day && kstDay(ts) !== kstDay(Date.now()) ? shortDate(ts) : hhmm(ts); tm.dateTime = new Date(ts).toISOString();
@@ -339,7 +336,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const shortDate = t => { const [, m, d] = kstDay(t).split('-').map(Number); return `${m}.${d}`; };
   let wkDay = null;   // the day whose week the strip shows (= the date header at the top of the list)
   function renderWk() {
-    const el = $('#wk'), T = kstDay(Date.now()), have = new Set(convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));
+    const el = $('#wk'), T = kstDay(Date.now()), have = new Set(cv.convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));
     const base = wkDay || T, [y, m, d] = base.split('-').map(Number), start = new Date(Date.UTC(y, m - 1, d)); start.setUTCDate(start.getUTCDate() - start.getUTCDay());
     const key = kstDay(start.getTime() + 12 * 36e5) + '|' + [...have].filter(x => x >= kstDay(start.getTime() + 12 * 36e5)).length;
     const mo = $('#logMonth'); mo.textContent = `${y}년 ${m}월`;
@@ -377,10 +374,10 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function renderList() {
     const ul = $('#convList'); if (ul.querySelector('.row.editing')) return; ul.innerHTML = '';
     const searching = listView.classList.contains('searching'), q = listQuery().toLowerCase(), flatMode = searching || !!q;
-    const live = convs.filter(c => !c.archived);
+    const live = cv.convs.filter(c => !c.archived);
     live.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updated - a.updated);
     const list = live.filter(c => !q || c.title.toLowerCase().includes(q) || c.messages.some(m => (m.content || '').toLowerCase().includes(q)) || (c.preview || '').toLowerCase().includes(q));
-    $('#listEmpty').hidden = !!live.length || threadsLoading || listLoading || flatMode;
+    $('#listEmpty').hidden = !!live.length || cv.threadsLoading || listLoading || flatMode;
     const label = (txt, n, day) => { const h = document.createElement('li'); h.className = 'group-label'; if (day) h.dataset.day = day; h.innerHTML = '<span class="gl-n"></span><span class="gl-c"></span>'; h.querySelector('.gl-n').textContent = txt; h.querySelector('.gl-c').textContent = n ? `대화 ${n}` : ''; ul.appendChild(h); };
     if (!flatMode) {
       const cnt = new Map(); list.forEach(c => { const k = c.pinned ? 'pin' : kstDay(c.updated || 0); cnt.set(k, (cnt.get(k) || 0) + 1); });
@@ -400,19 +397,20 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         ul.appendChild(li);
       });
       if (!list.length && !hits.length) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    } else if (q && !list.length && !(mode === 'server' && searchT)) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    if ((threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
+    } else if (q && !list.length && !(cv.mode === 'server' && searchT))
+      ul.innerHTML = '<li class="no-results">결과 없음</li>';
+    if ((cv.threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
     // one group card per run of rows: round the first and last row
     let run = [];
     const flush = () => { if (run.length) { run[0].classList.add('g1'); run[run.length - 1].classList.add('g9'); } run = []; };
     [...ul.children].forEach(li => { if (li.classList.contains('group-label') || li.classList.contains('no-results')) flush(); else run.push(li); }); flush();
-    const ar = $('#archivedRow'); if (ar) { ar.hidden = flatMode; const n = mode === 'local' ? convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    const ar = $('#archivedRow'); if (ar) { ar.hidden = flatMode; const n = cv.mode === 'local' ? cv.convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
     renderWk(); todayDirty();
   }
   function onSearch() {
     renderList(); clearTimeout(searchT); searchT = 0; searchHits = null;
     const q = listQuery(); $('#searchProgress').classList.remove('on');
-    if (!q || mode !== 'server') return renderList();
+    if (!q || cv.mode !== 'server') return renderList();
     searchT = setTimeout(async () => {
       const seq = ++searchSeq; $('#searchProgress').classList.add('on');
       try { const j = await api('/v1/search?limit=20&q=' + encodeURIComponent(q)); if (seq !== searchSeq || listQuery() !== q) return; searchHits = j.data || []; }
@@ -423,15 +421,15 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   $('#search').addEventListener('input', onSearch);
   $('#search').addEventListener('search', onSearch);
   async function openHit(tid, mid, block = 'center') {
-    let c = convs.find(x => x.id === tid) || archivedList.find(x => x.id === tid);
-    if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? archivedList : convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
+    let c = cv.convs.find(x => x.id === tid) || cv.archivedList.find(x => x.id === tid);
+    if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? cv.archivedList : cv.convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
     openConv(c.id);
     if (!mid) return;
     for (let i = 0; i < 40 && !(c.loaded && !c.loading); i++) await new Promise(r => setTimeout(r, 50));
     for (let n = 0; n < 10 && !c.messages.some(m => m.id === mid) && c.hasMore; n++) await loadOlder();
     requestAnimationFrame(() => { const el = box.querySelector(`.msg[data-mid="${CSS.escape(mid)}"]`); if (!el) return; stick = false; el.scrollIntoView({ block }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); });
   }
-  const convOf = el => { const id = el.closest('.row')?.dataset.id; return convs.find(c => c.id === id) || archivedList.find(c => c.id === id); };
+  const convOf = el => { const id = el.closest('.row')?.dataset.id; return cv.convs.find(c => c.id === id) || cv.archivedList.find(c => c.id === id); };
   $('#convList').addEventListener('click', e => {
     if (suppressClick) return;
     const hit = e.target.closest('.hit'); if (hit) return openHit(hit.dataset.tid, hit.dataset.mid);
@@ -444,15 +442,15 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
 
   /* ---------- archive screen (#/archive) ---------- */
   async function loadArchive() {
-    if (mode === 'local') { archivedList = convs.filter(c => c.archived); return renderArchive(); }
+    if (cv.mode === 'local') { cv.archivedList = cv.convs.filter(c => c.archived); return renderArchive(); }
     $('#archList').innerHTML = '<li class="skel"><i></i><i></i></li>';
-    try { const j = await api('/v1/threads?limit=50&archived=true'); archivedList = (j.data || []).map(t => fromServerThread(t, archivedList.find(a => a.id === t.id))); archivedList.forEach(c => c.archived = true); }
+    try { const j = await api('/v1/threads?limit=50&archived=true'); cv.archivedList = (j.data || []).map(t => fromServerThread(t, cv.archivedList.find(a => a.id === t.id))); cv.archivedList.forEach(c => c.archived = true); }
     catch {} renderArchive();
   }
   function renderArchive() {
     const ul = $('#archList'); if (!ul) return; ul.innerHTML = '';
-    const list = mode === 'local' ? convs.filter(c => c.archived) : archivedList;
-    if (mode === 'local') archivedList = list;
+    const list = cv.mode === 'local' ? cv.convs.filter(c => c.archived) : cv.archivedList;
+    if (cv.mode === 'local') cv.archivedList = list;
     list.sort((a, b) => b.updated - a.updated).forEach(c => ul.appendChild(rowEl(c, ' archived')));
     ul.firstElementChild?.classList.add('g1'); ul.lastElementChild?.classList.add('g9');
     $('#archEmpty').hidden = !!list.length;
@@ -605,7 +603,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     else if (opts.msg?.status === 'generating' || opts.resuming) { const st = document.createElement('div'); st.className = 'stopped msg-note resuming'; st.setAttribute('role', 'status'); st.textContent = RESUMING; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
-      const m = opts.msg, fbOk = !!m && (mode === 'server' ? !!m.id : true);
+      const m = opts.msg, fbOk = !!m && (cv.mode === 'server' ? !!m.id : true);
       a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}${fbOk ? `<button type="button" class="fb up" aria-label="좋아요" aria-pressed="false">${ICON.up}</button><button type="button" class="fb down" aria-label="별로예요" aria-pressed="false">${ICON.down}</button><button type="button" class="fb-why" hidden></button>` : ''}${opts.usage ? `<span class="usage">${escapeHtml(opts.usage)}</span>` : ''}`;
       a.querySelector('.c').onclick = e => copyText(e.currentTarget, answer.trim());
       a.querySelector('.r')?.addEventListener('click', regenerate);
@@ -642,7 +640,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   // full-replacement save of {rating, reasons, comment}; local-only mode just persists on the device
   function saveFb(m, a, rollbackTo) {
     persist();
-    if (mode !== 'server') return Promise.resolve();
+    if (cv.mode !== 'server') return Promise.resolve();
     return write('feedback', 'fb:' + m.id, fbPayload(m), e => {
       if (e?.code === 'invalid_feedback_reason' && m.feedback) {   // keep the rating, drop the rejected reasons
         m.fbReasons = []; persist(); if (a.isConnected) paintFb(a, m.feedback, m);
@@ -656,7 +654,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     }, '피드백을 저장하지 못했어요');
   }
   function fbReasonRejected(id) {   // outbox replay got 400 invalid_feedback_reason
-    for (const c of convs) for (const m of c.messages || []) if (m.id === id) { m.fbReasons = []; persist(); }
+    for (const c of cv.convs) for (const m of c.messages || []) if (m.id === id) { m.fbReasons = []; persist(); }
     showToast('사유를 저장하지 못했어요. 평가는 저장됐어요', '', null, 2400);
   }
   function setFeedback(m, rating, a, btn) {
@@ -780,7 +778,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     sendBtn.disabled = b ? false : !input.value.trim();
     sendBtn.setAttribute('aria-label', b ? '생성 중지' : '전송'); sendBtn.title = b ? '생성 중지 (Esc)' : '';
     tSend.classList.toggle('stop', b); tSend.disabled = b ? false : !tInput.value.trim(); tSend.setAttribute('aria-label', b ? '생성 중지' : '전송');
-    if (b) { genId = currentId; if (currentId) localStorage.removeItem(LS.draft + currentId); } else { genId = null; if (app.dataset.route === 'list' || app.dataset.route === 'today' || wide.matches) renderList(); maybeA2HS(); }
+    if (b) { genId = cv.currentId; if (cv.currentId) localStorage.removeItem(LS.draft + cv.currentId); } else { genId = null; if (app.dataset.route === 'list' || app.dataset.route === 'today' || wide.matches) renderList(); maybeA2HS(); }
   }
 
   /* ---------- errors (gateway contract) ---------- */
@@ -827,7 +825,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   /* ---------- send / generate ---------- */
   async function send(text) {
     let c = cur();
-    if (!c || c.archived) { c = blankConv(); convs.unshift(c); currentId = c.id; }
+    if (!c || c.archived) { c = blankConv(); cv.convs.unshift(c); cv.currentId = c.id; }
     if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); setConvTitle(c.title); }
     clearErrors(); closeAllFbPanels();
     box.querySelectorAll('.actions .r').forEach(r => r.remove());
@@ -840,7 +838,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   async function regenerate() {
     const c = cur(); if (controller || !c || c._regenBusy) return;
     const la = c.messages.at(-1);
-    if (mode === 'server' && c.srv && la?.role === 'assistant' && !la.id && la.status === 'incomplete') { c._regenBusy = true; try { await resolveStoppedId(c, la, null, 1); } finally { c._regenBusy = false; } if (controller || c !== cur()) return; }
+    if (cv.mode === 'server' && c.srv && la?.role === 'assistant' && !la.id && la.status === 'incomplete') { c._regenBusy = true; try { await resolveStoppedId(c, la, null, 1); } finally { c._regenBusy = false; } if (controller || c !== cur()) return; }
     let replaceId = null;
     if (c.messages.at(-1)?.role === 'assistant') replaceId = c.messages.pop().id || null;
     const els = box.querySelectorAll('.msg.assistant'); els[els.length - 1]?.remove();
@@ -905,7 +903,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     // otherwise gateway 3.1.0 stores the user turn twice
     const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
-    const ids = j => { if (j.thread_id && mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
+    const ids = j => { if (j.thread_id && cv.mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
     const finish = () => { tsStop(); clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
     const markThink = () => { if (!thinkStart) thinkStart = performance.now(); };
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
@@ -986,9 +984,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
     document.addEventListener('visibilitychange', onVis);
-    const kick = () => { if (mid && !done && liveReader && mode === 'server') { try { liveReader.cancel(); } catch {} } };
+    const kick = () => { if (mid && !done && liveReader && cv.mode === 'server') { try { liveReader.cancel(); } catch {} } };
     kickStream = kick;
-    cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
+    cancelRun = () => { if (mid && cv.mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
       acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage; if (acc.trim()) tsStop();
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
@@ -1076,9 +1074,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
           keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}))
       });
-      let res = await post(mode === 'server');
+      let res = await post(cv.mode === 'server');
       // storage switched off on the gateway mid-session: answer anyway without persistence, show the subtle notice
-      if (res.status === 503 && mode === 'server') { const t = await res.clone().text().catch(() => ''); if (t.includes('persistence_disabled')) { persistOff = true; renderSync(); res = await post(false); } }
+      if (res.status === 503 && cv.mode === 'server') { const t = await res.clone().text().catch(() => ''); if (t.includes('persistence_disabled')) { cv.persistOff = true; renderSync(); res = await post(false); } }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         const code = authCode(body);
@@ -1086,7 +1084,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         const ra = retryAfterOf(res);
         // 1.8.0 (eve-serving #62): duplicate send/retry while the same turn is generating → 409 generation_in_progress.
         // If the body names the in-progress message (either shape), attach to it via the resume stream instead of an error.
-        if (res.status === 409 && code === 'generation_in_progress' && mode === 'server' && c.srv) {
+        if (res.status === 409 && code === 'generation_in_progress' && cv.mode === 'server' && c.srv) {
           const ip = inProgressId(body);
           if (ip) { dropDupTurn(c, ip); mid = ip; throw new Error('attach in-progress generation'); }   // non-http error → recover() below
         }
@@ -1105,12 +1103,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
       } else {
         if (res.headers.get('X-Message-Id')) mid = res.headers.get('X-Message-Id');   // fallback when eve.meta is missing/late
         await consume(res);
-        if (!done && !ctl.signal.aborted && mode === 'server' && (mid || wentHidden || document.hidden)) throw new Error('stream ended early');   // cut without [DONE] → resume / reload
+        if (!done && !ctl.signal.aborted && cv.mode === 'server' && (mid || wentHidden || document.hidden)) throw new Error('stream ended early');   // cut without [DONE] → resume / reload
         if (ctl.signal.aborted && !persisted) stopped = true;
       }
     } catch (e0) {
       let e = e0;
-      if (!(e.name === 'AbortError' || ctl.signal.aborted) && !e.http && mode === 'server') {
+      if (!(e.name === 'AbortError' || ctl.signal.aborted) && !e.http && cv.mode === 'server') {
         const bg = wentHidden || document.hidden || /load failed/i.test(e.message || '');
         if (mid) { let rec = false; try { rec = await recover(); } catch {} if (rec) e = null; }
         else if (bg && c.srv) {   // old server (no eve.meta): wait for foreground, reload the thread
@@ -1141,7 +1139,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
       if (sources?.length) msg.sources = sources;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
       c.messages.push(msg); c.updated = Date.now(); if (final) c.preview = clean(splitThink(final).answer); persist(); renderList();
-      if (mode === 'server' && c.srv && !msg.id) resolveStoppedId(c, msg, bubble);
+      if (cv.mode === 'server' && c.srv && !msg.id) resolveStoppedId(c, msg, bubble);
       if (stick) scrollBottom();
       return;
     }
@@ -1164,10 +1162,10 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const tinfo = ts.tools.length || note ? { tools: ts.tools, note } : null; bubble._ti = tinfo;
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
     const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs; if (pf === 'ok' || pf === 'unverified') msg.fresh = pf; if (ptools) msg.tools = ptools;
-    if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
+    if (persisted?.message_id) msg.id = persisted.message_id; else if (cv.mode === 'server') c.loaded = false;   // refetch next open
     if (tinfo && msg.id) TOOLINFO.set(msg.id, tinfo);
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
-    if (msg.id || mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
+    if (msg.id || cv.mode !== 'server') { if (msg.id) bubble.parentElement.dataset.mid = msg.id; fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, msg }); }
     if (stick) scrollBottom();
   }
 
@@ -1192,9 +1190,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const todaySeenKey = 'eve.b2.todaySeen';
   // skeleton only on a cold start (no cached list) and only when 250ms have passed; `ready` = list loaded and today's threads' messages in (the stagger waits for it)
   const needMsgs = M => M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
-  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(Today.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
+  const todayState = () => { const busy = listLoading || msgsPending > 0 || (cv.mode === 'server' && needMsgs(Today.model(cv.convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
   const TODAY = Today?.init({
-    convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
+    convs: () => cv.convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
     retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
     pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p), strip: () => stripModel(), stripTap: (k, el) => stripTap(k, el),
     open: (c, mid) => (mid ? openHit(c.id, mid) : openConv(c.id)),
@@ -1209,7 +1207,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function pendFirst() { if (pendState !== 'ok') return null; const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
   function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: Today.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
   async function pendRefresh(force) {
-    if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
+    if (!PRO?.pendingList || cv.mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
     pendBusy = true; pendAt = Date.now(); if (pendState === 'init' && !pendT0) { pendT0 = Date.now(); setTimeout(todayDirty, 270); }
     try { const l = await PRO.pendingList(); if (l) { pendItems = l; pendState = 'ok'; } else { pendItems = []; pendState = 'absent'; } }
     catch (e) { pendItems = []; pendState = e && (e.code === 'cross_origin' || e.http === 404 || e.http === 405 || e.http === 501) ? 'absent' : 'err'; } finally { pendBusy = false; }
@@ -1220,7 +1218,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   /* 현황 띠 (DIRECTION-B §5–§7, B3): 기억 · 확인 대기 · 오늘 일정. A cell with no data source is simply not drawn (§14); errors show "–" and are not tappable. */
   let memS = { st: 'init', n: 0, at: 0, busy: false, t0: 0 };   // st: init | ok | err | hidden
   async function memRefresh(force) {
-    if (!MEM?.count || mode !== 'server' || memS.busy || navigator.onLine === false || (!force && Date.now() - memS.at < 30000)) return;
+    if (!MEM?.count || cv.mode !== 'server' || memS.busy || navigator.onLine === false || (!force && Date.now() - memS.at < 30000)) return;
     memS.busy = true; memS.at = Date.now(); if (memS.st === 'init' && !memS.t0) { memS.t0 = Date.now(); setTimeout(todayDirty, 270); }
     try { const r = await MEM.count(); if (r === null) { memS.st = 'hidden'; memS.n = 0; } else if (r.err) memS.st = 'err'; else { memS.st = 'ok'; memS.n = r.n; } }
     catch { memS.st = memS.st === 'ok' ? 'err' : 'hidden'; } finally { memS.busy = false; }
@@ -1229,7 +1227,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   /* 오늘 일정 follows `briefing.enabled` from GET /v1/settings when the server sends it (only an explicit false hides the cell); absent → no opinion (TODO(architect): confirm the gateway sends briefing.enabled=false rather than dropping the key when briefing is off) */
   let briefS = { off: false, at: 0, busy: false };
   async function briefRefresh(force) {
-    if (!PRO?.briefingEnabled || mode !== 'server' || briefS.busy || navigator.onLine === false || (!force && Date.now() - briefS.at < 30000)) return;
+    if (!PRO?.briefingEnabled || cv.mode !== 'server' || briefS.busy || navigator.onLine === false || (!force && Date.now() - briefS.at < 30000)) return;
     briefS.busy = true; briefS.at = Date.now();
     try { const r = await PRO.briefingEnabled(); if (r !== null) briefS.off = r === false; } catch {} finally { briefS.busy = false; }
     todayDirty();
@@ -1243,7 +1241,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function schedData(now = Date.now()) {
     if (briefS.off) return null;   // briefing.enabled === false on the server (k)
     const T = Today.kstDay(now); let best = null;
-    for (const c of convs) { if (c.archived) continue; for (const m of c.messages || []) if (m.origin === 'proactive' && m.templateKind === 'briefing' && m.briefing && m.briefing.date === T && (!best || m.created > best.m.created)) best = { c, m }; }
+    for (const c of cv.convs) { if (c.archived) continue; for (const m of c.messages || []) if (m.origin === 'proactive' && m.templateKind === 'briefing' && m.briefing && m.briefing.date === T && (!best || m.created > best.m.created)) best = { c, m }; }
     if (!best) return null;
     const sec = (best.m.briefing.sections || []).find(x => x.kind === 'events');
     if (!sec || !sec.ok || !(sec.count > 0)) return null;
@@ -1253,7 +1251,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     return { items: sec.items, past, left, trunc, at: best.m.created };
   }
   function stripModel() {
-    if (mode !== 'server') return { cells: [], sub: '' };
+    if (cv.mode !== 'server') return { cells: [], sub: '' };
     const now = Date.now(), cells = [], subs = [], skOK = t0 => t0 && now - t0 >= 250;
     if (MEM?.count && memS.st !== 'hidden') {
       if (memS.st === 'ok') { cells.push({ k: 'mem', n: String(memS.n), z: !memS.n, label: '기억', icon: 'memory', aria: `기억 ${memS.n}개` }); subs.push(`기억 ${memS.n}`); }
@@ -1325,7 +1323,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const M = TODAY.render();
     // pro messages live inside threads: load the messages of today's threads (and the 이어서 candidates) once, then draw again
     const need = needMsgs(M);
-    if (need.length && mode === 'server') { need.forEach(c => { c._tTried = true; }); msgsPending += need.length; Promise.allSettled(need.map(c => ensureMessages(c).finally(() => { msgsPending--; }))).then(() => todayDirty()); }
+    if (need.length && cv.mode === 'server') { need.forEach(c => { c._tTried = true; }); msgsPending += need.length; Promise.allSettled(need.map(c => ensureMessages(c).finally(() => { msgsPending--; }))).then(() => todayDirty()); }
   }
   function todayDirty() {
     if (!TODAY || tDirtyT) return;
@@ -1346,7 +1344,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const t = tInput.value.trim(); if (!t) return;
     saveDraft();
     const c0 = cur();
-    if (!(c0 && !c0.messages.length && !c0.archived)) { const c = blankConv(); convs.unshift(c); currentId = c.id; persist(); }
+    if (!(c0 && !c0.messages.length && !c0.archived)) { const c = blankConv(); cv.convs.unshift(c); cv.currentId = c.id; persist(); }
     tInput.value = ''; localStorage.removeItem(LS.draft + 'today'); tGrow();
     input.value = t; grow(); renderAll(); go('chat'); submitComposer();
   }
@@ -1390,8 +1388,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     } else slide(route, dir);
   }
   const HASH = { today: '#/', list: '#/log', archive: '#/archive' };
-  const hashFor = r => r === 'chat' && currentId ? '#/t/' + currentId : (HASH[r] || '#/');
-  const stateFor = r => r === 'chat' ? { route: 'chat', id: currentId, from: chatFrom } : { route: r };
+  const hashFor = r => r === 'chat' && cv.currentId ? '#/t/' + cv.currentId : (HASH[r] || '#/');
+  const stateFor = r => r === 'chat' ? { route: 'chat', id: cv.currentId, from: chatFrom } : { route: r };
   function go(route) {
     if (popping) return void setTimeout(() => go(route), 50);
     const here = app.dataset.route;
@@ -1422,7 +1420,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     if (ignorePop) { ignorePop--; return; }
     const st = e.state || { route: location.hash === '#/log' ? 'list' : location.hash === '#/archive' ? 'archive' : 'today' };   // a hand-typed hash change has no state: read the route from the hash
     if (st.route === 'chat' && st.from) chatFrom = st.from;
-    if (st.route === 'chat' && st.id && st.id !== currentId && (convs.some(c => c.id === st.id) || archivedList.some(c => c.id === st.id))) { saveDraft(); currentId = st.id; persist(); renderAll(); loadDraft(); ensureMessages(cur()); }
+    if (st.route === 'chat' && st.id && st.id !== cv.currentId && (cv.convs.some(c => c.id === st.id) || cv.archivedList.some(c => c.id === st.id))) { saveDraft(); cv.currentId = st.id; persist(); renderAll(); loadDraft(); ensureMessages(cur()); }
     const r = RANK[st.route] != null ? st.route : 'today';
     if (r === 'archive') loadArchive();
     if (e.hasUAVisualTransition) return setRoute(r);   // Safari already animated its own back/forward (REVIEW M2)
@@ -1618,7 +1616,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const c = cur(); const msg = el.closest('.msg'); const i = msgIndex(msg); const m = c?.messages[i]; if (!m) return;
     if (m.role === 'user') return showMenu(el, [
       { label: '복사', icon: 'copy', act: () => copyText(null, m.content) },
-      ...(mode === 'server' ? [] : [
+      ...(cv.mode === 'server' ? [] : [
       { label: '수정 후 다시 보내기', icon: 'edit', act: () => { if (controller) controller.abort(); c.messages.splice(i); persist(); renderAll(); input.value = m.content; grow(); input.focus(); } },
       { label: '삭제', icon: 'trash', danger: true, act: () => { const n = c.messages[i + 1]?.role === 'assistant' ? 2 : 1; c.messages.splice(i, n); persist(); renderAll(); } }])
     ]);
@@ -1636,12 +1634,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
       { label: '이름 변경', icon: 'edit', act: () => renameConv(c) },
       { label: c.pinned ? '고정 해제' : '고정', icon: 'pin', act: () => { c.pinned = !c.pinned; const ps = pinSet(); c.pinned ? ps.add(c.id) : ps.delete(c.id); save(LS.pins, [...ps]); persist(); renderList(); } },
       { label: '보관', icon: 'archive', act: () => archiveConv(c) },
-      ...(mode === 'local' ? [{ label: '삭제', icon: 'trash', danger: true, act: () => confirmDelete(c) }] : [])
+      ...(cv.mode === 'local' ? [{ label: '삭제', icon: 'trash', danger: true, act: () => confirmDelete(c) }] : [])
     ]);
   });
   longPress($('#archList'), '.row', row => {
     const c = convOf(row); if (!c) return; closeSwipe();
-    showMenu(row, [{ label: '복원', icon: 'archive', act: () => restoreConv(c) }, ...(mode === 'local' ? [{ label: '삭제', icon: 'trash', danger: true, act: () => confirmDelete(c) }] : [])]);
+    showMenu(row, [{ label: '복원', icon: 'archive', act: () => restoreConv(c) }, ...(cv.mode === 'local' ? [{ label: '삭제', icon: 'trash', danger: true, act: () => confirmDelete(c) }] : [])]);
   });
 
   /* ---------- Tailscale identity (/whoami) ---------- */
@@ -1799,7 +1797,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const baseWarn = () => { $('#sBaseWarn').hidden = !crossOrigin(normBase($('#sBase').value)); };   // other origin: all calls go there, approve blocked
   $('#sBase').addEventListener('input', baseWarn);
   function openSettings() {
-    renderSync(); { const mg = localStorage.getItem(LS.migrated); $('#sMigrateRow').hidden = !(mode === 'server' && localConvs().length && (!mg || mg === 'skip')); }
+    renderSync(); { const mg = localStorage.getItem(LS.migrated); $('#sMigrateRow').hidden = !(cv.mode === 'server' && localConvs().length && (!mg || mg === 'skip')); }
     $('#sBase').value = settings.base; $('#sSystem').value = settings.system; baseWarn();
     $('#sShowThink').checked = settings.showThink; $('#sNoThink').checked = !!settings.noThink;
     setModelOptions([]); $('#sStatus').textContent = '';
@@ -1829,7 +1827,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     if (isStandalone() || localStorage.getItem('a2hs.installed')) return false;
     if (Date.now() - (+localStorage.getItem('a2hs.dismissed') || 0) < 30 * 864e5) return false;
     if (!(isIOS || bip)) return false;
-    return visits >= 2 || convs.some(c => c.messages.some(m => m.role === 'assistant'));
+    return visits >= 2 || cv.convs.some(c => c.messages.some(m => m.role === 'assistant'));
   }
   let a2Timer = 0;
   function maybeA2HS() { clearTimeout(a2Timer); a2Timer = setTimeout(() => { if (a2Eligible() && !dlg.open && a2.hidden && !controller) openA2HS(); }, 1200); }
@@ -1881,7 +1879,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   /* migration: local → server, once (THREADS-SPEC §4) */
   const localConvs = () => load(LS.convs, []).filter(c => c.messages?.length);
   function migrateEligible() {
-    if (mode !== 'server' || localStorage.getItem(LS.migrated)) return false;
+    if (cv.mode !== 'server' || localStorage.getItem(LS.migrated)) return false;
     const sn = load(LS.snooze, { until: 0, n: 0 }); if (sn.n >= 3 || Date.now() < sn.until) return false;
     return localConvs().length > 0;
   }
@@ -1974,10 +1972,10 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function hideToast() { toast.classList.remove('show'); setTimeout(() => { if (!toast.classList.contains('show')) toast.hidden = true; }, 300); }
 
   /* ---------- state restore (§10) ---------- */
-  function saveDraft() { if (!currentId) return; const v = input.value; if (v) localStorage.setItem(LS.draft + currentId, v); else localStorage.removeItem(LS.draft + currentId); }
-  function loadDraft() { input.value = (currentId && localStorage.getItem(LS.draft + currentId)) || ''; grow(); }
+  function saveDraft() { if (!cv.currentId) return; const v = input.value; if (v) localStorage.setItem(LS.draft + cv.currentId, v); else localStorage.removeItem(LS.draft + cv.currentId); }
+  function loadDraft() { input.value = (cv.currentId && localStorage.getItem(LS.draft + cv.currentId)) || ''; grow(); }
   let draftT = 0; input.addEventListener('input', () => { clearTimeout(draftT); draftT = setTimeout(saveDraft, 300); });
-  function saveState() { saveDraft(); save(LS.route, app.dataset.route); if (currentId) { const sc = load(LS.scroll, {}); sc[currentId] = stick ? -1 : box.scrollTop; save(LS.scroll, sc); } }
+  function saveState() { saveDraft(); save(LS.route, app.dataset.route); if (cv.currentId) { const sc = load(LS.scroll, {}); sc[cv.currentId] = stick ? -1 : box.scrollTop; save(LS.scroll, sc); } }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { saveState(); commitArchive(); } else { swReg?.update().catch(() => {}); flushOutbox(); } });
   window.addEventListener('pagehide', () => { saveState(); commitArchive(); });
 
@@ -1985,13 +1983,13 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const params = new URLSearchParams(location.search);
   const hm = location.hash.match(/^#\/(?:t|c)\/(.+)$/);
   let route = 'today', bootTid = null;   // 1.10.0 B2: the app opens on 오늘; only an explicit hash deep-links elsewhere
-  if (hm) { let id = hm[1]; try { id = decodeURIComponent(id); } catch {} if (convs.some(c => c.id === id)) { currentId = id; route = 'chat'; } else bootTid = id; }
+  if (hm) { let id = hm[1]; try { id = decodeURIComponent(id); } catch {} if (cv.convs.some(c => c.id === id)) { cv.currentId = id; route = 'chat'; } else bootTid = id; }
   else if (location.hash === '#/log') route = 'list'; else if (location.hash === '#/archive') route = 'archive';
-  if (currentId && !cur()) currentId = convs[0]?.id || null;
-  if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
+  if (cv.currentId && !cur()) cv.currentId = cv.convs[0]?.id || null;
+  if (!cur() && cv.convs.length && route === 'chat') cv.currentId = cv.convs[0].id;
   history.replaceState({ route: 'today' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
   if (Proactive) try {
-    PRO = Proactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+    PRO = Proactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => cv.convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => cv.mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
   // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
@@ -2031,7 +2029,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     it.classList.remove('hl'); void it.offsetWidth; it.classList.add('hl'); setTimeout(() => it.classList.remove('hl'), 600);
   });
   document.addEventListener('error', e => { const img = e.target; if (img?.tagName === 'IMG' && img.dataset.mono && img.parentElement?.classList.contains('fav')) { const f = img.parentElement; f.classList.add('mono'); f.textContent = img.dataset.mono; } }, true);
-  try { MEM = Memory?.init({ api, isServer: () => mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
+  try { MEM = Memory?.init({ api, isServer: () => cv.mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
@@ -2039,13 +2037,13 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   else if (route === 'list') { history.pushState(stateFor('list'), '', hashFor('list')); setRoute('list'); }
   else if (route === 'archive') { history.pushState(stateFor('list'), '', hashFor('list')); history.pushState(stateFor('archive'), '', hashFor('archive')); loadArchive(); setRoute('archive'); }
   else setRoute('today');
-  const sc = currentId && load(LS.scroll, {})[currentId];
+  const sc = cv.currentId && load(LS.scroll, {})[cv.currentId];
   if (sc > 0) requestAnimationFrame(() => requestAnimationFrame(() => { box.scrollTop = sc; stick = false; }));
   requestAnimationFrame(() => app.classList.add('ready'));
   grow();
   if (cur()) ensureMessages(cur());
   renderSync();
-  checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
+  checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && cv.mode === 'server') openHit(bootTid); });
 
   const APP_VERSION = '__EVE_VERSION__'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
@@ -2062,5 +2060,5 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outboxState.items.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode: cv.mode, outbox: outboxState.items.length, convs: cv.convs.length, currentId: cv.currentId }) };
 }

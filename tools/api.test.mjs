@@ -18,6 +18,7 @@ await build({
               'src/api/thread-models.js',
               'src/api/operations.js',
               'src/features/conversations/outbox.js',
+              'src/features/conversations/state.ts',
             ]
               .map((path) => `export * from ${JSON.stringify(resolve(path))};`)
               .join('\n')
@@ -30,9 +31,9 @@ await build({
     lib: { entry: 'eve:api-contract', formats: ['cjs'], fileName: () => 'contracts.cjs' },
   },
 });
-const { createClient, createThreadModels, createOperations, createOutbox } = createRequire(import.meta.url)(
-  '../.cache/api/contracts.cjs',
-);
+const { createClient, createThreadModels, createOperations, createOutbox, createConversationState } = createRequire(
+  import.meta.url,
+)('../.cache/api/contracts.cjs');
 
 test('request client preserves headers, 204, identity loss and ambiguous outcomes', async () => {
   const calls = [],
@@ -136,4 +137,30 @@ test('outbox prevents concurrent replay and removes successful writes', async (t
   finish();
   await first;
   assert.equal(queue.state.items.length, 0);
+});
+
+test('conversation state loads only the selected cache and keeps instances isolated', () => {
+  const keys = { mode: 'llmchat.mode', srv: 'llmchat.srvcache', convs: 'llmchat.convs', current: 'llmchat.current' };
+  const calls = [];
+  const cached = [{ id: 'server-thread' }];
+  const server = createConversationState({
+    keys,
+    load: (key, fallback) => {
+      calls.push(key);
+      return { [keys.mode]: 'server', [keys.srv]: cached, [keys.current]: 'server-thread' }[key] ?? fallback;
+    },
+  });
+  assert.deepEqual(calls, [keys.mode, keys.srv, keys.current]);
+  assert.equal(server.convs, cached);
+  assert.equal(server.currentId, 'server-thread');
+  const local = createConversationState({ keys, load: (key, fallback) => (key === keys.mode ? 'invalid' : fallback) });
+  assert.equal(local.mode, 'local');
+  assert.deepEqual(local.convs, []);
+  server.archivedList.push({ id: 'archived' });
+  server.nextCursor = 'cursor';
+  server.threadsLoading = true;
+  assert.deepEqual(local.archivedList, []);
+  assert.equal(local.nextCursor, null);
+  assert.equal(local.threadsLoading, false);
+  assert.equal(local.persistOff, false);
 });
