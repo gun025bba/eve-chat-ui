@@ -21,7 +21,7 @@ with sync_playwright() as p:
     open_thread(pg, '하루 타임라인'); pg.wait_for_timeout(800)
     ev = lambda js: pg.evaluate(js)
     check('list role + aria-label = the thread title (follow-up d)', ev("(()=>{const m=document.getElementById('messages'),t=document.getElementById('title').textContent.trim();return m.getAttribute('role')==='list'&&!!t&&m.getAttribute('aria-label')===t})()"))
-    msgs = ev("[...document.querySelectorAll('#messages > .msg')].map(m=>({c:m.className,r:m.getAttribute('role'),a:m.getAttribute('aria-label'),tm:m.querySelector(':scope>.tm')?.textContent,who:m.querySelector(':scope>.who .who-n')?.textContent,dot:m.querySelector(':scope>.dot')?.getAttribute('aria-hidden')}))")
+    msgs = ev("[...document.querySelectorAll('#messages > .msg')].map(m=>({c:m.className,r:m.getAttribute('role'),a:m.getAttribute('aria-label'),tm:m.querySelector(':scope>.tm')?.textContent,who:m.querySelector(':scope>.who .who-n')?.textContent,dot:m.querySelector(':scope>.dot,:scope>.av')?.getAttribute('aria-hidden')}))")
     check('6 events, all listitems with a dot aria-hidden', len(msgs) == 6 and all(m['r'] == 'listitem' and m['dot'] == 'true' for m in msgs), msgs)
     check('time column = KST HH:mm (24h)', [m['tm'] for m in msgs][:5] == ['07:41', '07:42', '08:05', '08:06', '09:00'], [m['tm'] for m in msgs])
     check('who: user → 나 (no hard-coded name), Eve → Eve', msgs[0]['who'] == '나' and msgs[1]['who'] == 'Eve' and msgs[2]['who'] == '나', [m['who'] for m in msgs])
@@ -41,8 +41,8 @@ with sync_playwright() as p:
       return {dl:d.left-r.left,dt:d.top-r.top,dw:d.width,bl:b.left-r.left,bw:b.width,tw:t.width,tl:t.left-r.left,ml:r.left}})()""")
     check('geometry: dot left 47 / top 6 / 9px; body at +70 (288 wide @390); time col 44', abs(g['dl'] - 47) < 1 and abs(g['dt'] - 6) < 1 and g['dw'] == 9 and abs(g['bl'] - 70) < 1 and abs(g['bw'] - 288) < 1 and g['tw'] == 44 and g['tl'] == 0 and g['ml'] == 16, g)
     dots = ev("""(()=>{const c=s=>getComputedStyle(document.querySelector(s)+''?document.querySelector(s):document.body);const q=s=>getComputedStyle(document.querySelector(s));
-      return {me:q('.msg.user .dot').backgroundColor,e:q('.msg.assistant .dot').backgroundColor,brand:getComputedStyle(document.documentElement).getPropertyValue('--brand').trim(),eglow:q('.msg.assistant .dot').boxShadow}})()""")
-    check('dots: user = filled --label, Eve = --brand with halo + glow (dark)', dots['me'] == 'rgb(245, 245, 247)' and dots['brand'] == '#00D2BE' and dots['e'] == 'rgb(0, 210, 190)' and '12px' in dots['eglow'], dots)
+      return {me:q('.msg.user .dot').backgroundColor,e:getComputedStyle(document.querySelector('.msg.assistant .av .b')).fill,brand:getComputedStyle(document.documentElement).getPropertyValue('--brand').trim(),eglow:q('.msg.assistant .av').boxShadow}})()""")
+    check('dots: user = filled --label; Eve = the icon F avatar (--brand body, 3px halo, no glow) (dark)', dots['me'] == 'rgb(245, 245, 247)' and dots['brand'] == '#00D2BE' and dots['e'] == 'rgb(0, 210, 190)' and '12px' not in dots['eglow'], dots)
     # who colours
     wc = ev("[...document.querySelectorAll('#messages > .msg')].slice(0,2).map(m=>getComputedStyle(m.querySelector('.who')).color)")
     check('who colours: Eve = --brand, user = --sub (.62)', wc[1] == 'rgb(0, 210, 190)' and wc[0].startswith('rgba(235, 235, 245, 0.62') , wc)

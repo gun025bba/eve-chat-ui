@@ -1,4 +1,4 @@
-# 1.10.2: a long answer is streaming, the device goes offline for ~5s and comes back → the live bubble must not stay on '답변 불러오는 중…':
+# 1.11.0: a long answer is streaming, the device goes offline for ~5s and comes back → the live bubble must not stay on '답변 불러오는 중…':
 # the app re-requests GET …/stream (Last-Event-ID) or re-polls, and the same bubble completes (one reply, no duplicate, no error)
 import json, os, re, urllib.request
 from playwright.sync_api import sync_playwright

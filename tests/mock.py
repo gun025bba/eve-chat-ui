@@ -185,7 +185,7 @@ class H(SimpleHTTPRequestHandler):
             if path == '/v1/settings':
                 if PRO.get('settingsDrop'): s.close_connection = True; s.connection.shutdown(2); return True
                 if method == 'PATCH':
-                    if 'ui' in b and PRO.get('patchNonJson'):   # 1.10.2: 200 with a non-JSON body (captive portal / proxy page) — not stored
+                    if 'ui' in b and PRO.get('patchNonJson'):   # 1.11.0: 200 with a non-JSON body (captive portal / proxy page) — not stored
                         b2 = b'<html><body>OK</body></html>'; s.send_response(200); s.send_header('Content-Type', 'text/html'); s.send_header('Content-Length', str(len(b2))); s.end_headers(); s.wfile.write(b2); return True
                     if 'ui' in b and PRO.get('uiKey'): PRO.setdefault('settings', {}).setdefault('ui', {}); PRO['settings']['ui'].update(b.pop('ui'))
                     if not b: s.j(200, dict(PRO['settings'], system=PRO['system'])); return True
