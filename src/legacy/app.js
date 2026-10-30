@@ -1,3 +1,4 @@
+import { renderMarkdownBody } from '../features/messages/markdown.js';
 import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
 import { createTimeline } from '../features/messages/timeline.js';
@@ -443,13 +444,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const copyText = messageParts.copy;
   const timeline = createTimeline(box, { time: hhmm, day: kstDay, separator: daySepText, userName: () => USER_NAME });
   const addMsgEl = timeline.add;
-  // opts: { live, thinkSecs, usage, actions }
-  function freshen(tail) { // unused since v15: re-creating a .fresh span every frame restarted its fade = flicker
-  }
-  function _freshenOld(tail) { // token fade on the newest text of the tail block
-    const last = tail.lastElementChild; const t = last && last.lastChild;
-    if (t && t.nodeType === 3 && t.data.length) { const n = Math.min(12, t.data.length); const sp = document.createElement('span'); sp.className = 'fresh'; sp.textContent = t.data.slice(-n); t.data = t.data.slice(0, -n); last.appendChild(sp); }
-  }
   // Streaming fast path (REVIEW M1): only touch think text + unfinished tail block.
   function patchLive(bubble, think, answer, thinking) {
     const det = bubble.querySelector('details.think');
@@ -517,11 +511,13 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
     else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
+    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md"></div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
+    messageParts.disposeWithin(bubble);
     bubble.innerHTML = html;
+    if (!live) { const md = bubble.querySelector('.md'); if (md) renderMarkdownBody(md, answer, srcs); }
     if (live && bubble._tline && !answer.trim()) { bubble.appendChild(bubble._tline); requestAnimationFrame(() => bubble._tline?.classList.add('in')); }
     if (wasLive && !live) bubble._freshAt = performance.now();
     { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
