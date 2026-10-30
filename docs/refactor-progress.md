@@ -225,3 +225,10 @@
 - Node 20개·빌드 통과. 본문 14·타임라인 28·스트리밍 12·피드백 62·기억 칩 21·중지/CSP 38·재연결 36개 통과. 확장 액션 계약은 Chromium/WebKit 22개로 중지 안내의 role과 실제 replacement ID를 확인했다.
 - 중지/실패/재연결 × 두 테마 × 세 너비 PNG 18개가 이전 산출물과 바이트 단위로 같다.
 - 사용하지 않는 ICON 항목을 제거했다. 신규 파일/함수 크기 위반이 없으며 innerHTML 10·!important 30과 신규 의존성 없음 상태를 유지한다.
+
+## R4j — 출처 상호작용·전체 보기 시트
+
+- 기반: R4i #69. 출처 펼침·인용 이동/강조·전체 보기 dialog·favicon 폴백을 messages/sources가 소유한다. dialog 머리말은 JSX로 바꾸고 실제 template.content를 복제한다.
+- reduced-motion·transitionend 기준 숨김/마지막 메시지 스크롤·600ms 강조·닫힘 애니메이션·Escape/배경 클릭·body 상태를 유지한다. 원래 srcSheet ID·ARIA·DOM·링크 동작을 보존한다.
+- Node 20개·빌드 통과. full CSP 실제 본문/출처 계약은 Chromium/WebKit 합계 20개 단언 통과(목록 밖 인용→전체 보기·Escape·배경·favicon 포함). 기존 출처 47·간결 출처 60·도구 시트 24개도 통과했다.
+- 전체 보기 시트의 두 테마 × 세 너비 PNG 6개가 이전 산출물과 바이트 단위로 같다. 신규 파일/함수 위반·shared 승격·의존성 없음.

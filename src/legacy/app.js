@@ -1,3 +1,4 @@
+import { mountSourceInteractions } from '../features/messages/sources/controller.js';
 import { createMessages } from '../features/messages/index.js';
 import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
@@ -7,7 +8,7 @@ import { renderList as renderListItems, renderArchive as renderArchiveItems, ren
 import { selectList } from '../features/conversations/list-model.js';
 import { ConversationSearch } from '../features/conversations/search.js';
 import { APP_VERSION } from '../lib/version.js';
-import { sheetDrag, animateOut } from '../shared/sheet-gestures.js';
+import { sheetDrag } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
 import { createGatewayRequests } from '../api/gateway.js';
 import { createConversationState } from '../features/conversations/state.js';
@@ -1456,42 +1457,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
   // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
-  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function setSrcOpen(sec, open) {
-    const chips = sec.querySelectorAll('.sc'), list = sec.querySelector('.src-list'); if (!chips.length || !list) return;
-    chips.forEach(c => c.setAttribute('aria-expanded', String(open))); sec.classList.toggle('open', open);
-    if (open) { list.hidden = false; list.classList.remove('in'); void list.offsetWidth; list.classList.add('in'); }
-    else if (reduceMotion()) list.hidden = true;
-    else { list.classList.remove('in'); const fin = e => { if (e.target !== list || e.propertyName !== 'opacity') return; list.removeEventListener('transitionend', fin); if (!sec.classList.contains('open')) list.hidden = true; }; list.addEventListener('transitionend', fin); }
-    if (open && sec.closest('.msg') === [...document.querySelectorAll('#messages .msg')].pop()) { // last message: bring the opened list into view once it has settled
-      const go = () => list.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
-      if (reduceMotion()) go(); else { const fin = e => { if (e.target !== list || e.propertyName !== 'transform') return; list.removeEventListener('transitionend', fin); go(); }; list.addEventListener('transitionend', fin); } }
-  }
-  function closeSrcSheet(d) { if (d.open && !d.classList.contains('closing')) animateOut(d, () => d.close()); }
-  function openSrcSheet(sec) {
-    let d = document.getElementById('srcSheet');
-    if (!d) { d = document.createElement('dialog'); d.id = 'srcSheet'; d.className = 'src-sheet'; d.setAttribute('aria-labelledby', 'srcSheetTitle'); document.body.appendChild(d);
-      d.addEventListener('click', e => { if (e.target === d || e.target.closest('.src-close')) closeSrcSheet(d); }); d.addEventListener('cancel', e => { e.preventDefault(); closeSrcSheet(d); }); d.addEventListener('close', () => document.body.classList.remove('sheet-open')); }
-    const n = sec.querySelectorAll('.src-all-tpl')[0]?.content.querySelectorAll('.src-item').length || 0;
-    d.innerHTML = `<div class="grabber" aria-hidden="true"></div><div class="src-sheet-head"><h3 id="srcSheetTitle">출처 ${n}개</h3><button type="button" class="text-btn src-close">닫기</button></div><div class="src-sheet-body"></div>`;
-    d.querySelector('.src-sheet-body').appendChild(sec.querySelector('.src-all-tpl').content.cloneNode(true));
-    document.body.classList.add('sheet-open'); d.showModal();
-  }
-  document.addEventListener('click', e => {
-    const chip = e.target.closest?.('.sources .sc');
-    if (chip) { const sec = chip.closest('.sources'); setSrcOpen(sec, chip.getAttribute('aria-expanded') !== 'true'); return; }
-    const all = e.target.closest?.('.sources .src-all'); if (all) { openSrcSheet(all.closest('.sources')); return; }
-    const cite = e.target.closest?.('sup.cite a[data-n]'); if (!cite) return;
-    const sec = cite.closest('.bubble')?.querySelector('.sources'); if (!sec) return; // streaming: no row yet → default link
-    e.preventDefault();
-    const n = cite.dataset.n.split(',')[0]; setSrcOpen(sec, true);
-    let it = sec.querySelector(`.src-list .src-item[data-n="${n}"]`);
-    if (!it) { openSrcSheet(sec); it = document.querySelector(`#srcSheet .src-item[data-n="${n}"]`); }
-    if (!it) return;
-    it.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
-    it.classList.remove('hl'); void it.offsetWidth; it.classList.add('hl'); setTimeout(() => it.classList.remove('hl'), 600);
-  });
-  document.addEventListener('error', e => { const img = e.target; if (img?.tagName === 'IMG' && img.dataset.mono && img.parentElement?.classList.contains('fav')) { const f = img.parentElement; f.classList.add('mono'); f.textContent = img.dataset.mono; } }, true);
+  mountSourceInteractions();
   try { MEM = Memory?.init({ api, isServer: () => cv.mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
