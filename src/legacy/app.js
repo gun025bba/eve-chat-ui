@@ -1,33 +1,10 @@
+import { createSSEParser } from '../lib/sse.js';
+import { splitThink, stripStopMark } from '../lib/think.js';
 'use strict';
 // Eve icon set (design a197571 icons/sprite.svg, inlined at the start of <body>)
 const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const COPY_SVG = icon('copy');
 /* ---------- pure helpers (also tested in node) ---------- */
-function createSSEParser(onData) {
-  let buf = '';
-  return {
-    push(chunk) {
-      buf += chunk;
-      let idx;
-      while ((idx = buf.search(/\r?\n\r?\n/)) !== -1) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx).replace(/^\r?\n\r?\n/, '');
-        const lines = block.split(/\r?\n/), field = k => { const l = lines.filter(x => x.startsWith(k + ':')).pop(); return l == null ? null : l.slice(k.length + 1).replace(/^ /, ''); };
-        const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n');   // ": keepalive" comments carry no data
-        if (data) onData(data, field('event'), field('id'));
-      }
-    },
-    flush() { if (buf.trim()) { const b = buf; buf = ''; this.push(b + '\n\n'); } }
-  };
-}
-// Split "<think>...</think>answer" (think may be unterminated while streaming)
-function splitThink(text) {
-  const m = text.match(/^\s*<think>([\s\S]*?)(<\/think>|$)([\s\S]*)$/);
-  if (!m) return { think: null, answer: text, thinking: false };
-  return { think: m[1].trim(), answer: m[3].replace(/^\s+/, ''), thinking: m[2] === '' };
-}
-const STOP_RE = /\n*\*\(중지됨\)\*\s*$/;
-function stripStopMark(s) { return String(s || '').replace(STOP_RE, ''); }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -218,7 +195,7 @@ function renderMd(src) {
   });
   return out.join('');
 }
-if (typeof module !== 'undefined') module.exports = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
+export default { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
 if (typeof document !== 'undefined') (function () {

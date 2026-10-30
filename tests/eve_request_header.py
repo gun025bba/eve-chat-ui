@@ -1,4 +1,5 @@
 """1.0.2: every mutating request (POST/PUT/PATCH/DELETE) sends X-Eve-Request: 1; with a body it must be Content-Type: application/json."""
+from assets_common import source_path
 from playwright.sync_api import sync_playwright
 import urllib.request, json, re, pathlib
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')
@@ -10,7 +11,7 @@ def check(name, ok, info=''):
     if not ok: FAIL.append(name)
 
 # static: no raw mutating fetch bypasses headers(method); no FormData/text/plain/sendBeacon
-src = pathlib.Path(__file__).resolve().parent.parent.joinpath('app.js').read_text()
+src = source_path(pathlib.Path(__file__).resolve().parent.parent.joinpath('app.js')).read_text()
 check('no FormData / text/plain / sendBeacon / XHR', not re.search(r'FormData|text/plain|sendBeacon|XMLHttpRequest', src))
 raw = [m.start() for m in re.finditer(r"\bfetch\(", src)]
 bad = [src[i:i+300] for i in raw if re.search(r"method:\s*'(POST|PUT|PATCH|DELETE)'", src[i:i+300]) and "headers('" not in src[i:i+300]]

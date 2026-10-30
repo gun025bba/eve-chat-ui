@@ -1,3 +1,4 @@
+from assets_common import source_path
 # 1.6.0: 4.0.0 identity-transport (eve-serving #23 @8871f9f/1fdc436) — 401 → pairing code entry, re-pair notice, 403 scope_denied keeps session
 import os, json, urllib.request
 from playwright.sync_api import sync_playwright
@@ -75,7 +76,7 @@ try:
         check('denied clears on retry', pg.is_hidden('#authNotice'))
         check('no page errors', not errs, errs)
         d = os.path.join(os.path.dirname(__file__), '..'); import re as _re
-        stat = ''.join(open(os.path.join(d, f)).read() for f in ['index.html', 'manifest.webmanifest', 'sw.js', 'app.js'])
+        stat = ''.join(open(source_path(os.path.join(d, f))).read() for f in ['index.html', 'manifest.webmanifest', 'sw.js', 'app.js'])
         check('public /ui static files carry no codes/tokens/hosts', not _re.search(r'eve_session=|ts\.net|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.', stat))
         b.close()
 finally:

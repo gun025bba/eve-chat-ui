@@ -1,3 +1,4 @@
+from assets_common import source_path
 # 1.10.0 follow-up (designer approval of #21–#24): a accent-fill · b + menu close · c chips fade token · d #messages label · e one sun icon · f nav ::before easing
 # · g confirm card inside the event body · h usage line on one line · i snoozed items out of the pending strip/sheet · j button transitions · k briefing.enabled
 import re, os
@@ -6,7 +7,7 @@ from b3_common import *
 R = []; errs = []
 def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '' if ok else x)
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-CSS = open(f'{ROOT}/styles.css').read(); APP = open(f'{ROOT}/app.js').read()
+CSS = open(source_path(f'{ROOT}/styles.css')).read(); APP = open(source_path(f'{ROOT}/app.js')).read()
 LUM = """(c) => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4) }; const m = c.match(/\\d+(\\.\\d+)?/g).map(Number); return .2126 * f(m[0]) + .7152 * f(m[1]) + .0722 * f(m[2]) }"""
 def cr_white(pg, color): l = pg.evaluate(f'({LUM})("{color}")'); return round(1.05 / (l + .05), 2)
 with sync_playwright() as p:
@@ -60,7 +61,7 @@ with sync_playwright() as p:
     ic = pg.evaluate("[...new Set([...document.querySelectorAll('#todayList .ev.pro svg use')].map(u => u.getAttribute('href')))]")
     open_thread(pg, '아침 브리핑'); pg.wait_for_timeout(600)
     ic2 = pg.evaluate("[...new Set([...document.querySelectorAll('#messages .who-ic use, #messages .bc-head use, #messages .pim-card use')].map(u => u.getAttribute('href')))]")
-    src = ''.join(open(f'{ROOT}/{f}').read() for f in ('proactive.js', 'pim.js', 'briefing.js', 'today.js', 'app.js'))
+    src = ''.join(open(source_path(f'{ROOT}/{f}')).read() for f in ('proactive.js', 'pim.js', 'briefing.js', 'today.js', 'app.js'))
     check('e) one name: #i-sun-horizon everywhere, no #i-sun / icon("sun") / `sun:` key left', '#i-sun"' not in src and "icon('sun')" not in src and not re.search(r"\bsun:\s", src) and not [h for h in ic + ic2 if h in ('#i-sun',)] and '#i-sun-horizon' in ic + ic2, (ic, ic2))
     ctx.close()
     # ---- h) usage line on one line (light + dark, 320/375/390)

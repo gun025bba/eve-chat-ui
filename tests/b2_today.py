@@ -1,3 +1,4 @@
+from assets_common import source_path
 # 1.10.0 B2 하루 (DIRECTION-B-SPEC §1 §4 §9): Today — timeline items, empty (new day), skeleton, error, stagger, settings subtitle, start a conversation
 import re
 from playwright.sync_api import sync_playwright
@@ -69,7 +70,7 @@ with sync_playwright() as p:
     pg.reload(); pg.wait_for_timeout(900); check('same session again: no stagger', pg.locator('#todayList .stg').count() == 0); ctx.close()
     ctx = b.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce'); pg = ctx.new_page(); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200)
     check('reduced motion: no stagger', pg.locator('#todayList .stg').count() == 0); ctx.close()
-    css = open('../styles.css').read()
+    css = open(source_path('../styles.css')).read()
     check('stagger/skeleton keyframes animate transform/opacity only (no layout props)', not re.search(r'@keyframes (tIn|tPulse)\{[^}]*\b(left|top|height|width|margin)[^}]*\}', css))
     # ---- 7) settings top shows 로컬 · 비공개 (moved out of the chat header)
     reset(); rich(); ctx, pg = newpg(b); goto_today(pg); pg.click('#openSettings'); pg.wait_for_timeout(700)
@@ -100,7 +101,7 @@ with sync_playwright() as p:
         goto_today(pg, h); seen[name] = pg.evaluate("[document.body.innerText.includes('무엇을 도와드릴까요'), document.querySelectorAll(arguments[0]).length]".replace('arguments[0]', repr(SEL)))
     pg.evaluate('__app.newChat()'); pg.wait_for_timeout(600); seen['new-chat'] = pg.evaluate(f"[document.body.innerText.includes('무엇을 도와드릴까요'), document.querySelectorAll({SEL!r}).length]")
     check('forbidden elements absent in Today / 기록 / 보관함 / empty conversation', all(v == [False, 0] for v in seen.values()), seen)
-    src = ''.join(open('../' + f).read() for f in ('index.html', 'app.js', 'today.js'))
+    src = ''.join(open(source_path('../' + f)).read() for f in ('index.html', 'app.js', 'today.js'))
     check('forbidden strings absent from index.html / app.js / today.js', '무엇을 도와드릴까요' not in src and not re.search(r'class="[^"]*(suggest|hero-logo|empty-logo)', src))
     ctx.close()
     check('no page errors', not errs, errs); b.close()

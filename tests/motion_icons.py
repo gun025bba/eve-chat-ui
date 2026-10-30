@@ -1,3 +1,4 @@
+from assets_common import source_path
 from version_common import VERSION, versioned
 # 1.2.2 motion + icons (design a197571 REFRESH-SPEC P0)
 import os, re
@@ -6,7 +7,7 @@ B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
 R = []
 def check(name, ok, extra=''): R.append(bool(ok)); print(('PASS' if ok else 'FAIL'), name, extra)
 D = os.path.join(os.path.dirname(__file__), '..')
-css = open(os.path.join(D, 'styles.css')).read(); js = open(os.path.join(D, 'app.js')).read(); pjs = open(os.path.join(D, 'proactive.js')).read()
+css = open(source_path(os.path.join(D, 'styles.css'))).read(); js = open(source_path(os.path.join(D, 'app.js'))).read(); pjs = open(source_path(os.path.join(D, 'proactive.js'))).read()
 check('tokens 120/200/320/450 + ease-standard', all(t in css for t in ['--d-1:120ms', '--d-2:200ms', '--d-3:320ms', '--d-4:450ms', '--ease-standard:cubic-bezier(.32,.72,0,1)']))
 check('no transition:all / shadow / radius / filter / height / grid-template transitions', not re.search(r'transition(-property)?:[^;}]*\b(all|box-shadow|border-radius|filter|height|grid-template-rows|top|left)\b', css))
 check('ctx dim without blur', not re.search(r'#ctx\{[^}]*backdrop-filter', css))

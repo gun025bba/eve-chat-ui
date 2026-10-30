@@ -1,3 +1,4 @@
+from assets_common import source_path
 from version_common import VERSION, versioned
 # 1.5.1 blocker: no backdrop-filter anywhere, opaque headers/materials, composer autocorrect/spellcheck/autocomplete off, SW network-first HTML + versioned assets
 import os, re
@@ -8,16 +9,16 @@ def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '
 d = os.path.join(os.path.dirname(__file__), '..')
 strip = lambda t: re.sub(r'/\*[\s\S]*?\*/', '', t)
 for f in ['styles.css', 'offline.css', 'index.html', 'offline.html', 'app.js', 'memory.js', 'proactive.js']:
-    t = strip(open(os.path.join(d, f)).read())
+    t = strip(open(source_path(os.path.join(d, f))).read())
     hits = re.findall(r'(?:backdrop-filter|backdropFilter)[^;}\n]{0,40}', t)
     check(f'{f}: no backdrop-filter', not hits, hits)
-css = strip(open(os.path.join(d, 'styles.css')).read())
+css = strip(open(source_path(os.path.join(d, 'styles.css'))).read())
 alpha = re.findall(r'--(?:header-bg|material|layer-1|layer-2|card)\s*:\s*(rgba?\([^)]*\)|hsla?\([^)]*\)|#[0-9a-fA-F]{8}\b|transparent)', css)
 check('header/material tokens are opaque (no alpha)', not [a for a in alpha if a.startswith(('rgba', 'hsla', 'transparent')) or (a.startswith('#') and len(a) == 9)], alpha)
-html = open(os.path.join(d, 'index.html')).read()
+html = open(source_path(os.path.join(d, 'index.html'))).read()
 tag = re.search(r'<textarea id="input"[^>]*>', html).group(0)
 check('static composer attrs: autocorrect=off spellcheck=false autocomplete=eve-composer (1.9.0)', all(a in tag for a in ['autocorrect="off"', 'spellcheck="false"', 'autocomplete="eve-composer"']), tag)
-sw = open(os.path.join(d, 'sw.js')).read()
+sw = open(source_path(os.path.join(d, 'sw.js'))).read()
 check('sw: no ignoreSearch for versioned assets, precache uses cache:reload', "cache: 'reload'" in sw and 'styles.css' not in re.search(r"const SHELL = \[[^\]]*\]", sw).group(0).replace('...ASSETS', ''), None)
 OPAQ = """(()=>{const bad=[];for(const n of document.querySelectorAll('*')){const c=getComputedStyle(n);const bf=c.backdropFilter||c.webkitBackdropFilter||'none';if(bf!=='none')bad.push((n.id||n.className||n.tagName)+' '+bf)}
   const hdr=[...document.querySelectorAll('#topbar,.navbar,.sheet-head,.src-sheet-head')].filter(n=>n.offsetParent!==null).map(n=>[n.id||n.className,getComputedStyle(n).backgroundColor]);
