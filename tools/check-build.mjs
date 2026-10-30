@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { filesIn } from './build-assets.mjs';
+import { filesIn, legacyPath } from './build-assets.mjs';
 
 const expected = JSON.parse(readFileSync('tools/deploy-files.json', 'utf8'));
 const actual = filesIn('dist')
@@ -36,6 +36,6 @@ for (const name of actual.filter((name) => name.endsWith('.js'))) {
   assert.doesNotMatch(readFileSync(`dist/${name}`, 'utf8'), /\beval\s*\(|new\s+Function\s*\(|\bimport\s*\(/);
 }
 for (const name of actual.filter((name) => !['app.js', 'sw.js', 'index.html', 'offline.html'].includes(name))) {
-  assert.deepEqual(readFileSync(`dist/${name}`), readFileSync(name), `${name}: unexpected content change`);
+  assert.deepEqual(readFileSync(`dist/${name}`), readFileSync(legacyPath(name)), `${name}: unexpected content change`);
 }
 console.log(`Artifact gate: ${actual.length} files, complete precache, version ${version}, no inline HTML content`);

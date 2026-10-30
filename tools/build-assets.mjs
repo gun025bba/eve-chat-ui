@@ -1,5 +1,7 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { posix } from 'node:path';
+
+export const legacyPath = (name) => (existsSync(`src/legacy/${name}`) ? `src/legacy/${name}` : name);
 
 export function filesIn(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -18,7 +20,7 @@ export function legacyAssets(version) {
     generateBundle(_options, bundle) {
       const fixed = JSON.parse(readFileSync('tools/deploy-files.json', 'utf8'));
       for (const fileName of fixed.filter((name) => !['app.js', 'sw.js'].includes(name))) {
-        let source = readFileSync(fileName);
+        let source = readFileSync(legacyPath(fileName));
         if (fileName.endsWith('.html'))
           source = source.toString().replace(/\?v=(?:__EVE_VERSION__|16)/g, `?v=${version}`);
         this.emitFile({ type: 'asset', fileName, source });

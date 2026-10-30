@@ -1,4 +1,5 @@
 """AUTO-TOOLS-SPEC §13 / 2.0.0 · the no-web_search contract (no + menu), chips/sheet .tq, layout, motion, tokens."""
+from assets_common import source_path
 from at_common import *
 S2 = [src(1, 'news.example.com', published='2026-10-27'), src(2, 'blog.example.org', published='2025-03-02')]
 ANS = '검색 결과에 따르면 빠릅니다[1][2].'
@@ -13,7 +14,7 @@ with sync_playwright() as p:
     for q in ('그냥 질문', '오늘 날씨 알려줘'):
         pg.evaluate("__app.newChat()"); pg.wait_for_timeout(250); send(pg, q); pg.wait_for_timeout(1500)
         check(f'request body for 「{q}」 has no web_search (a forceMode flag is ignored)', 'web_search' not in body(pg), body(pg))
-    js = open(os.path.join(os.path.dirname(__file__), '..', 'app.js'), encoding='utf-8').read(); css0 = open(os.path.join(os.path.dirname(__file__), '..', 'styles.css'), encoding='utf-8').read()
+    js = open(source_path(os.path.join(os.path.dirname(__file__), '..', 'app.js')), encoding='utf-8').read(); css0 = open(source_path(os.path.join(os.path.dirname(__file__), '..', 'styles.css')), encoding='utf-8').read()
     check('source: no forceMode / FORCE_MODE / tools_default_mode / web_search request / hint handler', not re.search(r'forceMode|FORCE_MODE|tools_default_mode|web_search:\s|hint-chg|tsHint', js))
     check('source: no .hint / .retry / plus-menu CSS', not re.search(r'\.tline \.hint|\.tnote \.retry|\.plus-menu|\.plus\b', css0))
     ctx.close()
@@ -58,7 +59,7 @@ with sync_playwright() as p:
     ctx.close()
 
     # ── motion & tokens ──
-    css = open(os.path.join(os.path.dirname(__file__), '..', 'styles.css'), encoding='utf-8').read()
+    css = open(source_path(os.path.join(os.path.dirname(__file__), '..', 'styles.css')), encoding='utf-8').read()
     blk = css[css.index('AUTO-TOOLS-SPEC §3/§4'):]; blk = blk[:blk.index('sup.cite{')]
     check('new CSS: no blur / backdrop-filter / filter', not re.search(r'backdrop-filter|blur\(|[^-]filter:', blk), blk[:80])
     tr = re.findall(r'transition:([^;}]+)', blk)

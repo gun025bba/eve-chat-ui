@@ -1,3 +1,4 @@
+from assets_common import source_path
 # 1.10.0 B3 현황 띠 (DIRECTION-B-SPEC §5): cells, visibility rules (§14: no field → hide only that cell, silently), values/aria, loading, errors, refresh, nav subtitle
 import re, time
 from playwright.sync_api import sync_playwright
@@ -138,9 +139,9 @@ with sync_playwright() as p:
     ctx = b.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce'); ctx.add_init_script(SETTINGS); pg = ctx.new_page(); reset(); full(); goto_today(pg)
     rm = pg.evaluate("[getComputedStyle(document.querySelector('.strip')).animationDuration, getComputedStyle(document.querySelector('.strip')).animationName]")
     check('reduced motion: the strip appears with a plain opacity fade (--d-2), nothing else moves', rm[1] in ('stripIn', 'none') and rm[0] in ('0.2s', '0s'), rm); ctx.close()
-    css = open('../styles.css').read(); i = css.index('1.10.0 B3 현황 띠'); blk = css[i:]
+    css = open(source_path('../styles.css')).read(); i = css.index('1.10.0 B3 현황 띠'); blk = css[i:]
     check('B3 CSS: no backdrop-filter / blur / transition:all', not re.search(r'backdrop-filter|blur\(|transition:\s*all', blk))
-    js = open('../today.js').read() + open('../app.js').read()
-    check('no hostname or IP literal introduced in the strip code', not re.search(r'https?://(?!www\.w3\.org)[a-z0-9.-]+\.[a-z]{2,}|\b\d{1,3}(\.\d{1,3}){3}\b', open('../today.js').read()))
+    js = open(source_path('../today.js')).read() + open(source_path('../app.js')).read()
+    check('no hostname or IP literal introduced in the strip code', not re.search(r'https?://(?!www\.w3\.org)[a-z0-9.-]+\.[a-z]{2,}|\b\d{1,3}(\.\d{1,3}){3}\b', open(source_path('../today.js')).read()))
     b.close()
 print(f'{sum(R)}/{len(R)} passed'); raise SystemExit(0 if all(R) else 1)

@@ -1,3 +1,4 @@
+from assets_common import source_path
 # 1.7.0: iOS shell bridge v1 (eve-serving #64 ios-shell.md §3, eve-ios #1) + QuickType mitigation on the composer
 import os, re, json, urllib.request
 from playwright.sync_api import sync_playwright
@@ -7,7 +8,7 @@ def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '
 def put(path): return urllib.request.urlopen(urllib.request.Request(B + path, method='PUT')).read()
 def state(): return json.loads(urllib.request.urlopen(B + '/__db').read())['state']
 d = os.path.join(os.path.dirname(__file__), '..')
-html = open(os.path.join(d, 'index.html')).read(); css = open(os.path.join(d, 'styles.css')).read()
+html = open(source_path(os.path.join(d, 'index.html'))).read(); css = open(source_path(os.path.join(d, 'styles.css'))).read()
 check('viewport-fit=cover', 'viewport-fit=cover' in re.search(r'<meta name="viewport"[^>]*>', html).group(0))
 check('safe-area env() used for all four edges', all(f'env(safe-area-inset-{e})' in css for e in ['top', 'right', 'bottom', 'left']))
 check('shell.js loaded before app.js', html.index('/ui/shell.js') < html.index('/ui/app.js'))

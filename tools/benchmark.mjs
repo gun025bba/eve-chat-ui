@@ -56,7 +56,7 @@ for (const [name, source] of Object.entries(sources)) {
 }
 // Same helpers used by generate()/patchLive, then identical plain-text component sinks.
 // This isolates renderer cost; it does not pretend to measure network or a migrated generate().
-const app = createRequire(import.meta.url)('../app.js');
+const app = createRequire(import.meta.url)('../.cache/unit/helpers.cjs');
 const text = '## Stream\n\nA **token** with [1] citation.\n\n'.repeat(200);
 const replay = [];
 for (let end = 32; end <= text.length; end += 32) {
