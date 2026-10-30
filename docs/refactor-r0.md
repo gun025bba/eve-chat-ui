@@ -31,7 +31,8 @@ Playwright Python 환경에서 python tools/benchmark-browser.py <임시경로>.
 - Vite 8.3.5(빌드), TypeScript 6.0.3(타입·공개 AST), Biome 2.6.4(린트·포맷)만 개발 의존성이다.
   TypeScript 7의 새 API는 불안정하므로 공개 AST를 제공하는 6을 쓴다. Node는 20.19+ 또는 22.12+다.
 - 기존 9개 스크립트의 순서·URL을 보존한다. main.ts가 app.js를 IIFE로 번들하고 나머지는 그대로 출력한다.
-  첫 로드 JS는 main 원본 310,306B/gzip 103,558B/9요청, R0 305,176B/gzip 95,399B/9요청이다.
+  기존 순수 헬퍼의 브라우저 전역 접근도 main.ts의 호환 연결로 보존한다.
+  첫 로드 JS는 main 원본 310,306B/gzip 103,558B/9요청, R0 306,276B/gzip 95,804B/9요청이다.
   gzip은 파일별 로컬 압축 합계이며 실제 HTTP 전송량·SW 백그라운드 프리캐시 요청과 구분한다.
 - package.json.version만 릴리스 버전 정본이다. 앱·HTML·SW와 테스트 기대값에 주입한다.
   오프라인 문서의 레거시 ?v=16도 같은 버전으로 출력한다. 매니페스트 바이트는 보존한다.
