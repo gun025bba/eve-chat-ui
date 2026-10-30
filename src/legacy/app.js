@@ -1,5 +1,4 @@
-import { renderAssistantBody, disposeAssistantBodiesWithin } from '../features/messages/body.js';
-import { renderMarkdownBody, createLiveBody, renderLiveMarkdown, disposeMarkdownWithin } from '../features/messages/markdown.js';
+import { createMessages } from '../features/messages/index.js';
 import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
 import { createTimeline } from '../features/messages/timeline.js';
@@ -47,8 +46,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
   const ICON = {
-    copy: icon('copy'), globe: icon('source'), regen: icon('regenerate'), warn: icon('warning'),
-    chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), trash: icon('trash')
+    copy: icon('copy'), regen: icon('regenerate'), edit: icon('edit'), trash: icon('trash')
   };
   const LS = { settings: 'llmchat.settings', convs: 'llmchat.convs', current: 'llmchat.current', route: 'llmchat.route', scroll: 'llmchat.scroll', draft: 'llmchat.draft:',
     mode: 'llmchat.mode', srv: 'llmchat.srvcache', pins: 'llmchat.pins', outbox: 'llmchat.outbox', fbSkip: 'llmchat.fbSkip' };
@@ -77,13 +75,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); disposeMarkdownWithin(box); disposeAssistantBodiesWithin(box); timeline.clear(); }
+  function clearMessageBox() { messages.clear(); }
   function showMessageLoading() { clearMessageBox(); timeline.loading(); }
-  function removeMessage(element) {
-    const actions = element?.querySelector('.actions'); if (actions) Feedback.detach(actions);
-    if (element) { messageParts.disposeWithin(element); disposeMarkdownWithin(element); disposeAssistantBodiesWithin(element); }
-    timeline.remove(element);
-  }
+  function removeMessage(element) { messages.remove(element); }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
      web-search toggle / mode menu in the composer any more. The two old localStorage keys (mode, one-time hint) are removed once. */
   try { localStorage.removeItem('llmchat.webSearch'); localStorage.removeItem('llmchat.autoHintSeen'); } catch {}
@@ -446,86 +440,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const copyText = messageParts.copy;
   const timeline = createTimeline(box, { time: hhmm, day: kstDay, separator: daySepText, userName: () => USER_NAME });
   const addMsgEl = timeline.add;
-  // Streaming fast path (REVIEW M1): only touch think text + unfinished tail block.
-  function patchLive(bubble, think, answer, thinking) {
-    const det = bubble.querySelector('details.think');
-    if ((think !== null) !== !!det) return false;
-    if (det) {
-      const tb = det.querySelector('.think-body');
-      if (tb.textContent.length !== think.length) { const atEnd = tb.scrollHeight - tb.scrollTop - tb.clientHeight < 20; tb.textContent = think; if (atEnd) tb.scrollTop = tb.scrollHeight; }
-      det.classList.toggle('live', thinking);
-      const sp = det.querySelector('summary span'), lbl = thinking ? '생각하는 중…' : '생각 과정';
-      if (sp.textContent !== lbl) sp.textContent = lbl;
-      if (!thinking && !det.dataset.user && !settings.showThink && det.open) det.open = false;
-    }
-    const md = bubble.querySelector('.md');
-    if (!answer.trim()) return !md && (!!bubble.querySelector('.typing,.tline') || (!!det && thinking));
-    if (!md) { // first answer token: append answer container without touching the think block
-      bubble.querySelectorAll('.typing,.warming').forEach(n => n.remove()); bubble._tsDrop?.();   // the tool line fades out (opacity --d-1) and leaves the flow
-      bubble.appendChild(createLiveBody()); return patchLive(bubble, think, answer, thinking);
-    }
-    renderLiveMarkdown(md, answer, bubble._sources, root => messageParts.disposeWithin(root));
-    return true;
-  }
-  /* AUTO-TOOLS-SPEC §5/§7: what the web tools did for a reply — {tools:[{q,by}], note:{key,t}} — kept in memory for this session only (message id → info; never written to storage, so queries do not persist) */
-  const TOOLINFO = new Map();
-  box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });
-   // memory chip → settings sheet #memoryView (openMemoryView, B3)
-  function fillAssistant(bubble, text, opts = {}) {
-    const { think, answer, thinking } = splitThink(stripStopMark(text));
-    const live = !!opts.live;
-    if (live) bubble._streamed = true;
-    if (live && bubble._live && !opts.slow && !opts.resuming && patchLive(bubble, think, answer, live && thinking)) return;
-    const prev = bubble.querySelector('details.think'), userToggled = prev?.dataset.user;
-    const waiting = live && !answer.trim() && (think === null || !thinking);
-    const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
-    const ti = !live ? (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null : null;
-    const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
-    if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();
-    messageParts.disposeWithin(bubble); disposeMarkdownWithin(bubble);
-    renderAssistantBody(bubble, {
-      think, answer, live, thinking, waiting, slow: !!opts.slow, toolLine: !!bubble._tline,
-      open: userToggled ? prev.open : (live && thinking || settings.showThink), user: userToggled,
-      thinkSecs: opts.thinkSecs, sources: srcs, tools: ti?.tools || opts.msg?.tools,
-      refs: opts.msg?.memoryRefs, memoryActive: !!MEM?.active?.(), note: ti ? ti.note : freshNote(opts.msg), nextSourceId
-    });
-    const md = bubble.querySelector('.md');
-    if (md) {
-      if (live) renderLiveMarkdown(md, answer, srcs, root => messageParts.disposeWithin(root));
-      else renderMarkdownBody(md, answer, srcs);
-    }
-    if (live && bubble._tline && !answer.trim()) { bubble.appendChild(bubble._tline); requestAnimationFrame(() => bubble._tline?.classList.add('in')); }
-    if (wasLive && !live) bubble._freshAt = performance.now();
-    { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
-      if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
-    const msg = bubble.parentElement;
-    const oldActions = msg.querySelector('.actions');
-    if (oldActions) { Feedback.detach(oldActions); messageParts.disposeWithin(oldActions); oldActions.remove(); }
-    msg.querySelector('.stopped')?.remove();
-    msg.querySelector('.msg-note')?.remove();
-    // 1.1.3: old incomplete rows with a non-stop reason, and empty finished replies, count as failed (no silent empty bubbles)
-    const om = opts.msg, oldFail = om?.status === 'incomplete' && om.errorCode && !STOP_CODES.has(om.errorCode);
-    const emptyDone = !live && !opts.stopped && om && om.role !== 'user' && !answer.trim() && think === null && (!om.status || om.status === 'complete');
-    const isFail = !live && (om?.status === 'failed' && !STOP_CODES.has(om.errorCode) || oldFail || emptyDone);
-    if (!live && !isFail && (opts.stopped || om?.status === 'incomplete' || (om?.status === 'failed' && STOP_CODES.has(om.errorCode)))) { const st = document.createElement('div'); st.className = 'stopped'; st.setAttribute('role', 'note'); st.textContent = STOPPED_TEXT;
-      if (opts.regen) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn retry'; rb.textContent = '다시 시도'; rb.onclick = regenerate; st.append(' ', rb); }   // normal style, retry kept
-      msg.appendChild(st); }
-    else if (isFail) { const st = document.createElement('div'); st.className = 'stopped msg-note failed'; st.setAttribute('role', 'note'); st.textContent = emptyDone && !om.errorCode ? '답변을 받지 못했어요' : failText(om.errorCode);
-      if (opts.regen) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn retry'; rb.textContent = '다시 시도'; rb.onclick = regenerate; st.append(' ', rb); }   // regenerates the same message_id
-      msg.appendChild(st); }
-    else if (opts.msg?.status === 'generating' || opts.resuming) { const st = document.createElement('div'); st.className = 'stopped msg-note resuming'; st.setAttribute('role', 'status'); st.textContent = RESUMING; msg.appendChild(st); }
-    if (!live && opts.actions !== false) {
-      const a = messageParts.actions(answer, opts.regen ? regenerate : undefined);
-      const m = opts.msg, fbOk = !!m && (cv.mode === 'server' ? !!m.id : true);
-      if (fbOk) Feedback.attach(a, m);
-      if (opts.usage) a.appendChild(mkEl('span', 'usage', opts.usage));
-      msg.appendChild(a);
-    }
-  }
-  box.addEventListener('click', e => {
-    const b = e.target.closest('.code-head .copy'); if (!b) return;
-    copyText(b, b.closest('.codeblock').querySelector('code').textContent, true);
-  });
   Feedback.init({ persist, isServer: () => cv.mode === 'server', buzz, convs: () => cv.convs, showToast, write });
   function usageText(u, secs) {
     if (!u) return secs ? `${secs}s` : '';
@@ -535,8 +449,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   }
 
   /* 1.10.0 B1: an empty conversation is just the timeline's "지금" event (DIRECTION-B §4): no logo, headline, subtitle or suggestion cards. */
-  function renderEmpty() { clearMessageBox(); timeline.now(); }
-  setInterval(() => timeline.tick(), 60000);
+  function renderEmpty() { messages.now(); }
   function setConvTitle(t) { $('#title').textContent = t; box.setAttribute('aria-label', t || '대화'); }   /* the message list is named after the thread (screen readers: "<title>, list") */
   function renderMessages(keep) {
     clearMessageBox();
@@ -601,6 +514,15 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const retryAfterOf = res => { const v = res.headers.get('Retry-After'); if (!v) return 0; const n = +v; if (Number.isFinite(n)) return Math.max(0, n); const d = Date.parse(v); return isNaN(d) ? 0 : Math.max(0, (d - Date.now()) / 1000); };
   const failText = code => FAIL_TEXT[code] || DEFAULT_FAIL;
   const RESUMING = '답변 불러오는 중…';
+  const messages = createMessages({
+    box, parts: messageParts, timeline, showThink: () => !!settings.showThink, memoryActive: () => !!MEM?.active?.(),
+    isServer: () => cv.mode === 'server', nextSourceId, regenerate, isStop: code => STOP_CODES.has(code), failText,
+    stoppedText: STOPPED_TEXT, resumingText: RESUMING,
+    feedbackAttach: (actions, message) => Feedback.attach(actions, message),
+    feedbackDetach: actions => Feedback.detach(actions), feedbackClear: () => Feedback.disposeAll(),
+    memoryClick: id => { if (MEM) openMemoryView(id); }
+  });
+  const { fill: fillAssistant, toolInfo: TOOLINFO } = messages;
   function clearErrors() { box.querySelectorAll('.msg.error').forEach(removeMessage); }
   function addError(text, retry, retryAfter) {
     const b = addMsgEl('error');

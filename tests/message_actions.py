@@ -3,8 +3,8 @@ import json, os, urllib.request
 from playwright.sync_api import sync_playwright
 from assets_common import full_csp, watch_csp
 B = 'http://127.0.0.1:' + os.environ.get('EVE_PORT', '8765')
-def put(path):
-    urllib.request.urlopen(urllib.request.Request(B + path, method='PUT')).read()
+def put(path, body=None):
+    urllib.request.urlopen(urllib.request.Request(B + path, method='PUT', data=None if body is None else json.dumps(body).encode(), headers={'Content-Type':'application/json'})).read()
 with full_csp(), sync_playwright() as p:
     for engine in (p.chromium, p.webkit):
         if engine.name == 'webkit' and os.environ.get('EVE_WEBKIT') != '1': continue
@@ -57,6 +57,22 @@ with full_csp(), sync_playwright() as p:
         retry.click(); page.locator('.msg.assistant .actions .c').wait_for()
         assert page.locator('.msg.error').count() == 0
         print('PASS', engine.name, 'retry removes error and completes the same pending user turn')
+        assert not page.evaluate('window.__csp || []')
+        put('/b1/seed', {'title':'중지 상태 계약','messages':[
+            {'role':'user','content':'계속 답해줘'},
+            {'role':'assistant','content':'부분 답변','status':'incomplete','error_code':'cancelled'},
+        ]})
+        page.goto(B + '/ui/#/log'); page.reload(); page.wait_for_timeout(1200)
+        page.locator('#convList li.row',has_text='중지 상태 계약').click()
+        status=page.locator('.msg.assistant .stopped'); status.wait_for()
+        assert status.get_attribute('role')=='note' and '답변을 멈췄어요' in status.inner_text()
+        assert status.locator('.retry').count()==1
+        print('PASS',engine.name,'stopped status keeps note role and retry control')
+        message_id=page.evaluate('__app.msgs().at(-1).id'); requests=[]
+        context.on('request',lambda request:requests.append(request.post_data_json) if request.method=='POST' and request.url.endswith('/v1/chat/completions') else None)
+        status.locator('.retry').click(); page.locator('.msg.assistant .actions .c').wait_for()
+        assert page.locator('.msg.assistant .stopped').count()==0 and requests[-1]['replace_message_id']==message_id
+        print('PASS',engine.name,'status retry preserves server replacement ID and clears status')
         assert not page.locator('#messages [style], #messages style, #messages script').count()
         assert not errors and not page.evaluate('window.__csp || []'), errors
         print('PASS', engine.name, 'no inline content, CSP violations or lifecycle errors')

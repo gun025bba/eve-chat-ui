@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { MessageCopy } from './copy.js';
-import { ActionButtons, ErrorContent } from './parts-view.js';
+import { ActionButtons, ErrorContent, StatusContent } from './parts-view.js';
 
 type Part = { timer?: ReturnType<typeof setTimeout> };
 class MessageParts {
@@ -22,6 +22,14 @@ class MessageParts {
     draw(!!retry && retryAfter > 0);
     const timer = retry && retryAfter > 0 ? setTimeout(() => draw(false), retryAfter * 1000) : undefined;
     this.parts.set(root, { timer });
+  }
+  status(text: string, className: string, role: 'note' | 'status', retry?: () => void) {
+    const root = document.createElement('div');
+    root.className = className;
+    root.setAttribute('role', role);
+    render(<StatusContent text={text} retry={retry} />, root);
+    this.parts.set(root, {});
+    return root;
   }
   private dispose(root: Element, part: Part) {
     clearTimeout(part.timer);

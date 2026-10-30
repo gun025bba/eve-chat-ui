@@ -38,3 +38,19 @@ export function ErrorContent({ text, retry, disabled }: { text: string; retry?: 
     </>
   );
 }
+
+export function StatusContent({ text, retry }: { text: string; retry?: () => void }) {
+  return (
+    <>
+      {text}
+      {retry && (
+        <>
+          {' '}
+          <button type="button" class="btn retry" onClick={retry}>
+            다시 시도
+          </button>
+        </>
+      )}
+    </>
+  );
+}
