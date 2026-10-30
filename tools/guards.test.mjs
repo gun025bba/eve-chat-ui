@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { checkImports } from './check-imports.mjs';
+import { checkImports, missingNames } from './check-imports.mjs';
 import { measure, violations } from './check-size.mjs';
 
 test('ratchet rejects growth, new unsafe sinks and oversized functions; permits reduction', () => {
@@ -10,6 +13,17 @@ test('ratchet rejects growth, new unsafe sinks and oversized functions; permits 
   const metrics = measure('large.ts', `function large() {\n${'  step();\n'.repeat(61)}}`);
   assert.equal(metrics.functions, 3);
   assert.equal(measure('sink.ts', "element['innerHTML'] += userText;").innerHTML, 1);
+});
+
+test('legacy extraction rejects helpers used without an import', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'eve-binding-'));
+  try {
+    const file = join(directory, 'legacy.js');
+    writeFileSync(file, 'function render() { return missingLegacyHelper(); }');
+    assert.ok(missingNames([file]).some((message) => message.includes('missingLegacyHelper')));
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
 });
 
 test('dependency gate rejects cycles, upward edges, feature coupling and lazy imports', () => {
