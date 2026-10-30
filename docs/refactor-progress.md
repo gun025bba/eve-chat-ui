@@ -113,3 +113,19 @@
 - Node 15개·산출물 게이트·Chromium/WebKit의 iPhone/iPad/desktop 설치 계약 16개 통과. 기존 native 54/55이며 원본에서도 실패한 offline fallback 하나만 남았다.
 - 스모크 2·설정 10·이름 시트 12개도 통과. 두 기기 × 두 테마 × 세 너비 PNG 12개는 반복 화살표 애니메이션 위상을 고정하면 바이트 단위로 일치했다.
 - ratchet 파일 초과 2,614→2,587, 긴 줄 1,160→1,150, 함수 초과 3,204→3,177, innerHTML 38→37. 신규 !important·shared 승격·의존성 없음.
+
+### R3a 고정 소스 전체 회귀 결과
+
+- 54개 Python + sw_push.js 실행 완료: PASS 단언 1,709개, 실패 스위트 ios_polish/native 두 개.
+- 두 실패는 변경 전 main에서도 재현했다. 긴 제목의 overflow computed 값 단언과 uncached HTML의 offline fallback 단언이다.
+- 나머지 52개 Python과 SW 통과. 앞 실행에서 실패했던 b3_strip·stop_csp·stream_resume·motion_icons도 통과했다.
+- 전체 통과나 CI 성공으로 표현하지 않는다. 이후 feature 전환은 별도 대상으로 검증한다.
+
+## R3e — 인증·페어링 안내
+
+- 기반: R3d #58. 인증 안내 UI·신원·재시도·실패 횟수·잠금 타이머를 auth feature로 옮긴다. 앱이 gateway·카드 삭제·오류 정리·계정 표시·haptic을 주입한다.
+- eve.paired/eve.pairLock와 8자리 Crockford 정규화·5회 실패/10분 잠금·기존 401/403 분류·쿠키 요청을 유지한다. 코드/토큰은 저장하지 않는다.
+- Node 16개와 기존 pairing 30·identity_403 24·CSRF 24·선톡 98·설정 10·스모크 2개 통과. Chromium/WebKit 새 인증 계약 12개, 전체 소스 헤더 검사 12·셸 브리지 21개도 검증했다.
+- 공개 파일 보안 검사는 실제 dist 전체 JS/HTML/manifest로, 전송 정적 검사는 분리된 src 전체로 넓혔다. 옵션 없는 API fetch forwarder 두 곳은 인접 메서드를 오인하지 않게 구분하고 Node 요청 계약으로 확인한다.
+- 연결/재연결/거절 × 두 테마 × 세 너비 PNG 18개가 기존 산출물과 바이트 단위로 같다.
+- ratchet 파일 초과 2,587→2,513, 긴 줄 1,150→1,135, 함수 초과 3,177→3,103. 신규 innerHTML/!important·shared 승격·의존성 없음. 인증 경계로 보안 리뷰 대상이다.

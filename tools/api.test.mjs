@@ -15,6 +15,7 @@ await build({
         id === '\0eve:api-contract'
           ? [
               'src/api/client.js',
+              'src/features/auth/model.ts',
               'src/api/threads.ts',
               'src/api/gateway.ts',
               'src/api/thread-models.js',
@@ -41,6 +42,9 @@ const {
   createConversationState,
   createThreadsAPI,
   createGatewayRequests,
+  normCode,
+  fmtCode,
+  notice,
 } = createRequire(import.meta.url)('../.cache/api/contracts.cjs');
 
 test('request client preserves headers, 204, identity loss and ambiguous outcomes', async () => {
@@ -246,4 +250,16 @@ test('gateway raw requests preserve CSRF, cookies, stream cursors and persistenc
     replace_message_id: 'm/2',
   });
   assert.equal(calls[5][1].body, '{"messages":[],"stream":true,"stream_options":{"include_usage":true}}');
+});
+
+test('pairing model keeps Crockford normalization and identity-specific notices', () => {
+  assert.equal(normCode('o il u-2a$bc'), '011V2ABC');
+  assert.equal(fmtCode(normCode('o il u-2a$bc')), '011V-2ABC');
+  assert.equal(normCode('abcdefgh-more'), 'ABCDEFGH');
+  assert.equal(normCode(null), '');
+  assert.equal(fmtCode('ABCD'), 'ABCD');
+  assert.equal(notice('identity_not_allowed', true).pair, false);
+  assert.equal(notice('invalid_session', false).title, '다시 연결해 주세요');
+  assert.equal(notice(undefined, true).title, '다시 연결해 주세요');
+  assert.equal(notice('<img src=x>', false).title, '이 기기를 연결해 주세요');
 });
