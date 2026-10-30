@@ -438,7 +438,8 @@ class H(SimpleHTTPRequestHandler):
                     if PRO.get('atTools') is not None: md['tools'] = PRO['atTools']   # #134: tools[] {tool, selected_by, status, error_code?, count?[, query]}
                     if PRO.get('atTainted') is not None: md['tainted'] = PRO['atTainted']   # M-7: server-side tainted flag (true | false)
                     if md: am['metadata'] = md
-                    s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **(md if PRO.get('atPersistedMeta', True) else {})))
+                    PM = PRO.get('atPersistedMeta', True); pmd = md if PM is True else ({k: v for k, v in md.items() if k in PM} if PM else {})   # atPersistedMeta: True = all of metadata, False = none, [keys] = only those keys in the persisted event
+                    s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **pmd))
                 s.wfile.write(b'data: [DONE]\n\n')
             except (BrokenPipeError, ConnectionResetError): pass
             return

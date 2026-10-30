@@ -129,7 +129,7 @@ const taintSet = sources => new Set((Array.isArray(sources) ? sources : []).flat
 function safeUrl(u) { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : ''; } catch { return ''; } }
 function citeMap(sources) {
   if (!Array.isArray(sources) || !sources.length) return null;
-  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '' }); });
+  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '', published: c.published || '' }); });
   return m.size ? m : null;
 }
 function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
@@ -188,8 +188,8 @@ const msgTainted = m => typeof m?.tainted === 'boolean' ? m.tainted : !!(Array.i
 /* AUTO-TOOLS-SPEC v2 §5: the note comes back from the stored fresh:'unverified'; the reason from tools[] (last status≠ok → §5.1 copy; tools[] empty → 검색하지 않고…; otherwise the generic copy). No fresh / 'ok' → none. */
 function freshNote(m) {
   if (m?.fresh !== 'unverified') return null;
-  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().find(x => x && x.status && x.status !== 'ok');
-  return { key: (bad && toolFailKey({ status: bad.status, error_code: bad.error_code, count: bad.count })) || (t && !t.length ? 'nosearch' : 'unknown') };
+  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().map(x => x && toolFailKey({ status: x.status, error_code: x.error_code, count: x.count })).find(Boolean);   // latest failure; status ok + count 0 is the empty note
+  return { key: bad || (t && !t.length ? 'nosearch' : 'unknown') };
 }
 let _srcSeq = 0;
 // 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
@@ -1189,7 +1189,7 @@ if (typeof document !== 'undefined') (function () {
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     /* ---- the tool status line (AUTO-TOOLS-SPEC §3/§4/§9): ONE reused .tline > .tstat[role=status] per reply; text swaps cross-fade (opacity only),
        web updates are throttled to ≥1 s apart (the latest wins), a PIM tool's own copy shows at once; the line leaves the flow on the first answer token / on stop ---- */
-    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, tools: [], calls: new Map(), fail: null };
+    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, called: false, tools: [], calls: new Map(), fail: null };
     const reduceM = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
     function tsSwap(wrap, text) {
       const cur = wrap.querySelector('span.on:last-child') || wrap.lastElementChild;
@@ -1220,7 +1220,7 @@ if (typeof document !== 'undefined') (function () {
       const wait = now || !ts.applied ? 0 : Math.max(0, ts.applied + 1000 - performance.now());
       if (wait) ts.timer = setTimeout(tsApply, wait); else tsApply();
     };
-    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; };
+    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; bubble._tline?.querySelector('.slow')?.remove(); };   // the timer and the '· 조금 걸려요' it added
     const tsRemove = () => {
       clearTimeout(ts.timer); ts.timer = 0; ts.want = null; clearTimeout(ts.s4T); tsSlowOff();
       const w = bubble._tline; bubble._tline = null; if (!w) return;
@@ -1233,7 +1233,7 @@ if (typeof document !== 'undefined') (function () {
     function onWebCall(j) {
       const a = j.args && typeof j.args === 'object' ? j.args : {}, id = j.id != null ? String(j.id) : '';
       const by = j.selected_by === 'model' || j.selected_by === 'user' ? j.selected_by : '';
-      clearTimeout(ts.s4T);
+      clearTimeout(ts.s4T); ts.called = true;
       let r1, r2 = '';
       if (j.tool === 'web_fetch') { r1 = '페이지를 읽고 있어요'; r2 = hostOf(a.url) || '웹 페이지'; }
       else { r1 = '웹에서 찾고 있어요'; const q = typeof a.query === 'string' ? a.query.trim() : ''; r2 = q ? `“${q}”` : '';
@@ -1442,7 +1442,7 @@ if (typeof document !== 'undefined') (function () {
     const pf = persisted?.fresh ?? persisted?.metadata?.fresh, ptools = mapTools(persisted?.tools ?? persisted?.metadata?.tools);   // persisted.fresh is the authority; without it the tool_result decides
     const ptn = persisted?.tainted ?? persisted?.metadata?.tainted; if (typeof ptn === 'boolean') bubble._tainted = ptn;   // M-7: the server's flag (when sent) replaces the client's guess
     let note = ts.fail && (!sources?.length || ts.fail.key === 'blocked') ? ts.fail : null;
-    if (pf === 'ok') note = null; else if (pf === 'unverified') note = ts.fail || freshNote({ fresh: 'unverified', tools: ptools });
+    if (pf === 'ok') note = null; else if (pf === 'unverified') note = ts.fail || freshNote({ fresh: 'unverified', tools: ptools ?? (ts.called ? null : []) })   // persisted without tools[]: a turn that never called a web tool is 'nosearch' — same as after a reload, where the stored message carries tools: [];
     const tinfo = ts.tools.length || note ? { tools: ts.tools, note } : null; bubble._ti = tinfo;
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
     const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs; if (pf === 'ok' || pf === 'unverified') msg.fresh = pf; if (ptools) msg.tools = ptools; msg.tainted = !!bubble._tainted;
