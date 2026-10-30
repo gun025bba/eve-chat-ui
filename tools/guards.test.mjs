@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { legacyAssets } from './build-assets.mjs';
 import { checkImports, missingNames } from './check-imports.mjs';
 import { measure, violations } from './check-size.mjs';
 
@@ -56,4 +57,13 @@ test('component .js imports resolve TSX and keep cycle checks', () => {
       'src/features/notice/b.tsx': "import './a.js'",
     }).some((error) => error.startsWith('Import cycle:')),
   );
+});
+
+test('version module injection survives TypeScript quote and declaration transforms', () => {
+  const plugin = legacyAssets('99.1.2');
+  for (const code of ["export const APP_VERSION = '__EVE_VERSION__';", 'var APP_VERSION = "__EVE_VERSION__";']) {
+    const transformed = plugin.transform(code, '/src/lib/version.ts');
+    assert.ok(transformed.includes('"99.1.2"'));
+    assert.ok(!transformed.includes('__EVE_VERSION__'));
+  }
 });

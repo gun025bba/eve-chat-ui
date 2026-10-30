@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../lib/version.js';
 import { SHEET_EASE, sheetDrag, animateOut } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
 import { createGatewayRequests } from '../api/gateway.js';
@@ -23,7 +24,6 @@ function renderSources(sources, tools) {
   return model ? renderSourceHtml(model, 'src' + (++_srcSeq)) : '';
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
-
 /* ---------- app ---------- */
 export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename }) {
   const $ = s => document.querySelector(s);
@@ -1985,7 +1985,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && cv.mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '__EVE_VERSION__'; console.info('[llmchat] app', APP_VERSION);
+  console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {

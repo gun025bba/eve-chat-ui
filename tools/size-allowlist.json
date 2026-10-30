@@ -1,6 +1,6 @@
 {
   "./": {"files":6},
-  "index.html": {"lines":1,"longLines":107,"functions":0,"innerHTML":0,"important":0},
+  "index.html": {"lines":0,"longLines":81,"functions":0,"innerHTML":0,"important":0},
   "offline.css": {"lines":0,"longLines":4,"functions":0,"innerHTML":0,"important":0},
   "offline.html": {"lines":0,"longLines":1,"functions":0,"innerHTML":0,"important":0},
   "src/api/memory.js": {"lines":0,"longLines":9,"functions":17,"innerHTML":0,"important":0},
