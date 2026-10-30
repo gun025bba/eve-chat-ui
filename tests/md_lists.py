@@ -2,7 +2,7 @@
 import json, os, subprocess, sys
 APP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.cache', 'unit', 'helpers.cjs')
 JS = r'''
-const {renderMarkdown:r, stableCut:c} = (require(process.argv[1]).default || require(process.argv[1]));
+const {renderMarkdown:r, stableCut:c} = (require(process.argv[1]).browserHelpers || require(process.argv[1]).default || require(process.argv[1]));
 const cases = JSON.parse(process.argv[2]);
 const out = {};
 for (const [k, src] of Object.entries(cases)) {

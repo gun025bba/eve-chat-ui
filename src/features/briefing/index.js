@@ -1,8 +1,8 @@
+import { el } from '../../shared/dom.js';
 /* Eve 아침 브리핑 카드 (1.10.0). Built from POST /v1/briefing/preview (eve-serving #77): {status, text, sections:[{name, code?, count}]}.
  * The briefing text is model output: every line is rendered with textContent, nothing is parsed as HTML.
  * Unknown status / section names / codes degrade to generic copy; the card never throws on a shape it does not know. */
-(function () {
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+export default (function () {
   const SUN_HORIZON = '<svg class="i" aria-hidden="true"><use href="#i-sun-horizon"/></svg>';
   const SECTION = { events: '일정', reminders: '리마인더' };                    // names the gateway sends today; anything else is shown as given
   const CODE = { pim_unavailable: '연결하지 못했어요', permission_denied: '접근이 허용되지 않았어요', kill_switch: '지금은 꺼져 있어요', timeout: '응답이 늦어요' };
@@ -65,5 +65,5 @@
   }
   const loading = () => { const c = el('section', 'brief-card'); c.dataset.state = 'loading'; c.setAttribute('aria-busy', 'true'); c.setAttribute('aria-label', '아침 브리핑');
     const head = el('div', 'bc-head'); head.insertAdjacentHTML('beforeend', SUN_HORIZON); head.appendChild(el('span', 'bc-title', '아침 브리핑')); c.appendChild(head); c.appendChild(el('p', 'bc-msg', '브리핑을 만드는 중이에요…')); return c; };
-  self.EveBriefing = { card, loading, renderText };
+  return { card, loading, renderText };
 })();

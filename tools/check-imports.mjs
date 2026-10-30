@@ -20,7 +20,9 @@ export function missingNames(paths) {
   return (
     program
       .getSemanticDiagnostics()
-      .filter((diagnostic) => diagnostic.code === 2304 && roots.has(resolve(diagnostic.file.fileName)))
+      .filter(
+        (diagnostic) => [2304, 2448, 2454].includes(diagnostic.code) && roots.has(resolve(diagnostic.file.fileName)),
+      )
       .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))
       // Existing classic global; R2 replaces this final ambient name with injected modules.
       .filter((message) => message !== "Cannot find name 'EvePim'.")
@@ -83,7 +85,7 @@ export function checkImports(sources) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const sources = Object.fromEntries(filesIn('src').map((name) => [name, readFileSync(name, 'utf8')]));
   const errors = checkImports(sources);
-  errors.push(...missingNames(filesIn('src/legacy').filter((name) => name.endsWith('.js'))));
+  errors.push(...missingNames(filesIn('src').filter((name) => name.endsWith('.js'))));
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`Import gate: ${Object.keys(sources).length} sources, no cycles or boundary violations`);
 }

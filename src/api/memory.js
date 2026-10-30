@@ -1,7 +1,7 @@
 /* Eve memory (Part B) — API layer + field mapping. The ONLY file that knows memory endpoint paths and
  * server field names. Schema frozen in eve-serving ui-api-contract §3.9 (PR #32).
  * Exception still open: where memory.enabled lives in /v1/settings (awaiting architect) — isolated in SETTINGS below. */
-(function () {
+export default (function () {
   const E = encodeURIComponent;
   const ENDPOINTS = {                                                    // §3.9.2 / §3.9.3
     list:       { method: 'GET',    path: () => '/v1/memory' },
@@ -76,5 +76,5 @@
       deleteAll: () => call('deleteAll')
     };
   }
-  self.EveMemoryAPI = { make, ENDPOINTS, FIELDS, SETTINGS, codeOf, errState };
+  return { make, ENDPOINTS, FIELDS, SETTINGS, codeOf, errState };
 })();

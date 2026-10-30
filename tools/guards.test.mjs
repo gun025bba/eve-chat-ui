@@ -19,8 +19,10 @@ test('legacy extraction rejects helpers used without an import', () => {
   const directory = mkdtempSync(join(tmpdir(), 'eve-binding-'));
   try {
     const file = join(directory, 'legacy.js');
-    writeFileSync(file, 'function render() { return missingLegacyHelper(); }');
-    assert.ok(missingNames([file]).some((message) => message.includes('missingLegacyHelper')));
+    writeFileSync(file, 'function render() { return missingLegacyHelper(); } const feature = feature.value;');
+    const errors = missingNames([file]);
+    assert.ok(errors.some((message) => message.includes('missingLegacyHelper')));
+    assert.ok(errors.some((message) => message.includes('before its declaration')));
   } finally {
     rmSync(directory, { recursive: true });
   }

@@ -11,7 +11,8 @@ d = os.path.join(os.path.dirname(__file__), '..')
 html = open(source_path(os.path.join(d, 'index.html'))).read(); css = open(source_path(os.path.join(d, 'styles.css'))).read()
 check('viewport-fit=cover', 'viewport-fit=cover' in re.search(r'<meta name="viewport"[^>]*>', html).group(0))
 check('safe-area env() used for all four edges', all(f'env(safe-area-inset-{e})' in css for e in ['top', 'right', 'bottom', 'left']))
-check('shell.js loaded before app.js', html.index('/ui/shell.js') < html.index('/ui/app.js'))
+main = (__import__('pathlib').Path(d) / 'src/main.ts').read_text()
+check('shell bridge initialized before boot', main.index('./app/shell.js') < main.index('boot({'))
 FAKE = """window.__sent=[];window.__vib=0;navigator.vibrate=()=>{window.__vib++;return true};
 window.webkit={messageHandlers:{eve:{postMessage(m){window.__sent.push(JSON.parse(JSON.stringify(m)))}}}};
 localStorage.setItem('eve.mem.introSeen','1')"""

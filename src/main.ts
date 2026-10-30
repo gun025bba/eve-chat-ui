@@ -1,5 +1,17 @@
-// R0 keeps the legacy boot and its public hooks intact; R1 extracts typed helpers.
-import legacy from './legacy/app.js';
+import './app/shell.js';
+import memoryAPI from './api/memory.js';
+import createProactiveAPI from './api/proactive.js';
+import briefing from './features/briefing/index.js';
+import createMemory from './features/memory/index.js';
+import pim from './features/pim/index.js';
+import createProactive from './features/proactive/index.js';
+import today from './features/today/index.js';
+import { boot, browserHelpers } from './legacy/app.js';
 
-// Existing browser tests call these classic-script helpers; R1 moves them to module tests.
-Object.assign(globalThis, legacy);
+const proactiveAPI = createProactiveAPI({ cleanBriefing: pim.cleanBriefing });
+const proactive = createProactive({ proactiveAPI, pim, briefing });
+const memory = createMemory({ memoryAPI });
+
+// Preserve existing browser test contracts; production modules use imports or injected dependencies.
+Object.assign(globalThis, browserHelpers, { EvePim: pim, EveProactiveAPI: proactiveAPI });
+boot({ ProactiveAPI: proactiveAPI, Proactive: proactive, Pim: pim, Memory: memory, Today: today });
