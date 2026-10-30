@@ -436,6 +436,7 @@ class H(SimpleHTTPRequestHandler):
                     md = {}
                     if PRO.get('atFresh'): md['fresh'] = PRO['atFresh']   # #134: persisted freshness flag (ok | unverified)
                     if PRO.get('atTools') is not None: md['tools'] = PRO['atTools']   # #134: tools[] {tool, selected_by, status, error_code?, count?[, query]}
+                    if PRO.get('atTainted') is not None: md['tainted'] = PRO['atTainted']   # M-7: server-side tainted flag (true | false)
                     if md: am['metadata'] = md
                     s.ev(dict({"object": "chat.completion.persisted", "status": "complete", "thread_id": th['id'], "message_id": am['id'], "user_message_id": um['id'] if um else None}, **(md if PRO.get('atPersistedMeta', True) else {})))
                 s.wfile.write(b'data: [DONE]\n\n')
