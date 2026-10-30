@@ -158,3 +158,19 @@
 - 목록 계약을 full CSP와 Chromium/WebKit으로 확장하고, 악성 형태의 제목·미리보기와 반복 갱신의 중복 액션을 확인한다.
 - ratchet 파일 초과 2,332→2,301, 긴 줄 1,085→1,073, 함수 초과 2,922→2,889, innerHTML 30→28. 신규 !important·shared 승격·의존성 없음.
 - 확장 목록 계약 35개 단언을 Chromium/WebKit 각각 통과했다. 되돌리기 후 타이머 취소와 백그라운드 지연 커밋도 실제 API 상태로 확인한다.
+
+### R3f 고정 소스 전체 회귀 결과
+
+- Python 59개 + sw_push.js 실행 완료: PASS 단언 1,771개, 실패 스위트 ios_polish/native 두 개.
+- 두 실패는 변경 전 main에서도 재현한 computed overflow 값/uncached HTML fallback 단언이다. 나머지 57개 Python과 SW 검사는 통과했다.
+- R3a 이후 추가한 auth/install/migration/rename/settings 계약도 포함한다. 전체 통과나 CI 성공으로 표현하지 않는다.
+
+## R4c — 목록·검색 결과·보관함 컴포넌트
+
+- 기반: R4b #62. 날짜 그룹·고정 정렬·검색 결과·스켈레톤·보관함을 Preact가 소유하며, 편집 중 갱신 금지·그룹 모서리·기존 행 재생성 동작을 유지한다.
+- 검색 타이머·순번·결과는 ConversationSearch가 소유한다. 250ms debounce·이전 응답 무시·중복 결과 분류·진행 표시를 유지한다.
+- 검색 snippet은 정확한 mark 토큰만 JSX로 구성하고 다른 HTML 형태 입력은 텍스트로 남긴다. 정상/중첩/잘못 닫힌 태그와 악성 HTML의 DOM을 이전 escape+mark 처리와 비교한다.
+- Node 19개·빌드·대화 35·가로 넘침 19개 통과. 목록/보관함/검색 × 두 테마 × 세 너비 PNG 18개가 이전 산출물과 바이트 단위로 같다.
+- WebKit의 SW 활성 컨텍스트에서 page route 검색 응답 가로채기가 시간 초과했고, UI 테스트의 service_workers=block 격리 후 full CSP 확장 목록 37개가 통과했다. 서비스 워커 검증은 별도 원본 계약을 유지한다.
+- ratchet 파일 초과 2,301→2,272, 긴 줄 1,073→1,061, 함수 초과 2,889→2,858, innerHTML 28→20. 신규 !important·shared 승격·의존성 없음.
+- 최종 UI 격리 설정에서 Chromium/WebKit 각각 37개 단언 통과. CSP 위반·페이지 오류가 없으며 기존 SW 소스/회귀 테스트는 변경하지 않았다.

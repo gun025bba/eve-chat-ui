@@ -6,7 +6,7 @@ from b2_common import *
 R = []; errs = []; csp = []
 def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '' if ok else x)
 def newpg(b, scheme='dark', **kw):
-    ctx = new_ctx(b, scheme=scheme, **kw)
+    ctx = new_ctx(b, scheme=scheme, service_workers='block', **kw)
     ctx.expose_binding('_recordCsp', lambda source, directive: csp.append(directive))
     ctx.add_init_script("document.addEventListener('securitypolicyviolation', e => window._recordCsp(e.violatedDirective))")
     pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e))); return ctx, pg
@@ -78,6 +78,19 @@ with full_csp(), sync_playwright() as p:
     pg.click('#logSearch'); pg.fill('#search', '제목'); pg.wait_for_timeout(600)
     pg.fill('#search', ''); pg.click('#searchCancel'); pg.wait_for_timeout(500)
     check('repeated row rebuild keeps one action set', pg.locator('#convList .ra-rename').count() == 1 and pg.locator('#convList .ra-archive').count() == 1)
+    snippet = ['']; snippets_ok = []
+    ctx.route('**/v1/search?*', lambda route: route.fulfill(status=200, content_type='application/json', body=json.dumps({'data':[{'thread_id':'remote', 'match':'content', 'thread_title': title, 'snippet':snippet[0]}]})))
+    pg.click('#logSearch')
+    for i, text in enumerate(('plain & text', '<mark>강조</mark> & 뒤', '<mark><mark>x</mark> y</mark>', '</mark>x<mark>y', '<mark class=x>literal</mark>', '<img src=x onerror=alert(1)> <script>alert(1)</script>')):
+        snippet[0] = text; pg.fill('#search', f'remote-{i}'); pg.wait_for_timeout(650)
+        snippets_ok.append(pg.locator('#convList .snippet').evaluate("""(node, source) => {
+          const escaped = source.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+          const html = escaped.replace(/&lt;(\/?)mark&gt;/g, '<$1mark>');
+          return node.innerHTML === new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
+        }""", text))
+    check('search snippets preserve mark-only DOM for normal, nested and malformed input', all(snippets_ok), snippets_ok)
+    check('search title/snippet HTML remains inert', pg.locator('#convList .row-title').inner_text() == title and pg.locator('#convList img, #convList script').count() == 0)
+    pg.click('#searchCancel'); pg.wait_for_timeout(500)
     pg.locator('#convList li.row').dispatch_event('contextmenu'); pg.wait_for_timeout(350)
     pg.locator('#ctx [role=menuitem]', has_text='보관').click(); pg.wait_for_timeout(350)
     check('archive removes row before deferred commit', pg.locator('#convList li.row').count() == 0 and not any(t.get('archived') for t in req('GET', '/__db')['threads']))

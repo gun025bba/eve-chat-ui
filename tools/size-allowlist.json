@@ -13,7 +13,7 @@
   "src/features/proactive/index.js": {"lines":0,"longLines":65,"functions":201,"innerHTML":0,"important":0},
   "src/features/proactive/model.js": {"lines":0,"longLines":23,"functions":0,"innerHTML":0,"important":0},
   "src/features/today/index.js": {"lines":0,"longLines":52,"functions":149,"innerHTML":3,"important":0},
-  "src/legacy/app.js": {"lines":1391,"longLines":355,"functions":1826,"innerHTML":25,"important":0},
+  "src/legacy/app.js": {"lines":1362,"longLines":343,"functions":1795,"innerHTML":17,"important":0},
   "styles.css": {"lines":910,"longLines":294,"functions":0,"innerHTML":0,"important":30},
   "sw.js": {"lines":0,"longLines":11,"functions":0,"innerHTML":0,"important":0}
 }
