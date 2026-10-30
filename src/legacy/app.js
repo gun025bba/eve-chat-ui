@@ -1,4 +1,4 @@
-import { renderMarkdownBody } from '../features/messages/markdown.js';
+import { renderMarkdownBody, createLiveBody, renderLiveMarkdown, disposeMarkdownWithin } from '../features/messages/markdown.js';
 import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
 import { createTimeline } from '../features/messages/timeline.js';
@@ -75,11 +75,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); timeline.clear(); }
+  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); disposeMarkdownWithin(box); timeline.clear(); }
   function showMessageLoading() { clearMessageBox(); timeline.loading(); }
   function removeMessage(element) {
     const actions = element?.querySelector('.actions'); if (actions) Feedback.detach(actions);
-    if (element) messageParts.disposeWithin(element);
+    if (element) { messageParts.disposeWithin(element); disposeMarkdownWithin(element); }
     timeline.remove(element);
   }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
@@ -460,17 +460,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (!answer.trim()) return !md && (!!bubble.querySelector('.typing,.tline') || (!!det && thinking));
     if (!md) { // first answer token: append answer container without touching the think block
       bubble.querySelectorAll('.typing,.warming').forEach(n => n.remove()); bubble._tsDrop?.();   // the tool line fades out (opacity --d-1) and leaves the flow
-      const nm = document.createElement('div'); nm.className = 'md cursor'; nm.innerHTML = '<div class="stable"></div><div class="tail"></div>';
-      bubble.appendChild(nm); bubble._cut = 0; return patchLive(bubble, think, answer, thinking);
+      bubble.appendChild(createLiveBody()); return patchLive(bubble, think, answer, thinking);
     }
-    const cut = stableCut(answer);
-    // completed blocks are frozen: append only newly completed ones, never re-render what is already on screen
-    const stable = md.querySelector('.stable'), prev = bubble._cut || 0;
-    if (cut > prev) stable.insertAdjacentHTML('beforeend', renderMarkdown(answer.slice(prev, cut), bubble._sources));
-    else if (cut < prev) stable.innerHTML = renderMarkdown(answer.slice(0, cut), bubble._sources);
-    bubble._cut = cut;
-    const tail = md.querySelector('.tail'), th = renderMarkdown(answer.slice(cut), bubble._sources);
-    if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
+    renderLiveMarkdown(md, answer, bubble._sources, root => messageParts.disposeWithin(root));
     return true;
   }
   /* AUTO-TOOLS-SPEC §5/§7: what the web tools did for a reply — {tools:[{q,by}], note:{key,t}} — kept in memory for this session only (message id → info; never written to storage, so queries do not persist) */
@@ -510,14 +502,18 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (waiting && bubble._tline) { /* the persistent .tline node is re-attached below */ }
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
-    else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
+    else if (live) html += '<div class="md cursor"><div class="stable"></div><div class="tail"></div></div>';
     else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md"></div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
-    messageParts.disposeWithin(bubble);
+    messageParts.disposeWithin(bubble); disposeMarkdownWithin(bubble);
     bubble.innerHTML = html;
-    if (!live) { const md = bubble.querySelector('.md'); if (md) renderMarkdownBody(md, answer, srcs); }
+    const md = bubble.querySelector('.md');
+    if (md) {
+      if (live) renderLiveMarkdown(md, answer, srcs, root => messageParts.disposeWithin(root));
+      else renderMarkdownBody(md, answer, srcs);
+    }
     if (live && bubble._tline && !answer.trim()) { bubble.appendChild(bubble._tline); requestAnimationFrame(() => bubble._tline?.classList.add('in')); }
     if (wasLive && !live) bubble._freshAt = performance.now();
     { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
@@ -525,7 +521,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     fillToolNote(bubble);
     const det = bubble.querySelector('details.think');
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
-    bubble._tailHtml = null;
     const msg = bubble.parentElement;
     const oldActions = msg.querySelector('.actions');
     if (oldActions) { Feedback.detach(oldActions); messageParts.disposeWithin(oldActions); oldActions.remove(); }
