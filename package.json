@@ -15,5 +15,8 @@
     "@biomejs/biome": "2.6.4",
     "typescript": "6.0.3",
     "vite": "8.3.5"
+  },
+  "dependencies": {
+    "preact": "11.1.0"
   }
 }

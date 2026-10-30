@@ -17,16 +17,12 @@ export function missingNames(paths) {
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
   });
-  return (
-    program
-      .getSemanticDiagnostics()
-      .filter(
-        (diagnostic) => [2304, 2448, 2454].includes(diagnostic.code) && roots.has(resolve(diagnostic.file.fileName)),
-      )
-      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))
-      // Existing classic global; R2 replaces this final ambient name with injected modules.
-      .filter((message) => message !== "Cannot find name 'EvePim'.")
-  );
+  return program
+    .getSemanticDiagnostics()
+    .filter(
+      (diagnostic) => [2304, 2448, 2454].includes(diagnostic.code) && roots.has(resolve(diagnostic.file.fileName)),
+    )
+    .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '));
 }
 export function checkImports(sources) {
   const errors = [];
@@ -45,9 +41,13 @@ export function checkImports(sources) {
       const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier;
       if (specifier && ts.isStringLiteral(specifier) && specifier.text.startsWith('.')) {
         const target = posix.normalize(posix.join(dirname(name), specifier.text));
-        const found = [target, target.replace(/\.js$/, '.ts'), `${target}.ts`, `${target}/index.ts`].find(
-          (candidate) => candidate in sources || existsSync(candidate),
-        );
+        const found = [
+          target,
+          target.replace(/\.js$/, '.ts'),
+          target.replace(/\.js$/, '.tsx'),
+          `${target}.ts`,
+          `${target}/index.ts`,
+        ].find((candidate) => candidate in sources || existsSync(candidate));
         if (!found) errors.push(`${name}: unresolved ${target}`);
         const to = (found || target).split('/');
         if (from[1] in ranks && (to[0] !== 'src' || !(to[1] in ranks))) {

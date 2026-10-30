@@ -41,3 +41,19 @@ test('dependency gate rejects cycles, upward edges, feature coupling and lazy im
   ])
     assert.ok(checkImports(sources).length, JSON.stringify(sources));
 });
+
+test('component .js imports resolve TSX and keep cycle checks', () => {
+  assert.deepEqual(
+    checkImports({
+      'src/app/mount.ts': "import '../features/notice/index.js'",
+      'src/features/notice/index.tsx': 'export const notice = <span>ready</span>;',
+    }),
+    [],
+  );
+  assert.ok(
+    checkImports({
+      'src/features/notice/a.tsx': "import './b.js'",
+      'src/features/notice/b.tsx': "import './a.js'",
+    }).some((error) => error.startsWith('Import cycle:')),
+  );
+});
