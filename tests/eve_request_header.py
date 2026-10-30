@@ -1,7 +1,7 @@
 """1.0.2: every mutating request (POST/PUT/PATCH/DELETE) sends X-Eve-Request: 1; with a body it must be Content-Type: application/json."""
-from assets_common import source_path
+from assets_common import ROOT
 from playwright.sync_api import sync_playwright
-import urllib.request, json, re, pathlib
+import urllib.request, json, re
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')
 def put(path):
     urllib.request.urlopen(urllib.request.Request(B + path, method='PUT'))
@@ -11,11 +11,17 @@ def check(name, ok, info=''):
     if not ok: FAIL.append(name)
 
 # static: no raw mutating fetch bypasses headers(method); no FormData/text/plain/sendBeacon
-src = source_path(pathlib.Path(__file__).resolve().parent.parent.joinpath('app.js')).read_text()
+sources = [(f, f.read_text()) for f in (ROOT / 'src').rglob('*') if f.suffix in ('.js', '.ts', '.tsx')]
+src = '\n'.join(text for _, text in sources)
 check('no FormData / text/plain / sendBeacon / XHR', not re.search(r'FormData|text/plain|sendBeacon|XMLHttpRequest', src))
-raw = [m.start() for m in re.finditer(r"\bfetch\(", src)]
-bad = [src[i:i+300] for i in raw if re.search(r"method:\s*'(POST|PUT|PATCH|DELETE)'", src[i:i+300]) and "headers('" not in src[i:i+300]]
-check('raw mutating fetch uses headers(method)', not bad, bad)
+# The API's two late-bound fetch(...args) forwarders have no options object; their
+# neighboring methods are separate calls, covered by tools/api.test.mjs contracts.
+forwarders = {ROOT / 'src/api/client.js', ROOT / 'src/api/gateway.ts'}
+raw = [text[m.start():m.start()+300] for path, text in sources for m in re.finditer(r"\bfetch\(", text)
+       if not (path in forwarders and text.startswith('fetch(...args)', m.start()))]
+bad = [call for call in raw if re.search(r"method:\s*'(POST|PUT|PATCH|DELETE)'", call) and "headers('" not in call
+       and not all(header in call for header in ("'X-Eve-Request': '1'", "'Content-Type': 'application/json'"))]
+check('raw mutating fetch carries CSRF and JSON headers', not bad, bad)
 
 with sync_playwright() as p:
     b = p.chromium.launch()

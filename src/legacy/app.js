@@ -25,11 +25,12 @@ function renderSources(sources, tools) {
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install, Auth }) {
   const $ = s => document.querySelector(s);
   const { showToast, hideToast } = Toast;
   const { openMini, closeMini } = Sheets;
   const { maybeA2HS, openA2HS } = Install;
+  const { showAuthNotice, checkAuth } = Auth;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
@@ -61,7 +62,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const cur = () => cv.convs.find(c => c.id === cv.currentId) || cv.archivedList.find(c => c.id === cv.currentId);
   const persist = () => { try { save(cv.mode === 'server' ? LS.srv : LS.convs, cv.convs); } catch {} save(LS.current, cv.currentId); };
   const apiBase = () => normBase(settings.base);
-  let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
@@ -1646,87 +1646,13 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     showMenu(row, [{ label: '복원', icon: 'archive', act: () => restoreConv(c) }, ...(cv.mode === 'local' ? [{ label: '삭제', icon: 'trash', danger: true, act: () => confirmDelete(c) }] : [])]);
   });
 
-  /* ---------- Tailscale identity (/whoami) ---------- */
-  const authEl = $('#authNotice');
-  let authRetry = null;
+  /* ---------- identity notice: settings projection ---------- */
   function renderWho() {
     const el = $('#sWho'); if (!el) return;
-    const who = whoami && (whoami.user || whoami.login);
-    el.textContent = who ? `${who} 계정으로 연결됨` : '';
-    el.hidden = !who;
+    const who = Auth.user();
+    el.textContent = who ? `${who} 계정으로 연결됨` : ''; el.hidden = !who;
   }
-  // 1.6.0 (eve-serving #65, identity-transport §4/§6): 401 = no/expired session → pairing code entry (POST /v1/pair → 204 + eve_session cookie).
-  // 401 invalid_session (or 401 after we were paired) → re-pair notice. 403 identity_not_allowed keeps its own notice;
-  // 403 scope_denied is NOT an auth failure (session kept, errMsg shows a not-allowed message).
-  // Codes: 8-char Crockford, 10 min, single use; 5 failures lock pairing 10 min and void codes. Server only says pair_failed,
-  // so the lock is tracked client-side (count + until) — no codes/tokens are ever stored.
-  const PAIRED = 'eve.paired', PLOCK = 'eve.pairLock', MAXF = 5, LOCK_MS = 10 * 60e3;
-  const pairEl = $('#pairForm'), pairIn = $('#pairCode'), pairErr = $('#pairErr'), pairBtn = $('#pairSubmit'), pairHint = $('#pairHint');
-  const normCode = v => String(v || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1').replace(/U/g, 'V').slice(0, 8);   // Crockford base32
-  const fmtCode = c => c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c;
-  const lockState = () => { const l = load(PLOCK, null) || {}; return { fails: l.fails | 0, until: +l.until || 0 }; };
-  let lockTimer = 0;
-  function renderLock() {
-    const { fails, until } = lockState(), left = until - Date.now();
-    clearTimeout(lockTimer);
-    if (left > 0) {
-      const m = Math.ceil(left / 60e3);
-      pairIn.disabled = true; pairBtn.disabled = true; authEl.querySelector('.auth-card').dataset.pair = 'locked';
-      pairErr.textContent = `시도가 너무 많아 잠겼어요. ${m}분 뒤에 새 코드를 받아 입력해 주세요.`; pairErr.hidden = false;
-      lockTimer = setTimeout(renderLock, Math.min(left, 30e3)); return true;
-    }
-    if (until) { save(PLOCK, { fails: 0, until: 0 }); pairErr.hidden = true; }
-    pairIn.disabled = false; pairBtn.disabled = normCode(pairIn.value).length !== 8; authEl.querySelector('.auth-card').dataset.pair = fails ? 'failed' : 'entry';
-    return false;
-  }
-  function showAuthNotice(retry, code) {
-    const denied = code === 'identity_not_allowed', pair = !denied;
-    const repair = pair && (code === 'invalid_session' || localStorage.getItem(PAIRED) === '1');
-    $('#authTitle').textContent = denied ? '이 계정은 쓸 수 없어요' : repair ? '다시 연결해 주세요' : '이 기기를 연결해 주세요';
-    $('#authBody').textContent = denied ? '허용된 Tailscale 계정으로 로그인한 뒤 다시 시도해 주세요.'
-      : repair ? '연결이 만료됐거나 해제됐어요. Eve 서버에서 새 연결 코드를 받아 입력해 주세요.' : 'Eve 서버에서 받은 8자리 연결 코드를 입력해 주세요.';
-    const card = authEl.querySelector('.auth-card'); card.classList.toggle('pairing', pair); card.dataset.pair = pair ? 'entry' : '';
-    pairEl.hidden = !pair; $('#authRetry').textContent = pair ? '이미 연결했어요' : '다시 시도';
-    if (retry) authRetry = retry;
-    if (!authEl.hidden) { if (pair) renderLock(); return; }
-    pairIn.value = ''; pairErr.hidden = true; pairIn.removeAttribute('aria-invalid');
-    if (pair) renderLock();
-    authEl.hidden = false; requestAnimationFrame(() => { authEl.classList.add('in'); if (pair && !pairIn.disabled && !matchMedia('(pointer:coarse)').matches) pairIn.focus(); });
-  }
-  pairIn.addEventListener('input', () => { const c = normCode(pairIn.value); pairIn.value = fmtCode(c); pairBtn.disabled = c.length !== 8; if (!lockState().fails) pairErr.hidden = true; pairIn.removeAttribute('aria-invalid'); });
-  pairEl.addEventListener('submit', async ev => {
-    ev.preventDefault(); const c = normCode(pairIn.value); if (c.length !== 8 || renderLock()) return;
-    pairBtn.disabled = true; pairBtn.textContent = '연결 중…';
-    let r = null;
-    try { r = await gateway.pair(fmtCode(c)); }
-    catch { pairErr.textContent = '서버에 연결할 수 없어요. 연결 상태를 확인해 주세요.'; pairErr.hidden = false; pairBtn.textContent = '연결'; pairBtn.disabled = false; return; }
-    pairBtn.textContent = '연결';
-    if (!r.ok) {
-      if (r.status !== 401) { pairErr.textContent = '지금은 연결할 수 없어요. 잠시 뒤 다시 시도해 주세요.'; pairErr.hidden = false; pairBtn.disabled = false; return; }   // not a code failure: don't count
-      const fails = lockState().fails + 1;
-      save(PLOCK, fails >= MAXF ? { fails: 0, until: Date.now() + LOCK_MS } : { fails, until: 0 });
-      pairIn.setAttribute('aria-invalid', 'true'); buzz(20);
-      if (renderLock()) return;
-      pairErr.textContent = `코드가 맞지 않거나, 이미 썼거나, 10분이 지났어요. 남은 시도 ${MAXF - fails}번`; pairErr.hidden = false; pairBtn.disabled = false; return;
-    }
-    save(PLOCK, { fails: 0, until: 0 }); localStorage.setItem(PAIRED, '1');
-    if (await checkAuth()) { const f = authRetry; authRetry = null; clearErrors(); if (f) f(); }
-  });
-  function hideAuthNotice() { authEl.classList.remove('in'); authEl.hidden = true; }
-  async function checkAuth() {
-    try {
-      const r = await gateway.identity();
-      const j = await r.json().catch(() => null);
-      if (isAuthFail(r.status, authCode(j)) || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, authCode(j)); return false; }   // signed out: drop stored card contents
-      if (r.ok) { whoami = j; renderWho(); localStorage.setItem(PAIRED, '1'); }
-      hideAuthNotice(); return true;
-    } catch { return true; }   // offline / network error: chat path reports it
-  }
-  $('#authRetry').onclick = async () => {
-    const b = $('#authRetry'); b.disabled = true; b.textContent = '확인 중…';
-    const ok = await checkAuth(); b.disabled = false; b.textContent = '다시 시도';
-    if (ok && authRetry) { const f = authRetry; authRetry = null; clearErrors(); f(); }
-  };
+  Auth.init({ gateway, load, save, clearCards, clearErrors, renderWho, buzz });
 
   /* ---------- sheets (§6) ---------- */
   const dlg = $('#settings'), sform = $('#settingsForm');

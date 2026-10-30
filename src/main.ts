@@ -1,6 +1,7 @@
 import './app/shell.js';
 import memoryAPI from './api/memory.js';
 import createProactiveAPI from './api/proactive.js';
+import { mountAuth } from './features/auth/index.js';
 import briefing from './features/briefing/index.js';
 import { mountRename } from './features/conversations/rename.js';
 import { mountInstall } from './features/install/index.js';
@@ -32,7 +33,11 @@ const rename = mountRename(renameRoot, sheets);
 const installRoot = document.getElementById('installRoot');
 if (!installRoot) throw new Error('Missing install mount');
 const install = mountInstall(installRoot);
+const authRoot = document.getElementById('authRoot');
+if (!authRoot) throw new Error('Missing auth mount');
+const auth = mountAuth(authRoot);
 boot({
+  Auth: auth,
   Install: install,
   Sheets: sheets,
   Rename: rename,
