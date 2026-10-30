@@ -15,6 +15,8 @@ await build({
         id === '\0eve:api-contract'
           ? [
               'src/api/client.js',
+              'src/api/threads.ts',
+              'src/api/gateway.ts',
               'src/api/thread-models.js',
               'src/api/operations.js',
               'src/features/conversations/outbox.js',
@@ -31,9 +33,15 @@ await build({
     lib: { entry: 'eve:api-contract', formats: ['cjs'], fileName: () => 'contracts.cjs' },
   },
 });
-const { createClient, createThreadModels, createOperations, createOutbox, createConversationState } = createRequire(
-  import.meta.url,
-)('../.cache/api/contracts.cjs');
+const {
+  createClient,
+  createThreadModels,
+  createOperations,
+  createOutbox,
+  createConversationState,
+  createThreadsAPI,
+  createGatewayRequests,
+} = createRequire(import.meta.url)('../.cache/api/contracts.cjs');
 
 test('request client preserves headers, 204, identity loss and ambiguous outcomes', async () => {
   const calls = [],
@@ -163,4 +171,79 @@ test('conversation state loads only the selected cache and keeps instances isola
   assert.equal(local.nextCursor, null);
   assert.equal(local.threadsLoading, false);
   assert.equal(local.persistOff, false);
+});
+
+test('thread reads, cancellation and import retain exact paths and request bodies', async () => {
+  const calls = [];
+  const api = createThreadsAPI(async (...args) => calls.push(args));
+  await api.list();
+  await api.list('page /?');
+  await api.archived();
+  await api.thread('thread/1');
+  await api.messages('thread/1', 50, 'message/2');
+  await api.messages('thread/1', 4);
+  await api.search('한 글&?');
+  await api.cancel('thread/1', 'message/2');
+  await api.importThreads('{"threads":[]}');
+  assert.deepEqual(calls, [
+    ['/v1/threads?limit=20&archived=false'],
+    ['/v1/threads?limit=20&archived=false&cursor=page%20%2F%3F'],
+    ['/v1/threads?limit=50&archived=true'],
+    ['/v1/threads/thread%2F1'],
+    ['/v1/threads/thread%2F1/messages?limit=50&before=message%2F2'],
+    ['/v1/threads/thread%2F1/messages?limit=4'],
+    ['/v1/search?limit=20&q=%ED%95%9C%20%EA%B8%80%26%3F'],
+    ['/v1/threads/thread%2F1/messages/message%2F2/cancel', { method: 'POST' }],
+    ['/v1/threads/import', { method: 'POST', body: '{"threads":[]}' }],
+  ]);
+});
+
+test('gateway raw requests preserve CSRF, cookies, stream cursors and persistence fallback', async () => {
+  const calls = [];
+  const gateway = createGatewayRequests({ apiBase: () => '', request: async (...args) => calls.push(args) });
+  const signal = new AbortController().signal;
+  await gateway.identity();
+  await gateway.models('');
+  await gateway.pair('ABCD-EFGH');
+  await gateway.resume('t/1', 'm/2', 4, signal);
+  await gateway.chat({
+    model: 'model',
+    messages: [{ role: 'user', content: 'hello' }],
+    signal,
+    threadId: 't/1',
+    replaceId: 'm/2',
+  });
+  await gateway.chat({ messages: [], signal, replaceId: 'ignored-without-persistence' });
+  assert.deepEqual(calls[0], ['/whoami', { cache: 'no-store' }]);
+  assert.deepEqual(calls[1], ['/v1/models']);
+  assert.deepEqual(calls[2], [
+    '/v1/pair',
+    {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Eve-Request': '1' },
+      body: '{"code":"ABCD-EFGH"}',
+    },
+  ]);
+  assert.deepEqual(calls[3], [
+    '/v1/threads/t%2F1/messages/m%2F2/stream',
+    {
+      cache: 'no-store',
+      signal,
+      headers: { 'Content-Type': 'application/json', 'X-Eve-Request': '1', 'Last-Event-ID': '4' },
+    },
+  ]);
+  assert.equal(calls[4][0], '/v1/chat/completions');
+  assert.deepEqual(calls[4][1].headers, { 'Content-Type': 'application/json', 'X-Eve-Request': '1' });
+  assert.equal(calls[4][1].signal, signal);
+  assert.deepEqual(JSON.parse(calls[4][1].body), {
+    model: 'model',
+    messages: [{ role: 'user', content: 'hello' }],
+    stream: true,
+    stream_options: { include_usage: true },
+    thread_id: 't/1',
+    replace_message_id: 'm/2',
+  });
+  assert.equal(calls[5][1].body, '{"messages":[],"stream":true,"stream_options":{"include_usage":true}}');
 });
