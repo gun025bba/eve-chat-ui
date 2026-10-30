@@ -6,6 +6,7 @@ import briefing from './features/briefing/index.js';
 import { mountRename } from './features/conversations/rename.js';
 import { mountInstall } from './features/install/index.js';
 import createMemory from './features/memory/index.js';
+import { mountMigration } from './features/migration/index.js';
 import pim from './features/pim/index.js';
 import createProactive from './features/proactive/index.js';
 import { mountSettings } from './features/settings/index.js';
@@ -36,7 +37,11 @@ const install = mountInstall(installRoot);
 const authRoot = document.getElementById('authRoot');
 if (!authRoot) throw new Error('Missing auth mount');
 const auth = mountAuth(authRoot);
+const migrationRoot = document.getElementById('migrateSheet');
+if (!migrationRoot) throw new Error('Missing migration mount');
+const migration = mountMigration(migrationRoot, sheets);
 boot({
+  Migration: migration,
   Auth: auth,
   Install: install,
   Sheets: sheets,

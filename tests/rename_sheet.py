@@ -1,16 +1,19 @@
 """Rename component keeps composition, save/cancel and shared sheet dismissal."""
 import os
 from playwright.sync_api import sync_playwright
+from assets_common import full_csp, watch_csp
 from b2_common import reset, conv2, B
 
-with sync_playwright() as p:
+with full_csp(), sync_playwright() as p:
     for engine in (p.chromium, p.webkit):
         if engine.name == 'webkit' and os.environ.get('EVE_WEBKIT') != '1':
             continue
         reset()
         thread = conv2('기존 제목', 10, 0)
         browser = engine.launch()
-        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        context = browser.new_context(viewport={'width': 390, 'height': 844})
+        watch_csp(context)
+        page = context.new_page()
         errors = []
         page.on('pageerror', lambda e: errors.append(str(e)))
         page.goto(B + '/ui/#/c/' + thread)
@@ -49,4 +52,5 @@ with sync_playwright() as p:
         page.wait_for_function("() => document.querySelector('#renameSheet').hidden")
         assert not errors, errors
         print('PASS', engine.name, 'outside tap dismisses without page errors')
+        assert not page.evaluate('window.__csp || []')
         browser.close()
