@@ -1913,7 +1913,7 @@ if (typeof document !== 'undefined') (function () {
   });
 
   /* ---------- Tailscale identity (/whoami) ---------- */
-  const authEl = $('#authNotice');
+  const authEl = $('#authNotice'), authHero = authEl.querySelector('.auth-hero');   // .enter replays the hero's rise + blink on every open
   let authRetry = null;
   function renderWho() {
     const el = $('#sWho'); if (!el) return;
@@ -1957,7 +1957,7 @@ if (typeof document !== 'undefined') (function () {
     if (!authEl.hidden) { if (pair) renderLock(); return; }
     pairIn.value = ''; pairErr.hidden = true; pairIn.removeAttribute('aria-invalid');
     if (pair) renderLock();
-    authEl.hidden = false; requestAnimationFrame(() => { authEl.classList.add('in'); if (pair && !pairIn.disabled && !matchMedia('(pointer:coarse)').matches) pairIn.focus(); });
+    authEl.hidden = false; requestAnimationFrame(() => { authEl.classList.add('in'); authHero?.classList.add('enter'); if (pair && !pairIn.disabled && !matchMedia('(pointer:coarse)').matches) pairIn.focus(); });
   }
   pairIn.addEventListener('input', () => { const c = normCode(pairIn.value); pairIn.value = fmtCode(c); pairBtn.disabled = c.length !== 8; if (!lockState().fails) pairErr.hidden = true; pairIn.removeAttribute('aria-invalid'); });
   pairEl.addEventListener('submit', async ev => {
@@ -1978,7 +1978,7 @@ if (typeof document !== 'undefined') (function () {
     save(PLOCK, { fails: 0, until: 0 }); localStorage.setItem(PAIRED, '1');
     if (await checkAuth()) { const f = authRetry; authRetry = null; clearErrors(); if (f) f(); }
   });
-  function hideAuthNotice() { authEl.classList.remove('in'); authEl.hidden = true; }
+  function hideAuthNotice() { authEl.classList.remove('in'); authHero?.classList.remove('enter'); authEl.hidden = true; }
   async function checkAuth() {
     try {
       const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });

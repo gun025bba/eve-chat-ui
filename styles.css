@@ -415,7 +415,7 @@ body.kb-open #composer{padding-bottom:8px}
 .auth-card .btn:active{opacity:.7}
 .auth-card .btn:disabled{opacity:.5}
 @media (prefers-color-scheme:light){.auth-notice{background:rgba(0,0,0,.25)}.auth-card{background:rgba(255,255,255,.94);color:#000}.auth-card p{color:rgba(60,60,67,.6)}.auth-icon{stroke:#007aff}.auth-card .btn{background:#007aff}}
-.status.who{color:var(--label2,rgba(235,235,245,.6))}
+.status.who{color:var(--sub)}   /* --label2 never existed → the fallback was light-on-light; --sub is 5.2:1 on the light sheet */
 
 /* ---------- v10 · server threads (THREADS-SPEC v1) ---------- */
 :root{--tint-archive:#FF9F0A;--tint-warn:#FFD60A;--thumb-on:var(--label);--banner-bg:rgba(255,159,10,.14);--d-toast:2800ms}

@@ -107,6 +107,8 @@ with sync_playwright() as p:
         check(f'[{scheme}] hero sits between the date and 지금; 지금 hugs the composer', h['top'] > h['dateB'] and h['bot'] < h['nowT'] and h['compT'] - h['nowB'] < 40, h)
         check(f'[{scheme}] hero is in the upper part of the free area (≈45%)', 0.30 < (h['mid'] - h['free'][0]) / max(1, h['free'][1] - h['free'][0]) < 0.52, h)
         check(f'[{scheme}] first visit of the session: hero rises (avRise) and blinks once (heroBlink)', h['enter'] and h['an'] == 'avRise' and h['eyesAn'] == 'heroBlink', h)
+        hf = pg.evaluate("(()=>{const sv=document.querySelector('#todayFree .hero svg');return [getComputedStyle(sv.querySelector('.b')).fill,getComputedStyle(sv.querySelector('.e')).fill]})()")
+        check(f'[{scheme}] empty Today hero colors: body {body}, eye {eye}', hf == [body, eye], hf)
         check(f'[{scheme}] empty Today: no scroll overflow', h['over'] <= 0 and h['sy'] <= 1, h)
         pg.reload(); pg.wait_for_timeout(1500)
         h2 = pg.evaluate("(()=>{const hero=document.querySelector('#todayFree .hero');return {vis:!document.getElementById('todayFree').hidden,enter:hero.classList.contains('enter'),an:getComputedStyle(hero.querySelector('svg')).animationName}})()")
@@ -120,14 +122,26 @@ with sync_playwright() as p:
               and t['other'] and all(x['dot'] and not x['av'] for x in t['other']), t)
         ctx.close()
 
-        # ---- 6) settings top mark 40px, connection notice mark 72px
+        # ---- 6) settings top mark 40px (on the group's left edge), connection notice mark 72px (mode colour, rises on every open)
         reset(); ctx, pg = newpg(scheme); goto_today(pg); pg.click('#openSettings'); pg.wait_for_timeout(900)
-        s = pg.evaluate("""(()=>{const m=document.querySelector('.s-top .hero svg').getBoundingClientRect(),p=document.getElementById('sPriv').getBoundingClientRect();return {w:m.width,h:m.height,left:m.right<=p.left,aria:document.querySelector('.s-top .hero svg').getAttribute('aria-hidden'),txt:document.getElementById('sPriv').textContent.trim(),vis:m.width>0}})()""")
+        s = pg.evaluate("""(()=>{const sv=document.querySelector('.s-top .hero svg'),m=sv.getBoundingClientRect(),p=document.getElementById('sPriv').getBoundingClientRect(),g=document.querySelector('dialog#settings .group').getBoundingClientRect(),
+          who=document.getElementById('sWho'),wc=getComputedStyle(who).color.match(/[\\d.]+/g).map(Number),bg=getComputedStyle(document.getElementById('settings')).backgroundColor.match(/[\\d.]+/g).map(Number);
+          const a=wc[3]===undefined?1:wc[3],mix=wc.slice(0,3).map((c,i)=>c*a+bg[i]*(1-a)),lum=c=>c.map(v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0),L1=lum(mix),L2=lum(bg.slice(0,3));
+          return {w:m.width,h:m.height,left:m.right<=p.left,aria:sv.getAttribute('aria-hidden'),txt:document.getElementById('sPriv').textContent.trim(),vis:m.width>0,markL:m.left,groupL:g.left,
+            body:getComputedStyle(sv.querySelector('.b')).fill,eye:getComputedStyle(sv.querySelector('.e')).fill,who:who.textContent,whoVis:!who.hidden,ratio:(Math.max(L1,L2)+.05)/(Math.min(L1,L2)+.05)}})()""")
         check(f'[{scheme}] settings top: 40x26 mark left of "로컬 · 비공개"', round(s['w']) == 40 and round(s['h']) == 26 and s['left'] and s['aria'] == 'true' and s['txt'] == '로컬 · 비공개', s)
+        check(f'[{scheme}] settings top: the mark sits on the group left edge (20px, no double padding)', abs(s['markL'] - s['groupL']) < .6 and abs(s['markL'] - 20) < .6, s)
+        check(f'[{scheme}] settings top mark colors: body {body}, eye {eye}', s['body'] == body and s['eye'] == eye, s)
+        check(f'[{scheme}] "계정으로 연결됨" line is readable (>= 4.5:1 on the sheet)', s['whoVis'] and '계정으로 연결됨' in s['who'] and s['ratio'] >= 4.5, s)
         pg.evaluate("{const n=document.getElementById('authNotice');n.hidden=false;n.classList.add('in')}"); pg.wait_for_timeout(500)
-        a = pg.evaluate("""(()=>{const m=document.querySelector('.auth-hero svg').getBoundingClientRect(),cs=getComputedStyle(document.querySelector('.auth-hero .b')).fill;return {w:m.width,h:m.height,t:document.getElementById('authTitle').textContent,b:document.getElementById('authBody').textContent,fill:cs}})()""")
-        check(f'[{scheme}] connection notice: 72x47 mark above unchanged copy', round(a['w']) == 72 and round(a['h']) == 47 and a['t'] == '서버에 연결할 수 없어요' and 'Tailscale' in a['b'] and a['fill'] == 'rgb(0, 210, 190)', a)
+        a = pg.evaluate("""(()=>{const m=document.querySelector('.auth-hero svg').getBoundingClientRect(),cs=getComputedStyle(document.querySelector('.auth-hero .b')).fill,ce=getComputedStyle(document.querySelector('.auth-hero .e')).fill;return {w:m.width,h:m.height,t:document.getElementById('authTitle').textContent,b:document.getElementById('authBody').textContent,fill:cs,eye:ce}})()""")
+        check(f'[{scheme}] connection notice: 72x47 mark above unchanged copy, mode colors ({body})', round(a['w']) == 72 and round(a['h']) == 47 and a['t'] == '서버에 연결할 수 없어요' and 'Tailscale' in a['b'] and a['fill'] == body and a['eye'] == eye, a)
         ctx.close()
+        # the real open path (401 → pairing notice): the hero gets .enter → avRise + one blink; closing it removes .enter so the next open plays again
+        reset(); put('/auth/off'); ctx, pg = newpg(scheme); pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')"); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(500)
+        e = pg.evaluate("""(()=>{const h=document.querySelector('.auth-hero'),sv=h.querySelector('svg'),cs=getComputedStyle(sv),ey=getComputedStyle(sv.querySelector('.eyes'));return {open:!document.getElementById('authNotice').hidden,enter:h.classList.contains('enter'),an:cs.animationName,dur:cs.animationDuration,eyes:ey.animationName,fill:getComputedStyle(sv.querySelector('.b')).fill}})()""")
+        check(f'[{scheme}] pairing notice open: auth-hero .enter → avRise 450ms + heroBlink, mode body color', e['open'] and e['enter'] and e['an'] == 'avRise' and e['dur'] == '0.45s' and e['eyes'] == 'heroBlink' and e['fill'] == body, e)
+        put('/auth/on'); ctx.close()
 
     # ---- 7) reduced motion: no blink, rise only fades, hero only fades
     reset(); ctx, pg = newpg('dark', reduced=True)
@@ -137,6 +151,11 @@ with sync_playwright() as p:
     r = pg.evaluate("(()=>{const e=document.querySelector('#messages > .msg.e');return {st:e.classList.contains('streaming'),blink:getComputedStyle(e.querySelector('.av .eyes')).animationName,rise:getComputedStyle(e.querySelector('.av .eve-mark')).animationName,riseD:getComputedStyle(e.querySelector('.av .eve-mark')).animationDuration}})()")
     check('reduced motion: still .streaming but no blink; the avatar only fades in (avFade 200ms)', r['st'] and r['blink'] == 'none' and r['rise'] == 'avFade' and r['riseD'] == '0.2s', r)
     pg.wait_for_function("!document.querySelector('#messages .streaming')", timeout=60000); ctx.close()
+
+    reset(); put('/auth/off'); ctx, pg = newpg('dark', reduced=True); pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')"); pg.goto(B + '/ui/#/'); pg.wait_for_timeout(500)
+    r2 = pg.evaluate("(()=>{const sv=document.querySelector('.auth-hero svg');return {enter:document.querySelector('.auth-hero').classList.contains('enter'),an:getComputedStyle(sv).animationName,eyes:getComputedStyle(sv.querySelector('.eyes')).animationName}})()")
+    check('reduced motion: the connection-notice hero only fades (avFade), no blink', r2['enter'] and r2['an'] == 'avFade' and r2['eyes'] == 'none', r2)
+    put('/auth/on'); ctx.close()
 
     # ---- 8) 320/375/390: no horizontal scroll (chat with avatars, empty Today)
     for w in (320, 375, 390):

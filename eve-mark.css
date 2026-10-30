@@ -21,11 +21,10 @@
 #todayScroller.is-empty{display:flex;flex-direction:column}
 #todayScroller.is-empty>*{flex:none}
 #todayScroller.is-empty>.today-free{flex:1 1 auto}
-.s-top{display:flex;align-items:center;gap:12px;padding:12px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left))}
+.s-top{display:flex;align-items:center;gap:12px;padding:12px 0 0}   /* the form already carries the 20px side padding (no second 20px: the mark sits on the group's left edge) */
 .s-top .priv{padding:0}
 .hero.s-mark{width:40px;height:26px;flex:none}.hero.s-mark .eve-mark{width:40px;height:26px}
 .hero.auth-hero{width:72px;height:47px;margin:0 auto 14px}.hero.auth-hero .eve-mark{width:72px;height:47px}
-.auth-card{--mark-body:#00D2BE;--mark-eye:#101011}
 @media (prefers-reduced-motion:reduce){
   .ev.enter .av .eve-mark{animation:avFade var(--d-2) linear both}
   .ev.e.streaming .av .eyes{animation:none}
