@@ -65,3 +65,11 @@
 - 심볼을 기준으로 루트 변수 참조만 바꿨다. 같은 이름의 지역 변수·문자열·API 필드·저장 키는 바꾸지 않는다.
 - Node 계약 테스트로 서버/로컬 캐시 선택, 유효하지 않은 모드의 기본값, 인스턴스 간 상태 격리를 검증한다.
 - legacy 파일 초과 1,766→1,764줄, 함수 초과 2,208→2,205줄. 긴 줄·innerHTML·!important·shared 장부·의존성 변화 없음.
+
+## R2e — gateway·thread 요청 경계
+
+- 기반: R2d #53. 남은 앱 직접 api/fetch 호출을 threads.ts와 gateway.ts로 옮긴다.
+- 대화·검색·이전 메시지·보관함·취소·이전(import) 경로와 페어링·신원·모델·스트림 재개·채팅 요청을 API 모듈이 정의한다.
+- GET에도 붙던 X-Eve-Request, 쿠키 옵션·Last-Event-ID·AbortSignal, persistence_disabled 재전송 때 thread/replace 생략을 그대로 유지한다.
+- Node 13개가 요청 경로·인코딩·메서드·헤더·본문을 검증한다. SW 프리캐시·CSP 산출물 게이트도 통과한다.
+- ratchet 긴 줄 합계 1,206→1,198, 함수 초과 3,268→3,265줄. 파일 초과·innerHTML·!important 증가 없음. 신규 의존성·shared 승격 없음.

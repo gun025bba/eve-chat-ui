@@ -1,5 +1,7 @@
+import { createThreadsAPI } from '../api/threads.js';
+import { createGatewayRequests } from '../api/gateway.js';
 import { createConversationState } from '../features/conversations/state.js';
-import { createClient, authCode, isAuthFail, headers, normBase } from '../api/client.js';
+import { createClient, authCode, isAuthFail, normBase } from '../api/client.js';
 import { createThreadModels, toMs, scrubAction } from '../api/thread-models.js';
 import { createOperations } from '../api/operations.js';
 import { createOutbox } from '../features/conversations/outbox.js';
@@ -55,8 +57,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const cur = () => cv.convs.find(c => c.id === cv.currentId) || cv.archivedList.find(c => c.id === cv.currentId);
   const persist = () => { try { save(cv.mode === 'server' ? LS.srv : LS.convs, cv.convs); } catch {} save(LS.current, cv.currentId); };
   const apiBase = () => normBase(settings.base);
-  // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
-  // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -126,8 +126,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   commitVV();
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
-  // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
   const api = createClient({ apiBase, onAuthFail: code => { clearCards(); showAuthNotice(null, code); }, errorMessage: errMsg });
+  const threadsAPI = createThreadsAPI(api);
+  const gateway = createGatewayRequests({ apiBase });
   const isNet = e => !e.http;                       // fetch failed: offline / unreachable
   const pinSet = () => new Set(load(LS.pins, []));
   // drop stored confirm-card contents (pending_actions) — on sign-out / identity loss (security review Low 2)
@@ -143,7 +144,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   async function initServer() {
     listLoading = true; loadT0 = Date.now(); coldStart = !cv.convs.length; listError = false; setTimeout(() => { todayDirty(); if (listLoading && listView.classList.contains('screen')) renderList(); }, 260); todayDirty();
     try {
-      const j = await api('/v1/threads?limit=20&archived=false');
+      const j = await threadsAPI.list();
       const prev = cv.mode === 'server' ? cv.convs : [];
       const wasLocal = cv.mode !== 'server';
       cv.mode = 'server'; save(LS.mode, 'server'); cv.persistOff = false;
@@ -168,7 +169,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     if (cv.mode !== 'server' || !cv.nextCursor || cv.threadsLoading || listQuery()) return;
     cv.threadsLoading = true; renderList();
     try {
-      const j = await api('/v1/threads?limit=20&archived=false&cursor=' + encodeURIComponent(cv.nextCursor));
+      const j = await threadsAPI.list(cv.nextCursor);
       (j.data || []).forEach(t => { if (!cv.convs.some(c => c.id === t.id)) cv.convs.push(fromServerThread(t)); });
       cv.nextCursor = j.next_cursor || null; persist();
     } catch {} finally { cv.threadsLoading = false; renderList(); fillListIfShort(); }
@@ -178,7 +179,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     if (cv.mode !== 'server' || !c || !c.srv || c.fresh || c.loaded || c.loading) return;
     c.loading = true; if (c === cur() && !c.messages.length) box.innerHTML = '<div class="older loading"><span class="spin"></span></div>';
     try {
-      const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=50`);
+      const j = await threadsAPI.messages(c.id, 50);
       c.messages = (j.data || []).filter(m => m.role !== 'system').map(fromServerMsg); c.hasMore = !!j.has_more; c.loaded = true; persist();
       if (c.messages.some(m => m.status === 'generating')) {   // §3.8: reopened mid-generation → partial content, re-poll with backoff
         c._gen = (c._gen || 0) + 1; if (c._gen < 40) setTimeout(() => { if (!controller) { c.loaded = false; ensureMessages(c); } }, Math.min(8000, 1000 * 2 ** Math.min(c._gen, 3)));
@@ -190,7 +191,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const c = cur(); if (!c || !c.hasMore || c.loadingOlder || cv.mode !== 'server' || !c.messages[0]?.id) return;
     c.loadingOlder = true;
     try {
-      const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=50&before=${encodeURIComponent(c.messages[0].id)}`);
+      const j = await threadsAPI.messages(c.id, 50, c.messages[0].id);
       const older = (j.data || []).filter(m => m.role !== 'system').map(fromServerMsg).filter(m => !c.messages.some(x => x.id === m.id));
       c.messages = older.concat(c.messages); c.hasMore = !!j.has_more;
       if (c === cur()) { const h = box.scrollHeight, top = box.scrollTop; renderMessages(true); box.scrollTop = box.scrollHeight - h + top; }
@@ -413,7 +414,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     if (!q || cv.mode !== 'server') return renderList();
     searchT = setTimeout(async () => {
       const seq = ++searchSeq; $('#searchProgress').classList.add('on');
-      try { const j = await api('/v1/search?limit=20&q=' + encodeURIComponent(q)); if (seq !== searchSeq || listQuery() !== q) return; searchHits = j.data || []; }
+      try { const j = await threadsAPI.search(q); if (seq !== searchSeq || listQuery() !== q) return; searchHits = j.data || []; }
       catch { if (seq === searchSeq) searchHits = []; }
       finally { if (seq === searchSeq) { searchT = 0; $('#searchProgress').classList.remove('on'); renderList(); } }
     }, 250);
@@ -422,7 +423,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   $('#search').addEventListener('search', onSearch);
   async function openHit(tid, mid, block = 'center') {
     let c = cv.convs.find(x => x.id === tid) || cv.archivedList.find(x => x.id === tid);
-    if (!c) { try { const t = await api('/v1/threads/' + encodeURIComponent(tid)); c = fromServerThread(t); (c.archived ? cv.archivedList : cv.convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
+    if (!c) { try { const t = await threadsAPI.thread(tid); c = fromServerThread(t); (c.archived ? cv.archivedList : cv.convs).push(c); } catch { return showToast('대화를 열 수 없어요', '', null, 2000); } }
     openConv(c.id);
     if (!mid) return;
     for (let i = 0; i < 40 && !(c.loaded && !c.loading); i++) await new Promise(r => setTimeout(r, 50));
@@ -444,7 +445,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   async function loadArchive() {
     if (cv.mode === 'local') { cv.archivedList = cv.convs.filter(c => c.archived); return renderArchive(); }
     $('#archList').innerHTML = '<li class="skel"><i></i><i></i></li>';
-    try { const j = await api('/v1/threads?limit=50&archived=true'); cv.archivedList = (j.data || []).map(t => fromServerThread(t, cv.archivedList.find(a => a.id === t.id))); cv.archivedList.forEach(c => c.archived = true); }
+    try { const j = await threadsAPI.archived(); cv.archivedList = (j.data || []).map(t => fromServerThread(t, cv.archivedList.find(a => a.id === t.id))); cv.archivedList.forEach(c => c.archived = true); }
     catch {} renderArchive();
   }
   function renderArchive() {
@@ -851,7 +852,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
       await new Promise(r => setTimeout(r, 400 + k * 600));
       if (!c.messages.includes(msg)) return;
       try {
-        const j = await api(`/v1/threads/${encodeURIComponent(c.id)}/messages?limit=4`);
+        const j = await threadsAPI.messages(c.id, 4);
         const a = (j.data || []).filter(m => m.role === 'assistant').pop();
         const u = (j.data || []).filter(m => m.role === 'user').pop();
         if (a && a.status === 'incomplete' && !c.messages.some(x => x !== msg && x.id === a.id)) {
@@ -986,7 +987,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     document.addEventListener('visibilitychange', onVis);
     const kick = () => { if (mid && !done && liveReader && cv.mode === 'server') { try { liveReader.cancel(); } catch {} } };
     kickStream = kick;
-    cancelRun = () => { if (mid && cv.mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
+    cancelRun = () => { if (mid && cv.mode === 'server') threadsAPI.cancel(c.id, mid).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
       acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage; if (acc.trim()) tsStop();
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
@@ -1048,7 +1049,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         if (document.hidden) await untilVisible();
         const before = seq;
         try {
-          const r = await fetch(apiBase() + `/v1/threads/${encodeURIComponent(tid)}/messages/${encodeURIComponent(mid)}/stream`, { cache: 'no-store', signal: ctl.signal, headers: { ...headers(), 'Last-Event-ID': String(seq) } });
+          const r = await gateway.resume(tid, mid, seq, ctl.signal);
           if (r.status === 429) { fails++; await sleep(Math.min(30, retryAfterOf(r) || 2) * 1000); continue; }   // too_many_subscribers: wait Retry-After, retry
           if (!r.ok || !r.body) break;
           await consume(r); if (done) return true;
@@ -1059,7 +1060,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         if (k) await sleep(Math.min(8000, 1000 * 2 ** Math.min(k, 3)));
         if (document.hidden) await untilVisible();
         try {
-          const j = await api(`/v1/threads/${encodeURIComponent(tid)}/messages?limit=10`);
+          const j = await threadsAPI.messages(tid, 10);
           const m = (j.data || []).find(x => x.id === mid); if (!m) continue;
           applyMsg(m);
           if ((m.status || 'complete') !== 'generating') { done = true; return true; }
@@ -1069,10 +1070,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
       return false;
     }
     try {
-      const post = keep => fetch(apiBase() + '/v1/chat/completions', {
-        method: 'POST', headers: headers('POST'), signal: ctl.signal,
-        body: JSON.stringify(Object.assign({ model: settings.model || undefined, messages: msgs, stream: true, stream_options: { include_usage: true } },
-          keep ? { thread_id: c.fresh || !c.srv ? 'new' : c.id } : {}, keep && replaceId ? { replace_message_id: replaceId } : {}))
+      const post = keep => gateway.chat({
+        model: settings.model || undefined, messages: msgs, signal: ctl.signal,
+        threadId: keep ? (c.fresh || !c.srv ? 'new' : c.id) : undefined, replaceId: keep ? replaceId : undefined,
       });
       let res = await post(cv.mode === 'server');
       // storage switched off on the gateway mid-session: answer anyway without persistence, show the subtle notice
@@ -1694,7 +1694,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     ev.preventDefault(); const c = normCode(pairIn.value); if (c.length !== 8 || renderLock()) return;
     pairBtn.disabled = true; pairBtn.textContent = '연결 중…';
     let r = null;
-    try { r = await fetch(apiBase() + '/v1/pair', { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: headers('POST'), body: JSON.stringify({ code: fmtCode(c) }) }); }
+    try { r = await gateway.pair(fmtCode(c)); }
     catch { pairErr.textContent = '서버에 연결할 수 없어요. 연결 상태를 확인해 주세요.'; pairErr.hidden = false; pairBtn.textContent = '연결'; pairBtn.disabled = false; return; }
     pairBtn.textContent = '연결';
     if (!r.ok) {
@@ -1711,7 +1711,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   function hideAuthNotice() { authEl.classList.remove('in'); authEl.hidden = true; }
   async function checkAuth() {
     try {
-      const r = await fetch(apiBase() + '/whoami', { cache: 'no-store' });
+      const r = await gateway.identity();
       const j = await r.json().catch(() => null);
       if (isAuthFail(r.status, authCode(j)) || (r.ok && j && j.authenticated === false)) { whoami = null; renderWho(); clearCards(); showAuthNotice(null, authCode(j)); return false; }   // signed out: drop stored card contents
       if (r.ok) { whoami = j; renderWho(); localStorage.setItem(PAIRED, '1'); }
@@ -1783,7 +1783,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     const st = $('#sStatus'); st.className = 'status'; st.textContent = '모델 목록 불러오는 중…';
     const base = normBase($('#sBase').value);
     try {
-      const r = await fetch(base + '/v1/models');
+      const r = await gateway.models(base);
       if (!r.ok) {
         const body = await r.text().catch(() => '');
         if (isAuthFail(r.status, authCode(body))) showAuthNotice(loadModels, authCode(body));
@@ -1927,7 +1927,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
         const body = JSON.stringify({ threads: items.map(toImport) });
         if (new Blob([body]).size > 4.5e6 && items.length > 1) { const h = Math.ceil(items.length / 2); await send(items.slice(0, h)); return send(items.slice(h)); }
         try {
-          const j = await api('/v1/threads/import', { method: 'POST', body });
+          const j = await threadsAPI.importThreads(body);
           const res = j?.results || (j?.mapping || []).map(m => ({ client_id: m.client_id, thread_id: m.id, status: 'created' }));
           items.forEach(c => { const r = res.find(x => x.client_id === 'local:' + c.id); if (r && (r.status === 'created' || r.status === 'exists' || r.thread_id)) ok.add(c.id); else fail.push({ id: c.id, title: c.title, reason: r?.error?.message || r?.status || '응답에 결과가 없어요' }); });
         } catch (e) {
