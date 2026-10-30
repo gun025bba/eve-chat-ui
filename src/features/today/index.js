@@ -2,7 +2,7 @@
  * model()  — pure: which events to show, from the thread list (no DOM, no network)
  * init()   — renders them into #todayList with the shared .rail/.ev/.dot components
  * 확인 대기 card (§4-4/§6) comes from ctx.pend() (read-only; the app fetches it). B3: the status strip (기억·확인 대기·오늘 일정, §5) is drawn here from ctx.strip() = {cells, sub}; this file never fetches or reads briefing sections, the app computes the cells. */
-(function () {
+export default (function () {
   const MAX_CONV = 5, CONT_DAYS = 7, DAY = 864e5;
   const KST_YMD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
   const KST_HM = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -156,5 +156,5 @@
     function tick() { const n = list.querySelector('.rail-now'); if (!n) return; const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); }
     return { render, tick, renderStrip, model: () => model(ctx.convs()) };
   }
-  self.EveToday = { init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
+  return { init, model, soonOf, kstDay, hhmm, dateLine, shortDay, proLabel };
 })();

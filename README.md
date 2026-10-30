@@ -1,9 +1,9 @@
 # Eve — 채팅 UI
 
-OpenAI 호환 백엔드용 모바일 우선 채팅 PWA예요. Vite + TypeScript 툴체인을 사용해요. R0에서는 기존 HTML/JS UI와 동작을 유지하며, 런타임 의존성은 아직 없어요.
+OpenAI 호환 백엔드용 모바일 우선 채팅 PWA예요. Vite + TypeScript 툴체인을 사용해요. ES 모듈로 나눈 기존 UI와 동작을 유지하며, 런타임 의존성은 아직 없어요.
 
 ## 실행
-Node 20.19+ 또는 22.12+에서 `npm ci --ignore-scripts && npm run check && npm run build`를 실행해요. 개발 의존성은 락파일로 고정하고 설치 스크립트는 실행하지 않아요. 배포 대상은 `dist/` 52개 파일뿐이에요. 서비스 워커는 HTTPS(또는 localhost)에서만 동작해요.
+Node 20.19+ 또는 22.12+에서 `npm ci --ignore-scripts && npm run check && npm run build`를 실행해요. 개발 의존성은 락파일로 고정하고 설치 스크립트는 실행하지 않아요. 배포 대상은 `dist/` 44개 파일뿐이에요. 서비스 워커는 HTTPS(또는 localhost)에서만 동작해요.
 
 ```bash
 npm run build

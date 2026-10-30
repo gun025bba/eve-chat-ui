@@ -28,3 +28,13 @@
 - 이전 번들과 2,620개 잘린 스트림·목록·인용·HTML 입력의 결과를 비교해 동일함을 확인했다.
 - 스트리밍 srcDomain 누락을 복구했고, 같은 추출 오류를 막는 미정의 이름 가드를 추가했다.
 - legacy app 파일 초과 1,953→1,829줄, 긴 줄 479→463. 신규 innerHTML/!important·shared 승격·의존성 없음.
+
+## R2a — API·feature 모듈과 DOM 공통화
+
+- 기반: R1c #49. API/feature/shell 8개 파일을 내용 동일 이동 후 ES 모듈로 연결한다.
+- main.ts가 API·PIM·브리핑·선톡·메모리 의존성을 주입한다. feature 간 직접 import와 순환이 없다.
+- el() 다섯 구현을 shared/dom.ts로 동시에 교체했다. 승격 장부: el — briefing, memory, pim, proactive, legacy/app.
+- self.EveShell과 __app/__vv는 유지한다. 외부 브라우저 테스트가 쓰는 EvePim/EveProactiveAPI만 호환 별칭으로 남겼다.
+- 클래식 진입점은 app.js 하나이고 산출물은 52→44개다. 제거한 8개 보조 스크립트는 app.js에 포함된다.
+- SW fetch/lifecycle 코드는 유지하고 43개 산출물 프리캐시를 자동 생성한다. 새 의존성·innerHTML·!important 없음.
+- 남은 R2는 threads/outbox API·상태 분리와 큰 proactive 모듈 분해다. 프레임워크·화면 전환은 아직 하지 않는다.

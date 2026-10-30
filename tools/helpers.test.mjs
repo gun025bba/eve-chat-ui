@@ -16,7 +16,7 @@ await build({
   },
 });
 const loaded = createRequire(import.meta.url)('../.cache/unit/helpers.cjs');
-const helpers = loaded.default || loaded;
+const helpers = loaded.browserHelpers || loaded.default || loaded;
 
 test('SSE keeps CRLF, multiline data, comments, last event/id and chunk boundaries', () => {
   const input = ': ping\r\nevent: old\r\nevent: token\r\nid: 7\r\ndata: first\r\ndata: second\r\n\r\ndata: tail';

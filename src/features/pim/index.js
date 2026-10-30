@@ -1,8 +1,8 @@
+import { el } from '../../shared/dom.js';
 /* eve-web 1.10.0 — calendar & reminders (M1) UI pieces. Contract: eve-serving #66 §11 (35c1260).
  * Everything here is DOM-only (textContent): titles, calendar/list names and locations are untrusted text. */
-(function () {
+export default (function () {
   'use strict';
-  const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
   const own = (o, k) => typeof k === 'string' && Object.hasOwn(o, k);
   const isObj = x => !!x && typeof x === 'object' && !Array.isArray(x);
   const str = x => (typeof x === 'string' ? x : '');
@@ -156,5 +156,5 @@
     return c;
   }
 
-  self.EvePim = { isTool, isWrite: t => own(WRITE, t), callText, resultText, errText, resultCard, mount, fmtRange, fmtDue, fmtDays, cleanBriefing, briefingCard, ERR };
+  return { isTool, isWrite: t => own(WRITE, t), callText, resultText, errText, resultCard, mount, fmtRange, fmtDue, fmtDays, cleanBriefing, briefingCard, ERR };
 })();

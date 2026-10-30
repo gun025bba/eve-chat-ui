@@ -1,3 +1,4 @@
+import { el as mkEl } from '../shared/dom.js';
 import { icon } from '../lib/icons.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { stableCut } from '../lib/markdown-stream.js';
@@ -13,10 +14,10 @@ function renderSources(sources, tools) {
   const model = prepareSources(sources, tools);
   return model ? renderSourceHtml(model, 'src' + (++_srcSeq)) : '';
 }
-export default { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
+export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
 /* ---------- app ---------- */
-if (typeof document !== 'undefined') (function () {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const $ = s => document.querySelector(s);
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
@@ -157,8 +158,8 @@ if (typeof document !== 'undefined') (function () {
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
     { const f = m.metadata?.fresh ?? m.fresh; if (f === 'unverified' || f === 'ok') o.fresh = f; const tl = mapTools(m.metadata?.tools ?? m.tools); if (tl) o.tools = tl; }   // #134: the note (and a joined query) come back after a reload
-    { const r = self.EveProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
-    const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
+    { const r = ProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
+    const pm = ProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
     if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
     return o;
@@ -166,7 +167,7 @@ if (typeof document !== 'undefined') (function () {
   function fromServerThread(t, old) {
     const updated = toMs(t.updated_at);
     return { id: t.id, srv: true, title: t.title || '새 대화', updated, created: toMs(t.created_at), archived: !!t.archived,
-      preview: t.last_message_preview || '', count: t.message_count || 0, unread: self.EveProactiveAPI ? self.EveProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
+      preview: t.last_message_preview || '', count: t.message_count || 0, unread: ProactiveAPI ? ProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
       messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
   }
   let listLoading = true, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false, msgsPending = 0, coldStart = false;   // 오늘 / 기록 loading state (declared before first use)
@@ -1065,14 +1066,14 @@ if (typeof document !== 'undefined') (function () {
       if (j.error) { streamErr = j.error; return; }   // after admission: error event (+ retry_after)
       if (j.object === 'chat.completion.persisted') { ids(j); persisted = j; if (j.status === 'failed' && !streamErr) streamErr = { code: j.error_code || 'internal_error', failed: true }; return; }
       if (j.object === 'chat.completion.tool_call') {
-        if (self.EvePim?.isTool(j.tool)) { setWs(EvePim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
+        if (Pim?.isTool(j.tool)) { setWs(Pim.callText(j.tool)); return; }   // calendar/reminders: own copy, never the web-search wording (eve-serving #66 §11.1)
         if (isWebTool(j.tool)) onWebCall(j);   // unknown tool names are ignored (no line, no chip)
         return;
       }
       if (j.object === 'chat.completion.tool_result') {
-        if (self.EvePim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
-          setWs(EvePim.resultText(j)); let n = null; try { n = EvePim.resultCard(j); } catch {}
-          if (n) EvePim.mount(n, bubble.parentElement);
+        if (Pim?.isTool(j.tool)) {   // read card / error card are stream-only (never persisted); a write's confirm card follows as its own event
+          setWs(Pim.resultText(j)); let n = null; try { n = Pim.resultCard(j); } catch {}
+          if (n) Pim.mount(n, bubble.parentElement);
           return;
         }
         if (isWebTool(j.tool)) onWebResult(j);
@@ -1254,8 +1255,8 @@ if (typeof document !== 'undefined') (function () {
   const todaySeenKey = 'eve.b2.todaySeen';
   // skeleton only on a cold start (no cached list) and only when 250ms have passed; `ready` = list loaded and today's threads' messages in (the stagger waits for it)
   const needMsgs = M => M.candidates.filter(c => !c.loaded && !c.loading && !c._tTried && c.srv && !c.fresh).slice(0, 10);
-  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(self.EveToday.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
-  const TODAY = self.EveToday?.init({
+  const todayState = () => { const busy = listLoading || msgsPending > 0 || (mode === 'server' && needMsgs(Today.model(convs)).length > 0); return { error: listError, ready: !busy, skeleton: coldStart && busy && Date.now() - loadT0 >= 250 }; };
+  const TODAY = Today?.init({
     convs: () => convs, state: todayState, userName: () => USER_NAME, preview: c => preview(c),
     retry: () => { listError = false; initServer(); }, openLog: () => go('list'),
     pend: () => pendFirst(), review: p => openPend(p), later: p => pendSnooze(p), strip: () => stripModel(), stripTap: (k, el) => stripTap(k, el),
@@ -1266,10 +1267,10 @@ if (typeof document !== 'undefined') (function () {
      No endpoint / error / offline / cross-origin → the card is simply not drawn. */
   let pendItems = [], pendAt = 0, pendBusy = false, pendState = 'init', pendT0 = 0;   // pendState: init | ok | err | absent (no endpoint / cross-origin → the strip cell is not drawn)
   const SNZ = 'eve.b2.snooze';
-  const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === self.EveToday.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
+  const snoozed = () => { try { const o = JSON.parse(sessionStorage.getItem(SNZ) || 'null'); return o && o.day === Today.kstDay(Date.now()) && Array.isArray(o.ids) ? o.ids : []; } catch { return []; } };
   const pendOpen = () => { const z = snoozed(); return pendItems.filter(i => !z.includes(i.id)); };   // follow-up i: items put off with "나중에" are out of the strip count, the sheet and the direct jump too
   function pendFirst() { if (pendState !== 'ok') return null; const z = snoozed(); return pendItems.find(i => !z.includes(i.id)) || null; }
-  function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: self.EveToday.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
+  function pendSnooze(p) { try { sessionStorage.setItem(SNZ, JSON.stringify({ day: Today.kstDay(Date.now()), ids: [...snoozed(), p.id] })); } catch {} todayDirty(); }
   async function pendRefresh(force) {
     if (!PRO?.pendingList || mode !== 'server' || pendBusy || navigator.onLine === false || (!force && Date.now() - pendAt < 5000)) return;
     pendBusy = true; pendAt = Date.now(); if (pendState === 'init' && !pendT0) { pendT0 = Date.now(); setTimeout(todayDirty, 270); }
@@ -1304,7 +1305,7 @@ if (typeof document !== 'undefined') (function () {
   /* 오늘 일정 (§7): today's briefing message (template_kind 'briefing', briefing.date == today KST), events section. null = no data source → cell hidden. */
   function schedData(now = Date.now()) {
     if (briefS.off) return null;   // briefing.enabled === false on the server (k)
-    const T = self.EveToday.kstDay(now); let best = null;
+    const T = Today.kstDay(now); let best = null;
     for (const c of convs) { if (c.archived) continue; for (const m of c.messages || []) if (m.origin === 'proactive' && m.templateKind === 'briefing' && m.briefing && m.briefing.date === T && (!best || m.created > best.m.created)) best = { c, m }; }
     if (!best) return null;
     const sec = (best.m.briefing.sections || []).find(x => x.kind === 'events');
@@ -1342,10 +1343,9 @@ if (typeof document !== 'undefined') (function () {
     openMini(SS, { onDismiss: ssClose }); document.addEventListener('keydown', ssKey, true); setTimeout(() => $('#ssTitle').focus({ preventScroll: true }), 60);
   }
   sheetDrag(SS, null, ssClose);
-  const mkEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   function pendSheet(from) {
     const list = pendOpen(), rows = list.map(p => {
-      const li = document.createElement('li'), b = mkEl('button', 'ss-row'); b.type = 'button'; const soon = self.EveToday.soonOf(p, Date.now());
+      const li = document.createElement('li'), b = mkEl('button', 'ss-row'); b.type = 'button'; const soon = Today.soonOf(p, Date.now());
       const t = mkEl('span', 'ss-b'); t.append(mkEl('span', 'ss-t', p.title || '확인이 필요한 일'));
       const m = mkEl('span', 'ss-m', p.verbLabel || '실행'); if (soon) { m.append(' · '); m.append(mkEl('span', 'ss-x', '곧 만료')); } t.append(m);
       const ch = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); ch.setAttribute('class', 'i'); ch.setAttribute('viewBox', '0 0 24 24'); ch.setAttribute('aria-hidden', 'true');
@@ -1384,7 +1384,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function todayRender() {
     if (!TODAY) return;
-    $('#todayDate').textContent = self.EveToday.dateLine();
+    $('#todayDate').textContent = Today.dateLine();
     const M = TODAY.render();
     // pro messages live inside threads: load the messages of today's threads (and the 이어서 candidates) once, then draw again
     const need = needMsgs(M);
@@ -1396,7 +1396,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function todayShow() { todayRender(); tGrow(); pendRefresh(); memRefresh(); briefRefresh(); }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { todayDirty(); pendRefresh(true); memRefresh(true); briefRefresh(true); } });
-  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== self.EveToday.kstDay(Date.now())) todayDirty(); } }, 60000);
+  setInterval(() => { if (document.visibilityState === 'visible') { TODAY?.tick(); if (app.dataset.route === 'today' || wide.matches) pendRefresh(true); else todayDirty(); if (TODAY && $('#todayList').dataset.day !== Today.kstDay(Date.now())) todayDirty(); } }, 60000);
   function tGrow() {
     if (!tInput.value) tInput.style.height = ''; else { tInput.style.height = 'auto'; tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px'; }
     tSend.disabled = controller ? false : !tInput.value.trim();
@@ -2053,8 +2053,8 @@ if (typeof document !== 'undefined') (function () {
   if (currentId && !cur()) currentId = convs[0]?.id || null;
   if (!cur() && convs.length && route === 'chat') currentId = convs[0].id;
   history.replaceState({ route: 'today' }, '', location.pathname + (params.has('nid') ? location.search : '') + '#/');   // keep ?nid for EveProactive.init (it strips it)
-  if (self.EveProactive) try {
-    PRO = self.EveProactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
+  if (Proactive) try {
+    PRO = Proactive.init({ api, ready: () => serverReady, sameOrigin: () => !crossOrigin(apiBase()), enqueue, convs: () => convs, unstick: () => { stick = false; }, reload: c => { c.loaded = false; ensureMessages(c); }, online: () => navigator.onLine !== false, cur, renderList, openConv: id => openConv(id), openHit, showToast, isServer: () => mode === 'server', isStandalone, route: () => app.dataset.route });
   } catch (e) { console.warn('[llmchat] proactive init failed', e); }
   // Part B memory UI: behind localStorage flag 'eve.flag.memory' (off by default → MEM stays null)
   // source chips: chip toggle, citation tap → expand + scroll + highlight, 모두 보기 sheet, favicon → monogram fallback
@@ -2094,7 +2094,7 @@ if (typeof document !== 'undefined') (function () {
     it.classList.remove('hl'); void it.offsetWidth; it.classList.add('hl'); setTimeout(() => it.classList.remove('hl'), 600);
   });
   document.addEventListener('error', e => { const img = e.target; if (img?.tagName === 'IMG' && img.dataset.mono && img.parentElement?.classList.contains('fav')) { const f = img.parentElement; f.classList.add('mono'); f.textContent = img.dataset.mono; } }, true);
-  try { MEM = self.EveMemory?.init({ api, isServer: () => mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
+  try { MEM = Memory?.init({ api, isServer: () => mode === 'server', showToast, route: () => app.dataset.route, openSettings: () => openSettings(),
     busy: () => !!(document.querySelector('dialog[open], .mini-sheet:not([hidden]), #authNotice:not([hidden])') || [...document.querySelectorAll('.confirm-card')].some(c => c.offsetParent && c.dataset.state === 'pending')) }) || null; } catch (e) { console.warn('[llmchat] memory init failed', e); }
   renderAll(); loadDraft();
   if (params.has('new')) newConv();
@@ -2126,4 +2126,4 @@ if (typeof document !== 'undefined') (function () {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
   window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
-})();
+}

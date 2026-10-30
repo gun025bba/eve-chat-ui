@@ -1,13 +1,13 @@
+import { el } from '../../shared/dom.js';
 /* Eve 선톡 P1 UI (eve-chat-ui-design PROACTIVE-MEMORY-SPEC v2 @6221745 + eve-serving PR #12 contract, Part A + §C):
  * in-thread proactive messages, unread dot/pill + title/app badge, read-on-view via outbox,
  * the shared .confirm-card, and Settings › 선톡. Server calls go through proactive-api.js only.
  * Security: a confirm token is fetched only when approve is pressed (POST reissue → approve, contract §3.5.4), held in a local variable, never stored/logged; SSE tokens are ignored;
  * push payloads are never rendered (sw.js shows fixed text). */
-(function () {
+export default function createProactive({ proactiveAPI, pim, briefing }) {
   const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
   const PUSH_HOSTS = ['web.push.apple.com'];          // exact host, mirrors the server allowlist (PM §2.2.1)
   const POLL_MS = 60000, LS_PUSH = 'eve.push', LS_KID = 'eve.push.kid';
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;   // Eve sprite (design a197571)
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;          // glyphs not in the sprite
   const IC = {
@@ -30,7 +30,7 @@
   function say(text) { if (!live) { live = el('div', 'sr-only'); live.setAttribute('role', 'status'); live.id = 'proLive'; document.body.appendChild(live); } live.textContent = ''; setTimeout(() => { live.textContent = text; }, 30); }
 
   /* ================= §C shared .confirm-card (spec v2 C1–C4) ================= */
-  const F = () => self.EveProactiveAPI.FIELDS;         // all server field names live in proactive-api.js
+  const F = () => proactiveAPI.FIELDS;         // all server field names live in proactive-api.js
   const cards = new Map();                             // action_id -> card element
   let SYS = { proactive: true, tools: true, memoryRO: false };   // GET /v1/settings system.* (read-only)
   const sanitize = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
@@ -65,7 +65,7 @@
     const add = (k, label, text, raw) => rows.push([k, label, text, raw == null || raw === text ? null : raw]);
     add('title', '제목', s('title') || '(제목 없음)');
     let when = s('display');
-    if (!when) { if (cal && s('start')) when = EvePim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = EvePim.fmtDue(v.due); }
+    if (!when) { if (cal && s('start')) when = pim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = pim.fmtDue(v.due); }
     if (when) add('when', '시간', when); else if (!cal && ('due' in v || 'display' in v)) add('when', '시간', '기한 없음');
     if (cal) add('calendar', '캘린더', s('calendar') || (v.calendar_id == null ? '기본 캘린더' : '선택한 캘린더'));
     else if ('list' in v || x.tool === 'reminders_add') add('list', '목록', s('list') || '기본 목록');
@@ -127,7 +127,7 @@
       body.appendChild(el('p', 'cc-where', '이 대화에서'));
     }
     else {
-      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && EvePim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
+      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && pim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
       ks.forEach(([k, label, text, raw], i) => {
         const dt = el('dt', null, label), dd = el('dd', null, text);
         if (raw) dd.title = raw;
@@ -286,7 +286,7 @@
 
   /* ================= Part A: proactive messages ================= */
   function init(h) {
-    const api = self.EveProactiveAPI.make(h.api, h.sameOrigin || (() => true));
+    const api = proactiveAPI.make(h.api, h.sameOrigin || (() => true));
     const P = { api, online: h.online, sameOrigin: h.sameOrigin || (() => true) };
     let sysLoaded = false, notif = new Map(), supported = true, pollT = null, pendingNid = null, total = 0, lastTotal = 0;
     const qs = new URLSearchParams(location.search);
@@ -355,8 +355,8 @@
           who.querySelector('.who-n').textContent = label;
         }
       }
-      if (m.briefing && self.EvePim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
-        let c = null; try { c = EvePim.briefingCard(m.briefing); } catch {}
+      if (m.briefing && pim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
+        let c = null; try { c = pim.briefingCard(m.briefing); } catch {}
         if (c) { const b = wrap.querySelector(':scope > .bubble'); if (b) b.after(c); else wrap.appendChild(c); }
       }
       (m.pendingActions || []).forEach(a => mountCard(a, wrap));
@@ -435,16 +435,16 @@
     const bSec = $('briefSection'), bRun = $('briefRun'), bOut = $('briefOut'); let bSeq = 0;
     async function briefingRun() {
       if (bRun.disabled) return; const my = ++bSeq;
-      bRun.disabled = true; bRun.setAttribute('aria-busy', 'true'); bOut.replaceChildren(self.EveBriefing.loading());
+      bRun.disabled = true; bRun.setAttribute('aria-busy', 'true'); bOut.replaceChildren(briefing.loading());
       const done = c => { if (my !== bSeq) return; bRun.disabled = false; bRun.removeAttribute('aria-busy'); bOut.replaceChildren(c); };
       const retry = () => briefingRun();
-      try { done(self.EveBriefing.card(F().briefing(await api.briefingPreview()), { onRetry: retry })); }
+      try { done(briefing.card(F().briefing(await api.briefingPreview()), { onRetry: retry })); }
       catch (e) {
-        if (!e.http) return done(self.EveBriefing.card({ fail: 'net' }, { onRetry: retry }));
-        if (e.http === 404) { bSec.hidden = true; return done(self.EveBriefing.card({ fail: 'off' })); }     // switched off since settings loaded
-        if (e.code === 'scope_denied') return done(self.EveBriefing.card({ fail: 'denied' }));
-        if (e.http === 502 && e.body && typeof e.body.status === 'string') return done(self.EveBriefing.card(F().briefing(e.body), { onRetry: retry }));   // {status, sections}, no text
-        done(self.EveBriefing.card({ fail: 'error' }, { onRetry: retry }));
+        if (!e.http) return done(briefing.card({ fail: 'net' }, { onRetry: retry }));
+        if (e.http === 404) { bSec.hidden = true; return done(briefing.card({ fail: 'off' })); }     // switched off since settings loaded
+        if (e.code === 'scope_denied') return done(briefing.card({ fail: 'denied' }));
+        if (e.http === 502 && e.body && typeof e.body.status === 'string') return done(briefing.card(F().briefing(e.body), { onRetry: retry }));   // {status, sections}, no text
+        done(briefing.card({ fail: 'error' }, { onRetry: retry }));
       }
     }
     bRun.addEventListener('click', () => { if (!h.online()) { h.showToast('연결되면 확인할 수 있어요'); return; } briefingRun(); });
@@ -543,5 +543,5 @@
     }
     return { pendingList, briefingEnabled, refresh, badge, decorateRow, decorateMsg, afterRender, streamCard, actionResult, openSettings, saveSettings, sanitize };
   }
-  self.EveProactive = { init, renderConfirmCard, setCardState, ULID, when };
-})();
+  return { init, renderConfirmCard, setCardState, ULID, when };
+}

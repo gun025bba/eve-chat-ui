@@ -9,7 +9,10 @@
       "!tools/size-allowlist.json",
       "!tools/deploy-files.json",
       "!package-lock.json",
-      "!src/legacy"
+      "!src/legacy",
+      "!src/features/**/*.js",
+      "!src/api/**/*.js",
+      "!src/app/shell.js"
     ]
   },
   "formatter": {

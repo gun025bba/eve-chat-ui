@@ -1,9 +1,10 @@
+import { el } from '../../shared/dom.js';
 /* Eve memory UI (PROACTIVE-MEMORY-SPEC Part B @ eve-chat-ui-design 68a6981; API: eve-serving ui-api-contract §3.9).
  * Behind a feature flag, OFF by default: localStorage 'eve.flag.memory' === '1' turns it on.
  * Flag off → init() returns null and touches nothing (the settings section stays `hidden`).
  * Server memory off (GW_MEMORY_ENABLED=false: no settings.memory block / bare 404 on /v1/memory) → section stays hidden.
  * In-chat 기억해/잊어줘 cards live in proactive.js. Server calls and field names: memory-api.js only. */
-(function () {
+export default function createMemory({ memoryAPI }) {
   const FLAG = 'eve.flag.memory', BACKUP_SEEN = 'eve.mem.backupNoteSeen', UNDO_MS = 2800;
   const enabled = () => { try { return localStorage.getItem(FLAG) === '1'; } catch { return false; } };
   const KIND = { profile: '프로필', preference: '선호', fact: '사실', task: '할 일' };
@@ -18,7 +19,6 @@
   };
   const SAVE_ERR = { secret_detected: '비밀번호·키·카드번호처럼 보이는 내용은 저장할 수 없어요', invalid: '300자까지 쓸 수 있어요',
     cap_exceeded: '메모리가 가득 찼어요', busy: '지금 요청이 많아요. 잠시 후 다시 시도해 주세요', internal: '저장하지 못했어요. 잠시 후 다시 시도해 주세요' };
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const D = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' });
   function order(items) {                                   // spec B3 = injection order (MEM §3): pinned → live tasks → rest by updated_at desc
     const now = Date.now(), live = i => i.kind === 'task' && (!i.expiresAt || i.expiresAt > now);
@@ -26,8 +26,8 @@
     return items.slice().sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
   }
   function init(h) {
-    if (!enabled() || !self.EveMemoryAPI) return null;
-    const M = self.EveMemoryAPI, api = M.make(h.api), $ = id => document.getElementById(id);
+    if (!enabled() || !memoryAPI) return null;
+    const M = memoryAPI, api = M.make(h.api), $ = id => document.getElementById(id);
     const sec = $('memSection'), sw = $('sMemory'), note = $('sMemNote'), open = $('memOpen'), count = $('memCount'), view = $('memoryView'),
       list = $('memList'), state = $('memState'), retry = $('memRetry'), banner = $('memBanner'), addB = $('memAdd'), wipeB = $('memWipe'),
       form = $('memForm'), expG = $('memExportGroup'), expB = $('memExport'), total = $('memTotal'), kindI = $('memKind'), textI = $('memText'), formErr = $('memFormErr'), sheet = $('memWipeSheet');
@@ -291,5 +291,5 @@
     }
     return { openSettings, flag: true, flushDeletes, intro, closeIntro, active, ensure, count: countItems };
   }
-  self.EveMemory = { init, FLAG, order };
-})();
+  return { init, FLAG, order };
+}

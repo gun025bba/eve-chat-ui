@@ -2,7 +2,6 @@
   "app.js",
   "apple-touch-icon-precomposed.png",
   "apple-touch-icon.png",
-  "briefing.js",
   "favicon.ico",
   "favicon.svg",
   "icons/apple-touch-icon.png",
@@ -17,15 +16,9 @@
   "icons/shortcut-new.png",
   "index.html",
   "manifest.webmanifest",
-  "memory-api.js",
-  "memory.js",
   "offline.css",
   "offline.html",
   "offline.js",
-  "pim.js",
-  "proactive-api.js",
-  "proactive.js",
-  "shell.js",
   "splash/dark-1080x2340.png",
   "splash/dark-1125x2436.png",
   "splash/dark-1170x2532.png",
@@ -49,6 +42,5 @@
   "splash/light-750x1334.png",
   "splash/light-828x1792.png",
   "styles.css",
-  "sw.js",
-  "today.js"
+  "sw.js"
 ]

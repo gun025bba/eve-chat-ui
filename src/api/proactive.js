@@ -8,7 +8,7 @@
  * The UI ships no client-side mock: a 404/501 means "server doesn't support it yet" and the
  * feature hides itself. The test mock lives server-side in tests/mock.py.
  */
-(function () {
+export default function createProactiveAPI({ cleanBriefing }) {
   const E = encodeURIComponent;
   const ENDPOINTS = {
     unreadThreads:  { status: 'defined', method: 'GET',    path: () => '/v1/threads?unread=true&limit=100' }, // unread_count per thread (no /v1/notifications)
@@ -37,7 +37,7 @@
       const pv = m.provenance || {};
       return { origin: 'proactive', readAt: m.read_at || null, jobId: S(m.job_id) || S(pv.job_id), jobName: S(pv.job_name), kind: m.kind === 'digest' ? 'digest' : null,
         templateKind: ['briefing', 'watch', 'followup'].includes(m.template_kind) ? m.template_kind : null,   // top-level only (backend answer)   // unknown kind → null
-        briefing: self.EvePim ? self.EvePim.cleanBriefing(m.briefing) : null };   // eve-serving #66 §11.3: validated (schema 1 only, known section kinds, ≤10 items); anything else → null (content only)
+        briefing: cleanBriefing ? cleanBriefing(m.briefing) : null };   // eve-serving #66 §11.3: validated (schema 1 only, known section kinds, ≤10 items); anything else → null (content only)
     },
     memoryRefs: m => Array.isArray(m && m.memory_refs) ? m.memory_refs.filter(r => r && typeof r.id === 'string' && typeof r.text === 'string' && r.text.trim()).slice(0, 20).map(r => ({ id: r.id, text: r.text })) : [],   // DIRECTION-B §8.1 (field not confirmed server-side: absent → [] → chip hidden)
     unread: t => +(t && t.unread_count) || 0,           // CT Q2
@@ -90,5 +90,5 @@
       briefingPreview: () => call('briefingPreview', null, {})
     };
   }
-  self.EveProactiveAPI = { make, ENDPOINTS, FIELDS };
-})();
+  return { make, ENDPOINTS, FIELDS };
+}
