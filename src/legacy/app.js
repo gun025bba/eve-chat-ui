@@ -1,5 +1,5 @@
 import { APP_VERSION } from '../lib/version.js';
-import { SHEET_EASE, sheetDrag, animateOut } from '../shared/sheet-gestures.js';
+import { sheetDrag, animateOut } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
 import { createGatewayRequests } from '../api/gateway.js';
 import { createConversationState } from '../features/conversations/state.js';
@@ -25,10 +25,11 @@ function renderSources(sources, tools) {
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install }) {
   const $ = s => document.querySelector(s);
   const { showToast, hideToast } = Toast;
   const { openMini, closeMini } = Sheets;
+  const { maybeA2HS, openA2HS } = Install;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
@@ -1788,36 +1789,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   });
 
   /* ---------- add to home screen (§11) ---------- */
-  const a2 = $('#installSheet'); let bip = null, a2Scrim = null;
-  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); bip = e; maybeA2HS(); });
-  window.addEventListener('appinstalled', () => { localStorage.setItem('a2hs.installed', '1'); closeA2HS(); });
-  if (isStandalone()) localStorage.setItem('a2hs.installed', '1');
-  const visits = (+localStorage.getItem('visits') || 0) + 1; localStorage.setItem('visits', visits);
-  function a2Eligible() {
-    if (isStandalone() || localStorage.getItem('a2hs.installed')) return false;
-    if (Date.now() - (+localStorage.getItem('a2hs.dismissed') || 0) < 30 * 864e5) return false;
-    if (!(isIOS || bip)) return false;
-    return visits >= 2 || cv.convs.some(c => c.messages.some(m => m.role === 'assistant'));
-  }
-  let a2Timer = 0;
-  function maybeA2HS() { clearTimeout(a2Timer); a2Timer = setTimeout(() => { if (a2Eligible() && !dlg.open && a2.hidden && !controller) openA2HS(); }, 1200); }
-  function openA2HS(manual) {
-    a2.classList.toggle('bip', !!bip && !isIOS); const ipad = isIOS && !/iPhone|iPod/.test(navigator.userAgent); a2.classList.toggle('ipad', ipad);
-    if (ipad) $('#installSheet .step-share').innerHTML = '주소창 옆 <b>공유</b> 버튼(또는 ··· → 공유)을 누르고';
-    a2Scrim = document.createElement('div'); a2Scrim.className = 'sheet-scrim'; a2Scrim.onclick = () => closeA2HS(true); document.body.appendChild(a2Scrim);
-    a2.hidden = false; a2.dataset.manual = manual ? '1' : '';
-    requestAnimationFrame(() => requestAnimationFrame(() => { a2.classList.add('show'); a2Scrim.classList.add('show'); }));
-  }
-  function closeA2HS(dismissed) {
-    if (a2.hidden) return;
-    if (dismissed && !a2.dataset.manual) localStorage.setItem('a2hs.dismissed', String(Date.now()));
-    a2.classList.remove('show'); a2Scrim?.classList.remove('show');
-    a2.style.transition = `transform 300ms ${SHEET_EASE}`; a2.style.transform = 'translateY(110%)';
-    setTimeout(() => { a2.hidden = true; a2.style.transition = a2.style.transform = ''; a2Scrim?.remove(); a2Scrim = null; }, 300);
-  }
-  sheetDrag(a2, null, () => closeA2HS(true));
-  $('#installLater').onclick = () => closeA2HS(true);
-  $('#installBtn').onclick = async () => { if (!bip) return; bip.prompt(); const r = await bip.userChoice.catch(() => null); bip = null; if (r?.outcome === 'accepted') localStorage.setItem('a2hs.installed', '1'); closeA2HS(r?.outcome !== 'accepted'); };
+  Install.init({ isStandalone, isIOS, busy: () => dlg.open || !!controller,
+    hasAssistant: () => cv.convs.some(c => c.messages.some(m => m.role === 'assistant')) });
 
   /* ---------- mini sheets: rename / 👎 reason / migration ---------- */
   function openRenameSheet(c) { if (c) Rename.open(c, title => updateThread(c, { title })); }

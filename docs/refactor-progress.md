@@ -104,3 +104,12 @@
 - Node 15개·설정 저장/취소/입력 속성/SW 없는 버전 표시 Chromium/WebKit 10개 통과. 메모리 58·선톡 98·브리핑 53·산출물 스모크 2개 통과.
 - dark/light × 320/390/768 설정 시트 PNG 6개가 기존 산출물과 바이트 단위로 같다.
 - ratchet 파일 초과 2,615→2,614, 긴 줄 1,186→1,160. 함수 초과·innerHTML·!important·승격 장부·의존성 증가는 없다.
+
+## R3d — 홈 화면 추가 안내
+
+- 기반: R3c #57. 설치 안내 UI·방문 수·프롬프트 이벤트·타이머·스크림을 install feature가 소유한다. busy/대화 유무/환경은 앱이 주입한다.
+- visits, a2hs.installed, a2hs.dismissed와 30일 숨김·1200ms 노출·300ms 닫기·수동 안내 예외를 유지한다.
+- iPad 문구의 innerHTML 대입을 JSX 텍스트/강조로 대체했다. 설정·생성 완료·초기 인증의 안내 호출은 주입된 메서드를 쓴다.
+- Node 15개·산출물 게이트·Chromium/WebKit의 iPhone/iPad/desktop 설치 계약 16개 통과. 기존 native 54/55이며 원본에서도 실패한 offline fallback 하나만 남았다.
+- 스모크 2·설정 10·이름 시트 12개도 통과. 두 기기 × 두 테마 × 세 너비 PNG 12개는 반복 화살표 애니메이션 위상을 고정하면 바이트 단위로 일치했다.
+- ratchet 파일 초과 2,614→2,587, 긴 줄 1,160→1,150, 함수 초과 3,204→3,177, innerHTML 38→37. 신규 !important·shared 승격·의존성 없음.
