@@ -1,3 +1,5 @@
+import { createArchive } from '../features/conversations/archive.js';
+import { createRow } from '../features/conversations/row.js';
 import { APP_VERSION } from '../lib/version.js';
 import { sheetDrag, animateOut } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
@@ -273,38 +275,16 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   }
   const renameConv = c => startRename($(`#convList li.row[data-id="${CSS.escape(c.id)}"]`), c);
   /* archive with 2.8s undo, deferred commit (THREADS-SPEC §2.4) */
-  let pendingArchive = null;
-  function commitArchive() {
-    const p = pendingArchive; if (!p) return; pendingArchive = null; clearTimeout(p.timer);
-    if (cv.mode === 'server' && !p.c.fresh) write('archive', 'archive:' + p.c.id, { id: p.c.id }, () => { cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, p.c); p.c.archived = false; persist(); renderList(); }, '보관하지 못했어요');
-    else if (cv.mode === 'local') { p.c.archived = true; if (!cv.convs.includes(p.c)) cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, p.c); persist(); }
-  }
-  function archiveConv(c) {
-    if (pendingArchive) commitArchive();
-    if (genId === c.id && controller) controller.abort();
-    const idx = cv.convs.indexOf(c); if (idx < 0) return;
-    cv.convs.splice(idx, 1); c.archived = true;
-    if (cv.currentId === c.id) { cv.currentId = cv.convs.find(x => !x.archived)?.id || null; loadDraft(); }
-    persist(); renderAll(); buzz(15);
-    pendingArchive = { c, idx, timer: setTimeout(() => { hideToast(); commitArchive(); }, 2800) };
-    showToast('보관됨', '되돌리기', () => {
-      const p = pendingArchive; if (!p || p.c !== c) return; clearTimeout(p.timer); pendingArchive = null;
-      c.archived = false; cv.convs.splice(Math.min(p.idx, cv.convs.length), 0, c); persist(); renderList();
-      const r = $(`#convList li.row[data-id="${CSS.escape(c.id)}"]`); r?.classList.add('expanding'); setTimeout(() => r?.classList.remove('expanding'), 300);
-    }, 2800);
-  }
-  function deleteConv(c) {   // permanent delete: local mode only (backend DELETE = archive)
-    if (genId === c.id && controller) controller.abort();
-    cv.convs = cv.convs.filter(x => x.id !== c.id); cv.archivedList = cv.archivedList.filter(x => x.id !== c.id); localStorage.removeItem(LS.draft + c.id);
-    if (cv.currentId === c.id) { cv.currentId = cv.convs[0]?.id || null; loadDraft(); }
-    persist(); renderAll(); renderArchive(); buzz(15);
-  }
-  async function restoreConv(c) {
-    cv.archivedList = cv.archivedList.filter(x => x !== c); c.archived = false;
-    if (cv.mode === 'local') { if (!cv.convs.includes(c)) cv.convs.push(c); }
-    else { cv.convs.push(c); write('patch', 'patch:' + c.id, { id: c.id, patch: { archived: false } }, () => { cv.convs = cv.convs.filter(x => x !== c); c.archived = true; cv.archivedList.unshift(c); persist(); renderAll(); renderArchive(); }, '복원하지 못했어요'); }
-    persist(); renderList(); renderArchive(); if (c === cur()) renderMessages(); showToast('복원됨', '', null, 1600);
-  }
+  const { commit: commitArchive, archive: archiveConv, delete: deleteConv, restore: restoreConv } = createArchive({
+    state: cv, current: cur, loadDraft, persist, renderAll, renderList, renderArchive, renderMessages,
+    buzz, showToast, hideToast, write,
+    abort: id => { if (genId === id && controller) controller.abort(); },
+    removeDraft: id => localStorage.removeItem(LS.draft + id),
+    expand: id => {
+      const row = $(`#convList li.row[data-id="${CSS.escape(id)}"]`);
+      row?.classList.add('expanding'); setTimeout(() => row?.classList.remove('expanding'), 300);
+    }
+  });
   function groupLabel(t) {
     const d0 = new Date(); d0.setHours(0, 0, 0, 0); const day = 864e5;
     if (t >= d0) return '오늘'; if (t >= d0 - day) return '어제'; if (t >= d0 - 6 * day) return '지난 7일'; if (t >= d0 - 29 * day) return '지난 30일';
@@ -328,23 +308,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const safeSnippet = s => escapeHtml(String(s || '')).replace(/&lt;(\/?)mark&gt;/g, '<$1mark>');
   const listQuery = () => ($('#search').value || '').trim();
   let searchHits = null, searchT = 0, searchSeq = 0;
-  const MARK = '<svg class="r-eve" viewBox="0 0 100 100" aria-hidden="true"><path d="M14 54V36a16 16 0 0 1 16-16h40a16 16 0 0 1 16 16v28a16 16 0 0 1-16 16H34" fill="none" stroke="currentColor" stroke-width="9"/><rect x="32" y="37" width="10" height="26" rx="5" fill="var(--brand)"/></svg>';
-  const hasPro = c => (c.unread || 0) > 0 || (c.messages || []).some(m => m.origin === 'proactive');
-  /* 1.10.0 B2 (DIRECTION-B §9.2): a row is  time(36px) · title + preview · [pill] [Eve mark]; rows of one day share a group card */
   function rowEl(c, cls = '', opts = {}) {
-    const li = document.createElement('li'); li.className = 'row' + cls + (c.id === cv.currentId ? ' active' : ''); li.dataset.id = c.id;
-    const arch = cls.includes('archived');
-    li.innerHTML = `<div class="row-actions">${arch ? '<button type="button" class="ra-restore" tabindex="-1">복원</button>' + (cv.mode === 'local' ? '<button type="button" class="ra-del" tabindex="-1">삭제</button>' : '') : '<button type="button" class="ra-rename" tabindex="-1">이름 변경</button><button type="button" class="ra-archive" tabindex="-1">보관</button>'}</div>
-      <div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub"></div></div></div>`;
-    li.querySelector('.row-title').textContent = (c.pinned ? '📌 ' : '') + c.title;
-    const tm = li.querySelector('time'), ts = c.updated || Date.now(); tm.textContent = opts.day && kstDay(ts) !== kstDay(Date.now()) ? shortDate(ts) : hhmm(ts); tm.dateTime = new Date(ts).toISOString();
-    const sub = li.querySelector('.row-sub');
-    PRO?.decorateRow(li, c);
-    if (hasPro(c)) li.querySelector('.row-top').insertAdjacentHTML('beforeend', MARK);
-    if (genId === c.id) sub.innerHTML = '<span class="spin" aria-hidden="true"></span>답변 중…'; else sub.textContent = opts.date ? daySepText(ts).replace(/ · .*/, '') + ' · ' + preview(c) : preview(c);
-    return li;
+    return createRow(c, cls, opts, {
+      currentId: cv.currentId, local: cv.mode === 'local', generatingId: genId,
+      hhmm, kstDay, daySepText, preview, decorate: (row, conversation) => PRO?.decorateRow(row, conversation)
+    });
   }
-  const shortDate = t => { const [, m, d] = kstDay(t).split('-').map(Number); return `${m}.${d}`; };
   let wkDay = null;   // the day whose week the strip shows (= the date header at the top of the list)
   function renderWk() {
     const el = $('#wk'), T = kstDay(Date.now()), have = new Set(cv.convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));

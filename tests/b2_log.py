@@ -1,13 +1,18 @@
 # 1.10.0 B2 하루 (DIRECTION-B-SPEC §9.2): 기록 — week strip, day-grouped list, search mode, 보관함 row, empty state
-import re
+import re, os
+from assets_common import full_csp
 from playwright.sync_api import sync_playwright
 from b2_common import *
-R = []; errs = []
+R = []; errs = []; csp = []
 def check(n, ok, x=''): R.append(bool(ok)); print('PASS' if ok else 'FAIL', n, '' if ok else x)
 def newpg(b, scheme='dark', **kw):
-    ctx = new_ctx(b, scheme=scheme, **kw); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e))); return ctx, pg
-with sync_playwright() as p:
-    b = p.chromium.launch()
+    ctx = new_ctx(b, scheme=scheme, **kw)
+    ctx.expose_binding('_recordCsp', lambda source, directive: csp.append(directive))
+    ctx.add_init_script("document.addEventListener('securitypolicyviolation', e => window._recordCsp(e.violatedDirective))")
+    pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e))); return ctx, pg
+with full_csp(), sync_playwright() as p:
+    engine = p.webkit if os.environ.get('EVE_ENGINE') == 'webkit' else p.chromium
+    b = engine.launch()
     reset(); ids = rich(); ids.update(older())
     ctx, pg = newpg(b); goto_today(pg, '#/log')
     check('#/log → list route; large title 기록; back button + settings-less narrow nav', rt(pg) == 'list' and pg.text_content('#listView .large-title') == '기록' and pg.is_visible('#logBack') and not pg.is_visible('#openSettings3'))
@@ -64,5 +69,26 @@ with sync_playwright() as p:
     check('log loading: skeleton rows, no "아직 기록이 없어요" flash', pg.locator('#convList .skel').count() == 3 and not pg.is_visible('#listEmpty'))
     pg.wait_for_timeout(2200); check('skeleton → rows', pg.locator('#convList .skel').count() == 0 and pg.locator('#convList li.row').count() >= 6)
     put('/delay/clear'); ctx.close()
+    # Component text stays inert, including across repeated list rebuilds.
+    reset(); title = '<img src=x onerror=alert(1)> & 제목'
+    conv2(title, 12, 0, a='<script>alert(1)</script> & 답변')
+    ctx, pg = newpg(b); goto_today(pg, '#/log')
+    check('row title preserves literal untrusted text', pg.locator('#convList .row-title').inner_text() == title)
+    check('row text creates no HTML elements', pg.locator('#convList img, #convList script').count() == 0)
+    pg.click('#logSearch'); pg.fill('#search', '제목'); pg.wait_for_timeout(600)
+    pg.fill('#search', ''); pg.click('#searchCancel'); pg.wait_for_timeout(500)
+    check('repeated row rebuild keeps one action set', pg.locator('#convList .ra-rename').count() == 1 and pg.locator('#convList .ra-archive').count() == 1)
+    pg.locator('#convList li.row').dispatch_event('contextmenu'); pg.wait_for_timeout(350)
+    pg.locator('#ctx [role=menuitem]', has_text='보관').click(); pg.wait_for_timeout(350)
+    check('archive removes row before deferred commit', pg.locator('#convList li.row').count() == 0 and not any(t.get('archived') for t in req('GET', '/__db')['threads']))
+    pg.locator('#toastAct').click(); pg.wait_for_timeout(3100)
+    check('undo restores row and cancels archive timer', pg.locator('#convList li.row').count() == 1 and not any(t.get('archived') for t in req('GET', '/__db')['threads']))
+    pg.locator('#convList li.row').dispatch_event('contextmenu'); pg.wait_for_timeout(350)
+    pg.locator('#ctx [role=menuitem]', has_text='보관').click(); pg.wait_for_timeout(350)
+    pg.evaluate("Object.defineProperty(document, 'visibilityState', {configurable:true,get:()=> 'hidden'}); document.dispatchEvent(new Event('visibilitychange'))")
+    pg.wait_for_timeout(500)
+    check('backgrounding commits pending archive once', sum(bool(t.get('archived')) for t in req('GET', '/__db')['threads']) == 1)
+    ctx.close()
+    check('no full CSP violations', not csp, csp)
     check('no page errors', not errs, errs); b.close()
 print(f'{sum(R)}/{len(R)} checks'); raise SystemExit(0 if all(R) else 1)
