@@ -1,4 +1,4 @@
-"""2.0.0 follow-up, design Lows: stop clears the .tq/note, status line counts sources.length, one fade constant, queries never stored."""
+"""2.0.1, design Lows: stop clears the .tq/note, status line counts sources.length, one fade constant, queries never stored."""
 from at_common import *
 OLD = src(1, 'news.example.com', published='2020-01-02')
 S3 = [OLD, src(2, 'b.example.org'), src(3, 'c.example.net')]

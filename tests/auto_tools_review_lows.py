@@ -1,4 +1,4 @@
-"""2.0.0 follow-up, QA Lows: source date in .sd, count:0 restored after a reload, live/reload notice agree, '· 조금 걸려요' leaves with the result."""
+"""2.0.1, QA Lows: source date in .sd, count:0 restored after a reload, live/reload notice agree, '· 조금 걸려요' leaves with the result."""
 from at_common import *
 OLD = src(1, 'news.example.com', published='2020-01-02')
 S3 = [OLD, src(2, 'b.example.org'), src(3, 'c.example.net')]
