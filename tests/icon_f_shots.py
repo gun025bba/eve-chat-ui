@@ -1,8 +1,8 @@
-# 1.11.0 icon F screenshots → review-shots/1.11.0/icon-f/ (390px @2x, dark + light). Not part of the suite (writes files; needs a running mock: EVE_PORT=<port> python icon_f_shots.py).
+# 2.1.0 icon F screenshots → review-shots/2.1.0/icon-f/ (390px @2x, dark + light). Not part of the suite (writes files; needs a running mock: EVE_PORT=<port> python icon_f_shots.py).
 import os
 from playwright.sync_api import sync_playwright
 from b2_common import *
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'review-shots', '1.11.0', 'icon-f'); os.makedirs(OUT, exist_ok=True)
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'review-shots', '2.1.0', 'icon-f'); os.makedirs(OUT, exist_ok=True)
 with sync_playwright() as p:
     dev = dict(p.devices['iPhone 14']); dev['device_scale_factor'] = 2; b = p.chromium.launch()
     for scheme in ['dark', 'light']:
