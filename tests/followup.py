@@ -1,4 +1,4 @@
-from assets_common import source_path
+from assets_common import source_path, source_text
 # 1.10.0 follow-up (designer approval of #21–#24): a accent-fill · b + menu close · c chips fade token · d #messages label · e one sun icon · f nav ::before easing
 # · g confirm card inside the event body · h usage line on one line · i snoozed items out of the pending strip/sheet · j button transitions · k briefing.enabled
 import re, os
@@ -61,7 +61,7 @@ with sync_playwright() as p:
     ic = pg.evaluate("[...new Set([...document.querySelectorAll('#todayList .ev.pro svg use')].map(u => u.getAttribute('href')))]")
     open_thread(pg, '아침 브리핑'); pg.wait_for_timeout(600)
     ic2 = pg.evaluate("[...new Set([...document.querySelectorAll('#messages .who-ic use, #messages .bc-head use, #messages .pim-card use')].map(u => u.getAttribute('href')))]")
-    src = ''.join(open(source_path(f'{ROOT}/{f}')).read() for f in ('proactive.js', 'pim.js', 'briefing.js', 'today.js', 'app.js'))
+    src = ''.join(source_text(f'{ROOT}/{f}') for f in ('proactive.js', 'pim.js', 'briefing.js', 'today.js', 'app.js'))
     check('e) one name: #i-sun-horizon everywhere, no #i-sun / icon("sun") / `sun:` key left', '#i-sun"' not in src and "icon('sun')" not in src and not re.search(r"\bsun:\s", src) and not [h for h in ic + ic2 if h in ('#i-sun',)] and '#i-sun-horizon' in ic + ic2, (ic, ic2))
     ctx.close()
     # ---- h) usage line on one line (light + dark, 320/375/390)
