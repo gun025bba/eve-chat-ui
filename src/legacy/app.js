@@ -1,5 +1,7 @@
 import { createArchive } from '../features/conversations/archive.js';
-import { createRow } from '../features/conversations/row.js';
+import { renderList as renderListItems, renderArchive as renderArchiveItems, renderArchiveLoading } from '../features/conversations/list.js';
+import { selectList } from '../features/conversations/list-model.js';
+import { ConversationSearch } from '../features/conversations/search.js';
 import { APP_VERSION } from '../lib/version.js';
 import { sheetDrag, animateOut } from '../shared/sheet-gestures.js';
 import { createThreadsAPI } from '../api/threads.js';
@@ -304,16 +306,16 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     }
     return c.preview ? clean(c.preview) : '메시지 없음';
   }
-  // server snippet: escaped except <mark>; re-sanitize defensively
-  const safeSnippet = s => escapeHtml(String(s || '')).replace(/&lt;(\/?)mark&gt;/g, '<$1mark>');
   const listQuery = () => ($('#search').value || '').trim();
-  let searchHits = null, searchT = 0, searchSeq = 0;
-  function rowEl(c, cls = '', opts = {}) {
-    return createRow(c, cls, opts, {
-      currentId: cv.currentId, local: cv.mode === 'local', generatingId: genId,
-      hhmm, kstDay, daySepText, preview, decorate: (row, conversation) => PRO?.decorateRow(row, conversation)
-    });
-  }
+  const search = new ConversationSearch({
+    query: listQuery, server: () => cv.mode === 'server', render: renderList,
+    progress: on => $('#searchProgress').classList.toggle('on', on), search: q => threadsAPI.search(q)
+  });
+  const onSearch = search.change;
+  const rowHost = () => ({
+    currentId: cv.currentId, local: cv.mode === 'local', generatingId: genId,
+    hhmm, kstDay, daySepText, preview, decorate: (row, conversation) => PRO?.decorateRow(row, conversation)
+  });
   let wkDay = null;   // the day whose week the strip shows (= the date header at the top of the list)
   function renderWk() {
     const el = $('#wk'), T = kstDay(Date.now()), have = new Set(cv.convs.filter(c => !c.archived && c.updated > 0).map(c => kstDay(c.updated)));
@@ -352,51 +354,21 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     }, 100);
   }
   function renderList() {
-    const ul = $('#convList'); if (ul.querySelector('.row.editing')) return; ul.innerHTML = '';
-    const searching = listView.classList.contains('searching'), q = listQuery().toLowerCase(), flatMode = searching || !!q;
-    const live = cv.convs.filter(c => !c.archived);
-    live.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updated - a.updated);
-    const list = live.filter(c => !q || c.title.toLowerCase().includes(q) || c.messages.some(m => (m.content || '').toLowerCase().includes(q)) || (c.preview || '').toLowerCase().includes(q));
+    const ul = $('#convList'); if (ul.querySelector('.row.editing')) return;
+    const q = listQuery().toLowerCase(), flatMode = listView.classList.contains('searching') || !!q;
+    const { live, list } = selectList(cv.convs, q);
     $('#listEmpty').hidden = !!live.length || cv.threadsLoading || listLoading || flatMode;
-    const label = (txt, n, day) => { const h = document.createElement('li'); h.className = 'group-label'; if (day) h.dataset.day = day; h.innerHTML = '<span class="gl-n"></span><span class="gl-c"></span>'; h.querySelector('.gl-n').textContent = txt; h.querySelector('.gl-c').textContent = n ? `대화 ${n}` : ''; ul.appendChild(h); };
-    if (!flatMode) {
-      const cnt = new Map(); list.forEach(c => { const k = c.pinned ? 'pin' : kstDay(c.updated || 0); cnt.set(k, (cnt.get(k) || 0) + 1); });
-      let lastG = null;
-      list.forEach(c => {
-        const g = c.pinned ? 'pin' : kstDay(c.updated || 0);
-        if (g !== lastG) { label(g === 'pin' ? '고정됨' : daySepText(c.updated || 0), cnt.get(g), g === 'pin' ? '' : g); lastG = g; }
-        ul.appendChild(rowEl(c, '', { day: g === 'pin' }));
-      });
-    } else list.forEach(c => ul.appendChild(rowEl(c, '', { date: true })));
-    if (q && searchHits) {   // server results (title + content), deduped against local rows
-      const hits = searchHits.filter(h => h.match === 'content' || !list.some(c => c.id === h.thread_id));
-      hits.forEach(hit => {
-        const li = document.createElement('li'); li.className = 'hit'; li.dataset.tid = hit.thread_id; if (hit.message_id) li.dataset.mid = hit.message_id;
-        li.innerHTML = `<div class="row-main"><time class="r-tm"></time><div class="r-bd"><div class="row-top"><span class="row-title"></span></div><div class="row-sub snippet">${safeSnippet(hit.snippet)}</div></div></div>`;
-        li.querySelector('.row-title').textContent = hit.thread_title || '대화'; li.querySelector('time').textContent = hhmm(toMs(hit.created_at));
-        ul.appendChild(li);
-      });
-      if (!list.length && !hits.length) ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    } else if (q && !list.length && !(cv.mode === 'server' && searchT))
-      ul.innerHTML = '<li class="no-results">결과 없음</li>';
-    if ((cv.threadsLoading || logSkel()) && !q) for (let i = 0; i < 3; i++) { const s = document.createElement('li'); s.className = 'skel'; s.innerHTML = '<i></i><i></i>'; ul.appendChild(s); }
-    // one group card per run of rows: round the first and last row
-    let run = [];
-    const flush = () => { if (run.length) { run[0].classList.add('g1'); run[run.length - 1].classList.add('g9'); } run = []; };
-    [...ul.children].forEach(li => { if (li.classList.contains('group-label') || li.classList.contains('no-results')) flush(); else run.push(li); }); flush();
-    const ar = $('#archivedRow'); if (ar) { ar.hidden = flatMode; const n = cv.mode === 'local' ? cv.convs.filter(c => c.archived).length : 0; $('#archivedCount').textContent = n ? String(n) : ''; }
+    renderListItems(ul, {
+      list, query: q, flat: flatMode, hits: search.hits, pending: search.pending,
+      loading: cv.threadsLoading || logSkel(), server: cv.mode === 'server', host: rowHost(),
+      hitTime: time => hhmm(toMs(time))
+    });
+    const ar = $('#archivedRow'); if (ar) {
+      ar.hidden = flatMode;
+      const n = cv.mode === 'local' ? cv.convs.filter(c => c.archived).length : 0;
+      $('#archivedCount').textContent = n ? String(n) : '';
+    }
     renderWk(); todayDirty();
-  }
-  function onSearch() {
-    renderList(); clearTimeout(searchT); searchT = 0; searchHits = null;
-    const q = listQuery(); $('#searchProgress').classList.remove('on');
-    if (!q || cv.mode !== 'server') return renderList();
-    searchT = setTimeout(async () => {
-      const seq = ++searchSeq; $('#searchProgress').classList.add('on');
-      try { const j = await threadsAPI.search(q); if (seq !== searchSeq || listQuery() !== q) return; searchHits = j.data || []; }
-      catch { if (seq === searchSeq) searchHits = []; }
-      finally { if (seq === searchSeq) { searchT = 0; $('#searchProgress').classList.remove('on'); renderList(); } }
-    }, 250);
   }
   $('#search').addEventListener('input', onSearch);
   $('#search').addEventListener('search', onSearch);
@@ -423,16 +395,15 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   /* ---------- archive screen (#/archive) ---------- */
   async function loadArchive() {
     if (cv.mode === 'local') { cv.archivedList = cv.convs.filter(c => c.archived); return renderArchive(); }
-    $('#archList').innerHTML = '<li class="skel"><i></i><i></i></li>';
+    renderArchiveLoading($('#archList'));
     try { const j = await threadsAPI.archived(); cv.archivedList = (j.data || []).map(t => fromServerThread(t, cv.archivedList.find(a => a.id === t.id))); cv.archivedList.forEach(c => c.archived = true); }
     catch {} renderArchive();
   }
   function renderArchive() {
-    const ul = $('#archList'); if (!ul) return; ul.innerHTML = '';
+    const ul = $('#archList'); if (!ul) return;
     const list = cv.mode === 'local' ? cv.convs.filter(c => c.archived) : cv.archivedList;
     if (cv.mode === 'local') cv.archivedList = list;
-    list.sort((a, b) => b.updated - a.updated).forEach(c => ul.appendChild(rowEl(c, ' archived')));
-    ul.firstElementChild?.classList.add('g1'); ul.lastElementChild?.classList.add('g9');
+    renderArchiveItems(ul, list, rowHost());
     $('#archEmpty').hidden = !!list.length;
   }
   $('#archList').addEventListener('click', e => {

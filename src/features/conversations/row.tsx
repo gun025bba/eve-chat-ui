@@ -1,14 +1,14 @@
-import { render } from 'preact';
-
-type Conversation = {
+export type Conversation = {
   id: string;
   title: string;
   pinned?: boolean;
   updated?: number;
   unread?: number;
-  messages?: { origin?: string }[];
+  messages?: { origin?: string; content?: string }[];
+  preview?: string;
+  archived?: boolean;
 };
-type Host<C> = {
+export type RowHost<C> = {
   currentId: string | null;
   local: boolean;
   generatingId: string | null;
@@ -63,16 +63,24 @@ function shortDate(day: string) {
   const [, month, date] = day.split('-').map(Number);
   return `${month}.${date}`;
 }
-export function createRow<C extends Conversation>(c: C, cls: string, options: RowOptions, host: Host<C>) {
-  const row = document.createElement('li');
-  row.className = `row${cls}${c.id === host.currentId ? ' active' : ''}`;
-  row.dataset.id = c.id;
+type Props<C> = { conversation: C; cls?: string; options?: RowOptions; host: RowHost<C> };
+function decorate<C>(row: HTMLLIElement | null, conversation: C, host: RowHost<C>) {
+  if (!row) return;
+  host.decorate(row, conversation);
+  const mark = row.querySelector('.r-eve');
+  if (mark) row.querySelector('.row-top')?.appendChild(mark);
+}
+export function ConversationRow<C extends Conversation>({ conversation: c, cls = '', options = {}, host }: Props<C>) {
   const time = c.updated || Date.now();
   const label =
     options.day && host.kstDay(time) !== host.kstDay(Date.now()) ? shortDate(host.kstDay(time)) : host.hhmm(time);
   const proactive = (c.unread || 0) > 0 || (c.messages || []).some((m) => m.origin === 'proactive');
-  render(
-    <>
+  return (
+    <li
+      class={`row${cls}${c.id === host.currentId ? ' active' : ''}`}
+      data-id={c.id}
+      ref={(row) => decorate(row, c, host)}
+    >
       <RowActions archived={cls.includes('archived')} local={host.local} />
       <div class="row-main">
         <time class="r-tm" dateTime={new Date(time).toISOString()}>
@@ -95,11 +103,6 @@ export function createRow<C extends Conversation>(c: C, cls: string, options: Ro
           </div>
         </div>
       </div>
-    </>,
-    row,
+    </li>
   );
-  host.decorate(row, c);
-  const mark = row.querySelector('.r-eve');
-  if (mark) row.querySelector('.row-top')?.appendChild(mark);
-  return row;
 }
