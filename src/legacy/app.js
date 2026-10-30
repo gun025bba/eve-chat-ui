@@ -1,3 +1,4 @@
+import { renderAssistantBody, disposeAssistantBodiesWithin } from '../features/messages/body.js';
 import { renderMarkdownBody, createLiveBody, renderLiveMarkdown, disposeMarkdownWithin } from '../features/messages/markdown.js';
 import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
@@ -27,9 +28,10 @@ import { createSSEParser } from '../lib/sse.js';
 import { splitThink, stripStopMark } from '../lib/think.js';
 'use strict';
 let _srcSeq = 0;
+const nextSourceId = () => 'src' + (++_srcSeq);
 function renderSources(sources, tools) {
   const model = prepareSources(sources, tools);
-  return model ? renderSourceHtml(model, 'src' + (++_srcSeq)) : '';
+  return model ? renderSourceHtml(model, nextSourceId()) : '';
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 /* ---------- app ---------- */
@@ -75,11 +77,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); disposeMarkdownWithin(box); timeline.clear(); }
+  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); disposeMarkdownWithin(box); disposeAssistantBodiesWithin(box); timeline.clear(); }
   function showMessageLoading() { clearMessageBox(); timeline.loading(); }
   function removeMessage(element) {
     const actions = element?.querySelector('.actions'); if (actions) Feedback.detach(actions);
-    if (element) { messageParts.disposeWithin(element); disposeMarkdownWithin(element); }
+    if (element) { messageParts.disposeWithin(element); disposeMarkdownWithin(element); disposeAssistantBodiesWithin(element); }
     timeline.remove(element);
   }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
@@ -467,21 +469,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   }
   /* AUTO-TOOLS-SPEC §5/§7: what the web tools did for a reply — {tools:[{q,by}], note:{key,t}} — kept in memory for this session only (message id → info; never written to storage, so queries do not persist) */
   const TOOLINFO = new Map();
-  const renderToolNote = n => n && TOOL_FAIL[n.key] ? `<div class="tnote" role="status" aria-live="polite" data-key="${n.key}" data-t="${n.t || 0}"></div>` : '';   // empty container first; the text is filled next frame so assistive tech announces it
-  function fillToolNote(bubble) {
-    const n = bubble.querySelector('.tnote[data-key]'); if (!n) return;
-    requestAnimationFrame(() => {
-      if (!n.isConnected || n.firstChild) return;
-      const [, title, sub] = TOOL_FAIL[n.dataset.key] || TOOL_FAIL.unknown;
-      n.innerHTML = `${ICON.warn}<div class="tb"><b>${title}</b><span>${sub}</span></div>`;
-    });
-  }
-  /* "참고한 기억" chips (DIRECTION-B §8.1): only when the message carries memory_refs and memory is on; text via escapeHtml only */
-  function renderMemRefs(m) {
-    const refs = m?.memoryRefs; if (!refs?.length || !MEM?.active?.()) return '';
-    const lab = t => { const a = [...String(t)]; return a.length > 14 ? a.slice(0, 14).join('') + '…' : a.join(''); }, shown = refs.slice(0, 2), more = refs.length - shown.length;
-    return `<div class="mchips" role="group" aria-label="참고한 기억">${shown.map(r => `<button type="button" class="chp m" data-ref="${escapeHtml(r.id)}" aria-label="${escapeHtml('참고한 기억: ' + r.text)}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></svg><span>${escapeHtml(lab(r.text))}</span></button>`).join('')}${more ? `<span class="chp-more">+${more}</span>` : ''}</div>`;
-  }
   box.addEventListener('click', e => { const b = e.target.closest('.chp.m'); if (b && MEM) openMemoryView(b.dataset.ref); });
    // memory chip → settings sheet #memoryView (openMemoryView, B3)
   function fillAssistant(bubble, text, opts = {}) {
@@ -489,26 +476,19 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     const live = !!opts.live;
     if (live) bubble._streamed = true;
     if (live && bubble._live && !opts.slow && !opts.resuming && patchLive(bubble, think, answer, live && thinking)) return;
-    const prev = bubble.querySelector('details.think');
-    let html = '';
-    if (think !== null) {
-      const isThinking = live && thinking;
-      const open = prev && prev.dataset.user ? prev.open : (isThinking || settings.showThink);
-      const label = isThinking ? '생각하는 중…' : ('생각 과정' + (opts.thinkSecs ? ` · ${opts.thinkSecs}초` : ''));
-      html += `<details class="think${isThinking ? ' live' : ''}"${open ? ' open' : ''}><summary>${ICON.chev}<span>${label}</span></summary><div class="think-body">${escapeHtml(think)}</div></details>`;
-    }
+    const prev = bubble.querySelector('details.think'), userToggled = prev?.dataset.user;
     const waiting = live && !answer.trim() && (think === null || !thinking);
     const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
-    if (waiting && bubble._tline) { /* the persistent .tline node is re-attached below */ }
-    else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
-    else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
-    else if (live) html += '<div class="md cursor"><div class="stable"></div><div class="tail"></div></div>';
-    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md"></div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
+    const ti = !live ? (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null : null;
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
-    const userToggled = prev?.dataset.user;
-    if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
+    if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();
     messageParts.disposeWithin(bubble); disposeMarkdownWithin(bubble);
-    bubble.innerHTML = html;
+    renderAssistantBody(bubble, {
+      think, answer, live, thinking, waiting, slow: !!opts.slow, toolLine: !!bubble._tline,
+      open: userToggled ? prev.open : (live && thinking || settings.showThink), user: userToggled,
+      thinkSecs: opts.thinkSecs, sources: srcs, tools: ti?.tools || opts.msg?.tools,
+      refs: opts.msg?.memoryRefs, memoryActive: !!MEM?.active?.(), note: ti ? ti.note : freshNote(opts.msg), nextSourceId
+    });
     const md = bubble.querySelector('.md');
     if (md) {
       if (live) renderLiveMarkdown(md, answer, srcs, root => messageParts.disposeWithin(root));
@@ -518,9 +498,6 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (wasLive && !live) bubble._freshAt = performance.now();
     { const secs = !live && bubble._freshAt ? bubble.querySelectorAll('.sources, .mchips') : [], el = secs.length ? performance.now() - bubble._freshAt : 1e9; // 120ms fade survives a same-tick re-fill (source + memory chips)
       if (el < 120) secs.forEach(sec => { sec.classList.add('fresh'); if (el > 1) sec.style.animationDelay = `-${Math.round(el)}ms`; }); }
-    fillToolNote(bubble);
-    const det = bubble.querySelector('details.think');
-    if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     const msg = bubble.parentElement;
     const oldActions = msg.querySelector('.actions');
     if (oldActions) { Feedback.detach(oldActions); messageParts.disposeWithin(oldActions); oldActions.remove(); }
