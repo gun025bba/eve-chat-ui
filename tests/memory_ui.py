@@ -1,3 +1,4 @@
+from version_common import VERSION, versioned
 # Part B memory UI (flag 'eve.flag.memory', off by default) e2e against mock.py
 import json, urllib.request
 from playwright.sync_api import sync_playwright
@@ -29,7 +30,7 @@ with sync_playwright() as p:
 
     # 1) flag OFF (default): nothing visible, no memory request
     settings()
-    check('version 2.0.0', pg.evaluate('__app.version') == '2.0.0')
+    check(versioned('version __EVE_VERSION__'), pg.evaluate('__app.version') == VERSION)
     check('flag off: memory section hidden', pg.is_hidden('#memSection') and pg.evaluate("localStorage.getItem('eve.flag.memory')") is None)
     check('flag off: no GET /v1/memory', not memGets())
 

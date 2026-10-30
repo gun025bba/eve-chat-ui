@@ -3,7 +3,12 @@
 # Exit code 1 if any suite fails. A failing suite is re-run once (headless-browser timing flakes); it only counts as passed if the re-run passes.
 #   PYTHON=tests/v/bin/python bash tests/run_all.sh        (default PYTHON=python3)   EVE_PORT=<free port> (default 8899)
 # Not suites (helpers / screenshot generators that write files): mock, *_common, gen_splash, header_shot, review_shots, shots*, *_shots.
-cd "$(dirname "$0")" || exit 2
+cd "$(dirname "$0")/.." || exit 2
+npm ci --ignore-scripts || exit 2
+npm run check || exit 2
+npm run build || exit 2
+export EVE_UI_DIR="$PWD/dist"
+cd tests || exit 2
 PY="${PYTHON:-python3}"; export EVE_PORT="${EVE_PORT:-8899}"
 OUT="${RUN_ALL_OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 "$PY" mock.py > "$OUT/mock.log" 2>&1 &

@@ -1,3 +1,4 @@
+from version_common import VERSION, versioned
 # 선톡 P1 (v1.1.0) e2e against mock.py: unread, read-on-view, confirm card, settings, push
 import json, urllib.request
 from playwright.sync_api import sync_playwright
@@ -40,7 +41,7 @@ with sync_playwright() as p:
 
     # --- unsupported server: hides itself
     put('/pro/supported/off'); home()
-    check('version 2.0.0', pg.evaluate('window.__app && window.__app.version') == '2.0.0', [errs, pg.url, pg.content()[:300]])
+    check(versioned('version __EVE_VERSION__'), pg.evaluate('window.__app && window.__app.version') == VERSION, [errs, pg.url, pg.content()[:300]])
     to_today(); pg.click('#openSettings'); pg.wait_for_timeout(600)
     check('unsupported: note + toggle off', '지금은 이 기능을 쓸 수 없어요' in pg.text_content('#sProNote') and pg.is_hidden('#proMore'))
     pg.click('#cancelSettings'); pg.wait_for_timeout(300); put('/pro/supported/on')

@@ -1,3 +1,4 @@
+from version_common import VERSION, versioned
 # Regression (v12): exactly one visible header title node, no view-transition-name, no font synthesis, real weight; version label
 from playwright.sync_api import sync_playwright
 R=[]
@@ -21,6 +22,6 @@ with sync_playwright() as p:
     check('font-synthesis none', r['syn'] in ('none',), r['syn'])
     check('real weight 700', r['w']=='700', r['w'])
     check('no title transition/animation', r['tr'] in ('0s',) and r['an']=='none')
-    check('version label 2.0.0', (r['ver'] or '').startswith('v2.0.0') and r['appv']=='2.0.0', r['ver'])
+    check(versioned('version label __EVE_VERSION__'), (r['ver'] or '').startswith(versioned('v__EVE_VERSION__')) and r['appv']==VERSION, r['ver'])
     b.close()
 print('ALL PASS' if all(R) else 'SOME FAIL'); raise SystemExit(0 if all(R) else 1)

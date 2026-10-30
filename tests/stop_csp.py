@@ -1,4 +1,5 @@
 """v14: generation stop (stream + non-stream, local + server) and CSP compliance under the gateway's /ui policy."""
+from version_common import VERSION, versioned
 from playwright.sync_api import sync_playwright
 import urllib.request, json, time
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
@@ -98,7 +99,7 @@ with sync_playwright() as p:
     check('late non-stream reply not rendered', 'late non-stream' not in pg.inner_text('#messages'))
     # settings / sheets under CSP
     pg.evaluate("document.querySelector('#openSettings')?.click() || document.querySelector('#settings').showModal()"); pg.wait_for_timeout(500)
-    check('version label 2.0.0', '2.0.0' in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
+    check(versioned('version label __EVE_VERSION__'), VERSION in pg.text_content('#appVersion'), pg.text_content('#appVersion'))
     pg.keyboard.press('Escape'); pg.wait_for_timeout(400)
     # offline page under CSP
     op = ctx.new_page(); op.goto(B + '/ui/offline.html'); op.wait_for_timeout(400)

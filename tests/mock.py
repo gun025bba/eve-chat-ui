@@ -6,7 +6,8 @@ from datetime import datetime, timezone, timedelta
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'"
-UI = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+FULL_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; worker-src 'self'"
+UI = os.environ.get('EVE_UI_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'dist'))
 STATE = {'n429': 0, 'authed': True, 'authHeader': False, 'persist': True, 'fail': {}, 'delay': {}, 'calls': []}
 DB = {'threads': {}, 'messages': {}, 'seq': 0, 'imports': {}}
 PRO = {}
@@ -651,7 +652,8 @@ class H(SimpleHTTPRequestHandler):
         if p.startswith('/invalidsession/'): STATE['invalidSession'] = p.endswith('/on')
         if p.startswith('/scope403/'): STATE['scope403'] = p.endswith('/on')
         if p.startswith('/paircode/'): STATE.update(pairCode=p[10:] or None, pairFails=0, pairBodies=[])
-        if p.startswith('/csp/'): STATE['csp'] = p.endswith('/on')
+        if p.startswith('/csp/'):
+            STATE['csp'] = p.endswith(('/on', '/full')); STATE['csp_value'] = FULL_CSP if p.endswith('/full') else None
         if p.startswith('/rejectcomment/'): STATE['rejectComment'] = p.endswith('/on')
         if p.startswith('/rejectreasons/'): STATE['rejectReasons'] = p.endswith('/on')
         if p.startswith('/persist/'): STATE['persist'] = p.endswith('/on')

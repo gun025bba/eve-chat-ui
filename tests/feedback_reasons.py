@@ -1,4 +1,5 @@
 """1.1.0 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
+from version_common import VERSION, versioned
 from playwright.sync_api import sync_playwright
 import urllib.request, json
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
@@ -134,7 +135,7 @@ with sync_playwright() as p:
     ctx.set_offline(False); pg.evaluate("dispatchEvent(new Event('online'))"); pg.wait_for_timeout(2500)
     check('online: outbox flushed to server', last_fb().get('rating') == 'up' and last_fb().get('reasons') == ['helpful'] and last_fb().get('comment') == '오프라인 메모', last_fb())
     check('no CSP violations', not pg.evaluate("window.__csp||[]"), pg.evaluate("window.__csp||[]"))
-    check('version 2.0.0', pg.evaluate("__app.version") == '2.0.0')
+    check(versioned('version __EVE_VERSION__'), pg.evaluate("__app.version") == VERSION)
     check('no page errors', not errs, errs)
     ctx.close()
     # light mode + reduced motion
