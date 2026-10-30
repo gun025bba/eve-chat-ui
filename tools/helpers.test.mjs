@@ -41,3 +41,20 @@ test('think blocks and stop markers retain streaming and finalized semantics', (
   assert.equal(helpers.stripStopMark('answer\n\n*(중지됨)*  '), 'answer');
   assert.equal(helpers.stripStopMark(null), '');
 });
+
+test('untrusted citations stay escaped, local dates stay stable and render context does not leak', () => {
+  assert.equal(helpers.srcDate('bad'), '');
+  const now = new Date(2026, 9, 30, 12);
+  assert.equal(helpers.srcDate('2026-10-30', now), '오늘');
+  assert.equal(helpers.srcDate('2026-10-29', now), '어제');
+  assert.equal(helpers.srcDate('2025-01-01', now), '2025년 1월 1일');
+  assert.equal(helpers.renderSources([{ n: 1, url: 'javascript:alert(1)' }]), '');
+  const citations = [{ n: 1, url: 'https://example.com/', title: '<img src=x>' }];
+  assert.match(helpers.renderMarkdown('answer[1]', citations), /class="cite"/);
+  assert.doesNotMatch(helpers.renderMarkdown('answer[1]'), /class="cite"/);
+  assert.doesNotMatch(helpers.renderSources(citations), /<img src=x>/);
+  assert.equal(helpers.toolFailKey({ error_code: 'permission_denied' }), 'denied');
+  assert.equal(helpers.toolFailKey({ error_code: 'tainted' }), null);
+  assert.equal(helpers.toolFailKey({ status: 'ok', count: 0 }), 'empty');
+  assert.equal(helpers.toolFailKey({ error_code: 'untrusted-server-message' }), 'unknown');
+});

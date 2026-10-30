@@ -3,7 +3,7 @@
   "index.html": {"lines":13,"longLines":110,"functions":0,"innerHTML":0,"important":0},
   "offline.css": {"lines":0,"longLines":4,"functions":0,"innerHTML":0,"important":0},
   "offline.html": {"lines":0,"longLines":1,"functions":0,"innerHTML":0,"important":0},
-  "src/legacy/app.js": {"lines":2011,"longLines":498,"functions":2276,"innerHTML":35,"important":0},
+  "src/legacy/app.js": {"lines":1953,"longLines":479,"functions":2276,"innerHTML":35,"important":0},
   "src/legacy/briefing.js": {"lines":0,"longLines":19,"functions":6,"innerHTML":0,"important":0},
   "src/legacy/memory-api.js": {"lines":0,"longLines":9,"functions":17,"innerHTML":0,"important":0},
   "src/legacy/memory.js": {"lines":0,"longLines":62,"functions":436,"innerHTML":0,"important":0},
