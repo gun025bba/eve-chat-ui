@@ -1,5 +1,5 @@
 /* Eve service worker — network-first HTML, immutable versioned assets, network-only API */
-const CACHE = 'llmchat-2.0.0';
+const CACHE = 'llmchat-__EVE_VERSION__';
 const VER = CACHE.slice('llmchat-'.length);
 // 1.5.1: versioned asset URLs (same ?v= as index.html) + cache:'reload' so precache never comes from the HTTP cache
 const ASSETS = ['app.js', 'today.js', 'shell.js', 'proactive-api.js', 'pim.js', 'proactive.js', 'briefing.js', 'memory-api.js', 'memory.js', 'styles.css'].map(f => `${f}?v=${VER}`);

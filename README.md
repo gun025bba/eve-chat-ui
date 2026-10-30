@@ -1,15 +1,16 @@
 # Eve — 채팅 UI
 
-OpenAI 호환 백엔드용 모바일 우선 채팅 PWA예요. 순수 HTML/JS로 만들었고 빌드 단계와 의존성이 없어요.
+OpenAI 호환 백엔드용 모바일 우선 채팅 PWA예요. Vite + TypeScript 툴체인을 사용해요. R0에서는 기존 HTML/JS UI와 동작을 유지하며, 런타임 의존성은 아직 없어요.
 
 ## 실행
-빌드 없이 저장소 파일을 그대로 정적 서빙하면 돼요. 서비스 워커는 HTTPS(또는 localhost)에서만 동작해요.
+Node 20.19+ 또는 22.12+에서 `npm ci --ignore-scripts && npm run check && npm run build`를 실행해요. 개발 의존성은 락파일로 고정하고 설치 스크립트는 실행하지 않아요. 배포 대상은 `dist/` 52개 파일뿐이에요. 서비스 워커는 HTTPS(또는 localhost)에서만 동작해요.
 
 ```bash
-python3 -m http.server 8080   # 로컬 확인용 예시
+npm run build
+EVE_PORT=8080 python3 tests/mock.py  # http://127.0.0.1:8080/ui/ (로컬 mock)
 ```
 
-운영에서는 백엔드 게이트웨이가 이 파일들을 `/ui/` 경로로 서빙해요(같은 출처라 CORS가 필요 없어요). `.git`과 `tests/`는 배포하지 않아요.
+운영에서는 백엔드 게이트웨이가 `dist/` 내용을 `/ui/` 경로로 서빙해요(같은 출처라 CORS가 필요 없어요). `.git`과 `tests/`는 배포하지 않아요.
 
 ## 백엔드 연결
 - 기본값은 **같은 출처**예요. UI는 상대 경로 `/v1/...`(`/v1/models`, `/v1/chat/completions`, `/v1/threads` 등)와 `/whoami`를 호출해요.
@@ -18,9 +19,21 @@ python3 -m http.server 8080   # 로컬 확인용 예시
 - 스트리밍은 SSE(`text/event-stream`)를 써요. 리버스 프록시를 쓴다면 버퍼링을 꺼 주세요.
 
 ## 버전
-- SemVer를 따르고, 현재 버전은 **2.0.0**이에요.
-- 서비스 워커 캐시 이름은 `llmchat-<버전>`이에요(`sw.js`). 정적 파일의 `?v=<버전>`과 `app.js`의 `APP_VERSION`도 같이 올려요.
+- SemVer를 따르고, 현재 버전의 정본은 `package.json`의 `version`이에요.
+- 빌드가 한 버전을 SW 캐시 이름 `llmchat-<버전>`, 정적 파일 `?v=<버전>`, `APP_VERSION`에 주입해요. 루트 HTML/JS의 `__EVE_VERSION__`은 빌드 템플릿이에요.
 - 실행 중인 버전은 설정 화면 아래에 `v<버전> · SW <버전>`으로 표시돼요.
+
+## R0 개발·배포 경계
+
+`npm run check`는 Biome, TypeScript, 크기 ratchet, import 방향·순환 검사와 Node 단위 테스트를 실행해요.
+`bash tests/run_all.sh`는 `npm ci`·검사·빌드 후 `dist/`를 서빙해 기존 브라우저 스위트를 실행해요.
+`EVE_WEBKIT=1`을 주면 추가 스모크에서 WebKit도 확인해요(브라우저 설치 필요).
+`tools/deploy-files.json`이 산출물 고정 목록이고, 빌드는 CSP·프리캐시 완전성도 검사해요.
+레거시 파일은 R1 이후 단계적으로 타입 검사·포맷 범위를 넓혀요. 새 `src/`·도구는 지금부터 검사해요.
+
+**현재 서명 릴리스는 소스 파일을 패키징하므로 이 브랜치를 태그·배포하면 안 돼요.**
+별도 보안 검토된 빌드→산출물 서명 파이프라인이 선행돼야 해요. CI/CD는 이 PR에서 수정하지 않아요.
+프레임워크 선택과 이행 제약은 [R0 결정 기록](docs/refactor-r0.md)을 보세요.
 
 ## 선톡 API 상태 (1.1.0)
 선톡 UI의 서버 호출은 모두 `proactive-api.js`의 `ENDPOINTS` 표에 모여 있어요. 백엔드가 정해지면 이 표만 고치면 돼요.

@@ -1,3 +1,4 @@
+from version_common import VERSION, versioned
 # Server-persisted threads (v10) e2e against mock.py
 import json, urllib.request
 from playwright.sync_api import sync_playwright
@@ -100,7 +101,7 @@ with sync_playwright() as p:
     check('retry -> done', m.get_attribute('#migrateSheet','data-view')=='done')
     imp=[t for t in db()['threads'] if t.get('client_id','').startswith('local:')]; check('7 imported', len(imp)==7, str(len(imp)))
     check('backup kept', m.evaluate("!!localStorage.getItem('llmchat.convs.bak')"))
-    sw=pg.evaluate("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-2.0.0'))"); check('sw 2.0.0', sw)
+    sw=pg.evaluate(versioned("fetch('/ui/sw.js').then(r=>r.text()).then(t=>t.includes('llmchat-__EVE_VERSION__'))")); check(versioned('sw __EVE_VERSION__'), sw)
     check('no page errors', not errs, str(errs[:3]))
     b.close()
 print('RESULT:', 'ALL PASS' if all(R) else f'{R.count(False)} FAIL')

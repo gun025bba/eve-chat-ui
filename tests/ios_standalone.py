@@ -1,3 +1,4 @@
+from version_common import VERSION, versioned
 # 1.3.2: iOS standalone fixes — opaque headers without backdrop-filter, composer outside any <form> (iOS contact AutoFill)
 import os, re, json
 from playwright.sync_api import sync_playwright
@@ -19,7 +20,7 @@ with sync_playwright() as p:
         pg.add_init_script("localStorage.setItem('eve.mem.introSeen','1')")
         pg.goto(B + '/ui/#/'); pg.wait_for_timeout(1200); pg.evaluate("__app.newChat()"); pg.wait_for_timeout(400)
         if not touch:
-            check('version 2.0.0', pg.evaluate('__app.version') == '2.0.0')
+            check(versioned('version __EVE_VERSION__'), pg.evaluate('__app.version') == VERSION)
             a = pg.evaluate("""(()=>{const i=document.getElementById('input');const txt=[i.placeholder,i.getAttribute('aria-label'),i.id,i.name||''].join(' ');
               return {form:!!i.form, inForm:!!i.closest('form'), forms:document.querySelectorAll('#chatView form').length, name:i.getAttribute('name'), txt, btn:document.getElementById('sendBtn').type}})()""")
             check('composer textarea has no form owner / no <form> in chat view', not a['form'] and not a['inForm'] and a['forms'] == 0, a)

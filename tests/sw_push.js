@@ -5,7 +5,7 @@ const check = (n, ok, x = '') => { R.push(!!ok); console.log((ok ? 'PASS ' : 'FA
 const clientsList = [];
 const self = { addEventListener: (t, f) => { H[t] = f; }, registration: { scope: 'https://app.example/ui/', showNotification: (t, o) => { shown.push([t, o]); return Promise.resolve(); } },
   clients: { matchAll: async () => clientsList, openWindow: async u => { opened.push(u); } }, skipWaiting() {}, location: { origin: 'https://app.example' } };
-vm.runInNewContext(fs.readFileSync(__dirname + '/../sw.js', 'utf8'), { self, caches: {}, fetch() {}, URL, Response: function () {}, console, Promise, clients: self.clients, registration: self.registration, location: self.location });
+vm.runInNewContext(fs.readFileSync(require('path').join(process.env.EVE_UI_DIR || __dirname + '/../dist', 'sw.js'), 'utf8'), { self, caches: {}, fetch() {}, URL, Response: function () {}, console, Promise, clients: self.clients, registration: self.registration, location: self.location });
 const push = async d => { const ps = []; shown.length = 0; H.push({ data: d === undefined ? null : { json: () => { if (typeof d === 'string') throw 0; return d; }, text: () => String(d) }, waitUntil: p => ps.push(p) }); await Promise.all(ps); return shown.slice(); };
 (async () => {
   const NID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
