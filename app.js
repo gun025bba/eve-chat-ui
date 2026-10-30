@@ -37,8 +37,8 @@ function inlineMd(s) { // s already escaped; code spans are protected from empha
   s = s
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => _taint ? (alt || '이미지') : `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)   // tainted: the alt text only, nothing is fetched or linked
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => _taint && !_taint.has(normUrl(u.replace(/&(amp|quot|lt|gt|#39);/g, (m, k) => ({ amp: '&', quot: '"', lt: '<', gt: '>', '#39': "'" }[k])))) ? t : `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`);
   if (_cites) s = s.replace(/(?:\[\d{1,3}(?:\s*,\s*\d{1,3})*\](?!\())+/g, all => {
     // 1.5.0: consecutive citations ([1,2] or [1][2]) merge into one capsule "1·2"
     const ns = [...new Set(all.match(/\d{1,3}/g).map(Number))]; if (!ns.every(n => _cites.has(n))) return all;
@@ -122,10 +122,14 @@ function mdAfterList(head) {
 }
 // [n] citation map for the current renderMarkdown call (web search sources; http/https only)
 let _cites = null;
+/* AUTO-TOOLS-SPEC §8 (M-7): while rendering a tainted message, _taint = the normalized URLs of that message's sources; any other [text](url) is text only */
+let _taint = null;
+function normUrl(u) { try { const x = new URL(u); if (x.protocol !== 'http:' && x.protocol !== 'https:') return ''; x.hash = ''; return x.protocol + '//' + x.host + (x.pathname.length > 1 ? x.pathname.replace(/\/+$/, '') : '') + x.search; } catch { return ''; } }
+const taintSet = sources => new Set((Array.isArray(sources) ? sources : []).flatMap(c => c ? [normUrl(c.url), normUrl(c.final_url)] : []).filter(Boolean));
 function safeUrl(u) { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : ''; } catch { return ''; } }
 function citeMap(sources) {
   if (!Array.isArray(sources) || !sources.length) return null;
-  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '' }); });
+  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '', published: c.published || '' }); });
   return m.size ? m : null;
 }
 function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
@@ -148,6 +152,7 @@ function renderToolQueries(tools) {
   const by = qs.find(t => t.by === 'model')?.by, why = by === 'model' ? 'Eve가 필요하다고 판단해 검색했어요' : '';
   return qs.map((t, i) => `<div class="tq"><span>검색어 <q>${escapeHtml(t.q)}</q>${i === 0 && why ? ` · ${why}` : ''}</span></div>`).join('');
 }
+const TS_FADE_MS = 160;   // the status line's cross-fade / leave (opacity --d-1); the DOM node is removed after it
 /* AUTO-TOOLS-SPEC §5.1: web tool failure → fixed copy by key (never a server string). [status line, note title, note sub]  — the note is text only (no action) */
 const TOOL_FAIL = {
   empty:            ['검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'],
@@ -173,12 +178,18 @@ function toolFailKey(j) {
   return 'unknown';
 }
 /* #134 messages.metadata / persisted: tools[] {tool, selected_by, status, error_code?, count?, query? (only if the server joins it)} → the shape the UI keeps */
-const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => ({ tool: x.tool, q: typeof x.query === 'string' ? x.query.trim() : '', by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count })) : null;
+const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => {
+  const t = { tool: x.tool, by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count };
+  return Object.defineProperty(t, 'q', { value: typeof x.query === 'string' ? x.query.trim() : '', writable: true });   // non-enumerable: shown this session, never written to localStorage (queries are not stored)
+}) : null;
+const isWebTool = t => t === 'web_search' || t === 'web_fetch';
+/* M-7: a stored message is tainted when the server says so (tainted: true|false); until it does, one that used a web tool is treated as tainted */
+const msgTainted = m => typeof m?.tainted === 'boolean' ? m.tainted : !!(Array.isArray(m?.tools) && m.tools.some(t => isWebTool(t?.tool)));
 /* AUTO-TOOLS-SPEC v2 §5: the note comes back from the stored fresh:'unverified'; the reason from tools[] (last status≠ok → §5.1 copy; tools[] empty → 검색하지 않고…; otherwise the generic copy). No fresh / 'ok' → none. */
 function freshNote(m) {
   if (m?.fresh !== 'unverified') return null;
-  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().find(x => x && x.status && x.status !== 'ok');
-  return { key: (bad && toolFailKey({ status: bad.status, error_code: bad.error_code, count: bad.count })) || (t && !t.length ? 'nosearch' : 'unknown') };
+  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().map(x => x && toolFailKey({ status: x.status, error_code: x.error_code, count: x.count })).find(Boolean);   // latest failure; status ok + count 0 is the empty note
+  return { key: bad || (t && !t.length ? 'nosearch' : 'unknown') };
 }
 let _srcSeq = 0;
 // 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
@@ -199,9 +210,9 @@ function renderSources(sources, tools) {
     + `<div class="src-list" id="${id}" hidden>${tq}<ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
     + `<template class="src-all-tpl">${tq}<ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
 }
-function renderMarkdown(src, sources) {
-  _cites = citeMap(sources);
-  try { return renderMd(src); } finally { _cites = null; }
+function renderMarkdown(src, sources, tainted) {
+  _cites = citeMap(sources); _taint = tainted ? taintSet(sources) : null;
+  try { return renderMd(src); } finally { _cites = null; _taint = null; }
 }
 function renderMd(src) {
   const out = [];
@@ -361,7 +372,7 @@ if (typeof document !== 'undefined') (function () {
     let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
     const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
     const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
-    { const f = m.metadata?.fresh ?? m.fresh; if (f === 'unverified' || f === 'ok') o.fresh = f; const tl = mapTools(m.metadata?.tools ?? m.tools); if (tl) o.tools = tl; }   // #134: the note (and a joined query) come back after a reload
+    { const f = m.metadata?.fresh ?? m.fresh; if (f === 'unverified' || f === 'ok') o.fresh = f; const tl = mapTools(m.metadata?.tools ?? m.tools); if (tl) o.tools = tl; const tn = m.metadata?.tainted ?? m.tainted; if (typeof tn === 'boolean') o.tainted = tn; }   // #134: the note (and a joined query) come back after a reload
     { const r = self.EveProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
     const pm = self.EveProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
     if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
@@ -798,10 +809,10 @@ if (typeof document !== 'undefined') (function () {
     const cut = stableCut(answer);
     // completed blocks are frozen: append only newly completed ones, never re-render what is already on screen
     const stable = md.querySelector('.stable'), prev = bubble._cut || 0;
-    if (cut > prev) stable.insertAdjacentHTML('beforeend', renderMarkdown(answer.slice(prev, cut), bubble._sources));
-    else if (cut < prev) stable.innerHTML = renderMarkdown(answer.slice(0, cut), bubble._sources);
+    if (cut > prev) stable.insertAdjacentHTML('beforeend', renderMarkdown(answer.slice(prev, cut), bubble._sources, bubble._tainted));
+    else if (cut < prev) stable.innerHTML = renderMarkdown(answer.slice(0, cut), bubble._sources, bubble._tainted);
     bubble._cut = cut;
-    const tail = md.querySelector('.tail'), th = renderMarkdown(answer.slice(cut), bubble._sources);
+    const tail = md.querySelector('.tail'), th = renderMarkdown(answer.slice(cut), bubble._sources, bubble._tainted);
     if (th !== bubble._tailHtml || cut !== prev) { tail.innerHTML = th; bubble._tailHtml = th; }
     return true;
   }
@@ -838,12 +849,12 @@ if (typeof document !== 'undefined') (function () {
       html += `<details class="think${isThinking ? ' live' : ''}"${open ? ' open' : ''}><summary>${ICON.chev}<span>${label}</span></summary><div class="think-body">${escapeHtml(think)}</div></details>`;
     }
     const waiting = live && !answer.trim() && (think === null || !thinking);
-    const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null);
+    const srcs = opts.sources || opts.msg?.sources || (live ? bubble._sources : null), taint = opts.msg ? msgTainted(opts.msg) : !!bubble._tainted;   // M-7: tainted → links only to this message's sources
     if (waiting && bubble._tline) { /* the persistent .tline node is re-attached below */ }
     else if (waiting) html += `<span class="typing"><i></i><i></i><i></i></span>${opts.slow ? '<div class="warming">모델 준비 중…</div>' : ''}`;
     else if (live && !answer.trim()) { /* still thinking: no answer container yet */ }
-    else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs)}</div></div>`; }
-    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md">${renderMarkdown(answer, srcs)}</div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
+    else if (live) { const cut = stableCut(answer); bubble._cut = cut; html += `<div class="md cursor"><div class="stable">${renderMarkdown(answer.slice(0, cut), srcs, taint)}</div><div class="tail">${renderMarkdown(answer.slice(cut), srcs, taint)}</div></div>`; }
+    else { const ti = (opts.msg?.id && TOOLINFO.get(opts.msg.id)) || bubble._ti || null; html += `<div class="md">${renderMarkdown(answer, srcs, taint)}</div>${renderSources(srcs, ti?.tools || opts.msg?.tools)}${renderMemRefs(opts.msg)}${renderToolNote(ti ? ti.note : freshNote(opts.msg))}`; }
     const wasLive = bubble._streamed; bubble._streamed = live; bubble._live = live;
     const userToggled = prev?.dataset.user;
     if (bubble._tline && (!live || answer.trim())) bubble._tsDrop?.();   // answer text (or a finished render) replaces the line; never leave a stale node
@@ -1159,7 +1170,7 @@ if (typeof document !== 'undefined') (function () {
     if (settings.noThink) { const last = hist[hist.length - 1]; if (last && last.role === 'user' && !/\/no_think\s*$/.test(last.content)) last.content += ' /no_think'; }
     const msgs = (settings.system ? [{ role: 'system', content: settings.system }] : []).concat(hist);
     const ctl = controller = new AbortController(); setBusy(true); let stopped = false;
-    let sources = null; bubble._tline = null; bubble._ti = null; bubble._sources = null;
+    let sources = null; bubble._tline = null; bubble._ti = null; bubble._sources = null; bubble._tainted = false;
     let confs = null, acc = '', reasoning = '', usage = null, streamErr = null, slow = false, thinkStart = 0, thinkSecs = 0;
     const t0 = performance.now();
     const full = () => reasoning ? `<think>${reasoning}</think>${acc}` : acc;
@@ -1178,14 +1189,14 @@ if (typeof document !== 'undefined') (function () {
     const endThink = () => { if (thinkStart && !thinkSecs) thinkSecs = Math.max(1, Math.round((performance.now() - thinkStart) / 1000)); };
     /* ---- the tool status line (AUTO-TOOLS-SPEC §3/§4/§9): ONE reused .tline > .tstat[role=status] per reply; text swaps cross-fade (opacity only),
        web updates are throttled to ≥1 s apart (the latest wins), a PIM tool's own copy shows at once; the line leaves the flow on the first answer token / on stop ---- */
-    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, tools: [], calls: new Map(), fail: null };
+    const ts = { applied: 0, timer: 0, want: null, slowT: 0, s4T: 0, slowShown: false, dead: false, called: false, tools: [], calls: new Map(), fail: null };
     const reduceM = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
     function tsSwap(wrap, text) {
       const cur = wrap.querySelector('span.on:last-child') || wrap.lastElementChild;
       if (!text) { wrap.replaceChildren(); return; }
       if (cur && cur.textContent === text) return;
       const n = document.createElement('span'); n.textContent = text;
-      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), 160); } else if (cur) cur.remove();
+      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), TS_FADE_MS); } else if (cur) cur.remove();
       wrap.appendChild(n); requestAnimationFrame(() => n.classList.add('on'));
     }
     function tsFill(w, r1, r2) {
@@ -1209,21 +1220,20 @@ if (typeof document !== 'undefined') (function () {
       const wait = now || !ts.applied ? 0 : Math.max(0, ts.applied + 1000 - performance.now());
       if (wait) ts.timer = setTimeout(tsApply, wait); else tsApply();
     };
-    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; };
+    const tsSlowOff = () => { clearTimeout(ts.slowT); ts.slowT = 0; bubble._tline?.querySelector('.slow')?.remove(); };   // the timer and the '· 조금 걸려요' it added
     const tsRemove = () => {
       clearTimeout(ts.timer); ts.timer = 0; ts.want = null; clearTimeout(ts.s4T); tsSlowOff();
       const w = bubble._tline; bubble._tline = null; if (!w) return;
-      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), 160); }
+      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), TS_FADE_MS); }
     };
     bubble._tsDrop = tsRemove;
     const tsStop = () => { ts.dead = true; tsRemove(); };
     const setWs = t => { tsShow(t, '', true); };   // PIM tools (calendar/reminders): own copy, no throttle, never the web wording
     const hostOf = u => { try { return u ? new URL(u).hostname.replace(/^www\./i, '') : ''; } catch { return ''; } };
-    const isWebTool = t => t === 'web_search' || t === 'web_fetch';
     function onWebCall(j) {
       const a = j.args && typeof j.args === 'object' ? j.args : {}, id = j.id != null ? String(j.id) : '';
       const by = j.selected_by === 'model' || j.selected_by === 'user' ? j.selected_by : '';
-      clearTimeout(ts.s4T);
+      clearTimeout(ts.s4T); ts.called = true;
       let r1, r2 = '';
       if (j.tool === 'web_fetch') { r1 = '페이지를 읽고 있어요'; r2 = hostOf(a.url) || '웹 페이지'; }
       else { r1 = '웹에서 찾고 있어요'; const q = typeof a.query === 'string' ? a.query.trim() : ''; r2 = q ? `“${q}”` : '';
@@ -1233,6 +1243,7 @@ if (typeof document !== 'undefined') (function () {
         const sp = document.createElement('span'); sp.className = 'slow'; sp.setAttribute('aria-hidden', 'true'); sp.textContent = ' · 조금 걸려요'; w.querySelector('.row1').appendChild(sp); }, 6000);
     }
     function onWebResult(j) {
+      bubble._tainted = true;   // M-7: any web tool_result makes this turn tainted until persisted says otherwise
       tsSlowOff(); clearTimeout(ts.s4T);
       const call = j.id != null ? ts.calls.get(String(j.id)) : null, key = toolFailKey(j);
       const srcs = Array.isArray(j.sources) ? j.sources : [];
@@ -1244,7 +1255,7 @@ if (typeof document !== 'undefined') (function () {
         if (!(key === 'blocked' && srcs.length)) { tsShow(TOOL_FAIL[key][0]); ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1500); return; }
       }
       if (j.error_code === 'tainted') return;
-      if (srcs.length) { const n = Number.isFinite(+j.count) && +j.count > 0 ? +j.count : srcs.length; const d = srcDomain(srcs[0]);
+      if (srcs.length) { const n = srcs.length, d = srcDomain(srcs[0]);
         tsShow(`출처 ${n}개를 읽고 있어요`, n > 1 && d ? `${d} 외 ${n - 1}곳` : ''); }
       ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1000);
     }
@@ -1258,6 +1269,7 @@ if (typeof document !== 'undefined') (function () {
     cancelRun = () => { if (mid && mode === 'server') api(`/v1/threads/${encodeURIComponent(c.id)}/messages/${encodeURIComponent(mid)}/cancel`, { method: 'POST' }).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
       acc = m.content || ''; reasoning = m.reasoning || ''; if (m.usage) usage = m.usage; if (acc.trim()) tsStop();
+      if (msgTainted({ tainted: m.metadata?.tainted ?? m.tainted, tools: m.metadata?.tools ?? m.tools })) bubble._tainted = true;
       const s = m.sources || m.metadata?.sources; if (Array.isArray(s) && s.length) { sources = s; bubble._sources = s; }
       if (m.status === 'failed') streamErr = { code: m.error_code || 'internal_error', failed: true };
     };
@@ -1403,9 +1415,10 @@ if (typeof document !== 'undefined') (function () {
     if (mid && !persisted) persisted = { message_id: mid };
     const final = full();
     if (stopped) {
+      bubble._ti = null;   // spec §8: a stopped reply gets no note and no .tq, even when a tool_result already named sources
       if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
       const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs; if (mid) { msg.id = mid; bubble.parentElement.dataset.mid = mid; }
-      if (sources?.length) msg.sources = sources;
+      if (sources?.length) msg.sources = sources; if (bubble._tainted) msg.tainted = true;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
       c.messages.push(msg); c.updated = Date.now(); if (final) c.preview = clean(splitThink(final).answer); persist(); renderList();
       if (mode === 'server' && c.srv && !msg.id) resolveStoppedId(c, msg, bubble);
@@ -1413,11 +1426,12 @@ if (typeof document !== 'undefined') (function () {
       return;
     }
     if (streamErr && STOP_CODES.has(streamErr.code)) {   // cancelled (e.g. from another device) → 중지됨
-      const msg = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code, created: Date.now() }; if (persisted?.message_id) { msg.id = persisted.message_id; bubble.parentElement.dataset.mid = msg.id; }
+      bubble._ti = null;
+      const msg = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code, created: Date.now() }; if (persisted?.message_id) { msg.id = persisted.message_id; bubble.parentElement.dataset.mid = msg.id; } if (bubble._tainted) msg.tainted = true;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg }); c.messages.push(msg); persist(); renderList(); return;
     }
     if (streamErr) {   // §3.8: error event inside a 200 stream / failed status → failed message
-      const fm = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code || null, created: Date.now() }; if (persisted?.message_id) fm.id = persisted.message_id;
+      const fm = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code || null, created: Date.now() }; if (persisted?.message_id) fm.id = persisted.message_id; if (bubble._tainted) fm.tainted = true;
       if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs, msg: fm }); c.messages.push(fm); persist(); } else bubble.parentElement.remove();
       const ra = +streamErr.retry_after || 0; addError(failText(streamErr.code) + raText(ra), final ? null : retry, ra);
       return;
@@ -1426,11 +1440,12 @@ if (typeof document !== 'undefined') (function () {
     const ut = usageText(usage, secs);
     // AUTO-TOOLS-SPEC §5/§7: queries + a failure note, session-only. No note when cited sources exist (except blocked), none for a stopped/failed reply
     const pf = persisted?.fresh ?? persisted?.metadata?.fresh, ptools = mapTools(persisted?.tools ?? persisted?.metadata?.tools);   // persisted.fresh is the authority; without it the tool_result decides
+    const ptn = persisted?.tainted ?? persisted?.metadata?.tainted; if (typeof ptn === 'boolean') bubble._tainted = ptn;   // M-7: the server's flag (when sent) replaces the client's guess
     let note = ts.fail && (!sources?.length || ts.fail.key === 'blocked') ? ts.fail : null;
-    if (pf === 'ok') note = null; else if (pf === 'unverified') note = ts.fail || freshNote({ fresh: 'unverified', tools: ptools });
+    if (pf === 'ok') note = null; else if (pf === 'unverified') note = ts.fail || freshNote({ fresh: 'unverified', tools: ptools ?? (ts.called ? null : []) })   // persisted without tools[]: a turn that never called a web tool is 'nosearch' — same as after a reload, where the stored message carries tools: [];
     const tinfo = ts.tools.length || note ? { tools: ts.tools, note } : null; bubble._ti = tinfo;
     fillAssistant(bubble, final, { usage: ut, regen: true, thinkSecs, sources });
-    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs; if (pf === 'ok' || pf === 'unverified') msg.fresh = pf; if (ptools) msg.tools = ptools;
+    const msg = { role: 'assistant', content: final, usageText: ut, created: Date.now() }; if (confs) msg.pendingActions = confs.map(scrubAction); if (sources?.length) msg.sources = sources; if (usage) msg.usage = usage; if (thinkSecs) msg.thinkSecs = thinkSecs; if (pf === 'ok' || pf === 'unverified') msg.fresh = pf; if (ptools) msg.tools = ptools; msg.tainted = !!bubble._tainted;
     if (persisted?.message_id) msg.id = persisted.message_id; else if (mode === 'server') c.loaded = false;   // refetch next open
     if (tinfo && msg.id) TOOLINFO.set(msg.id, tinfo);
     c.messages.push(msg); c.updated = Date.now(); c.preview = clean(splitThink(final).answer); persist(); renderList();
@@ -2315,7 +2330,7 @@ if (typeof document !== 'undefined') (function () {
   renderSync();
   checkAuth().then(ok => { if (ok) maybeA2HS(); return initServer(); }).then(() => { if (bootTid && mode === 'server') openHit(bootTid); });
 
-  const APP_VERSION = '2.0.0'; console.info('[llmchat] app', APP_VERSION);
+  const APP_VERSION = '2.0.1'; console.info('[llmchat] app', APP_VERSION);
   /* ---------- service worker (HTTPS / localhost only; app works without it) ---------- */
   let swReg = null, reloading = false, wantReload = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ('serviceWorker' in navigator && window.isSecureContext) {
