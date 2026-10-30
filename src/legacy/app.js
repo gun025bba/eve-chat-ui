@@ -1,3 +1,6 @@
+import { freshNote, mapTools, renderToolQueries, toolFailKey, TOOL_FAIL } from '../lib/tool-status.js';
+import { escapeHtml } from '../lib/text.js';
+import { citeMap, srcDate, srcDomain, srcFavicon, srcItem } from '../lib/citations.js';
 import { createSSEParser } from '../lib/sse.js';
 import { splitThink, stripStopMark } from '../lib/think.js';
 'use strict';
@@ -5,9 +8,6 @@ import { splitThink, stripStopMark } from '../lib/think.js';
 const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const COPY_SVG = icon('copy');
 /* ---------- pure helpers (also tested in node) ---------- */
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 function inlineMd(s) { // s already escaped; code spans are protected from emphasis
   const codes = [];
   s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
@@ -99,64 +99,6 @@ function mdAfterList(head) {
 }
 // [n] citation map for the current renderMarkdown call (web search sources; http/https only)
 let _cites = null;
-function safeUrl(u) { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : ''; } catch { return ''; } }
-function citeMap(sources) {
-  if (!Array.isArray(sources) || !sources.length) return null;
-  const m = new Map(); sources.forEach(c => { const url = c && safeUrl(c.url); if (url && Number.isFinite(+c.n)) m.set(+c.n, { url, title: c.title || '', domain: c.domain || '', favicon: c.favicon || c.icon || '' }); });
-  return m.size ? m : null;
-}
-function srcDomain(c) { let d = c.domain; if (!d) try { d = new URL(c.url).hostname; } catch { d = ''; } return String(d).replace(/^www\./i, ''); }
-function srcFavicon(c) { const u = c.favicon || c.icon; if (typeof u !== 'string') return ''; if (/^data:image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|webp|gif|jpeg);base64,/i.test(u)) return u; return /^\/(?!\/)[\w\-./?=&%]+$/.test(u) ? u : ''; } // server-provided only: data: or same-origin path (CSP img-src 'self' data:)
-/* AUTO-TOOLS-SPEC §7: published (optional, server-provided) → 오늘 · 어제 · M월 d일 (this year) · yyyy년 M월 d일; anything unparsable → no date */
-function srcDate(p, now = new Date()) {
-  if (typeof p !== 'string' || !p) return '';
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p), d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(p);
-  if (isNaN(d)) return '';
-  const day = x => Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()), diff = Math.round((day(now) - day(d)) / 864e5);
-  if (diff === 0) return '오늘'; if (diff === 1) return '어제';
-  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
-function srcItem(n, c) { const d = srcDomain(c), t = c.title || d || c.url, dt = srcDate(c.published), sd = dt ? `${d} · ${dt}` : d;
-  return `<li class="src-item" data-n="${n}"><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${n}. ${t}, ${sd}, 새 창에서 열림`)}"><span class="sn">${n}</span><span class="st">${escapeHtml(t)}</span><span class="sd">${escapeHtml(sd)}</span></a></li>`; }
-/* §7 `.tq`: one line per web_search query (max 3) at the top of the opened list / sheet; reason only when selected_by is known. Absent info (reload) → '' */
-function renderToolQueries(tools) {
-  const qs = (Array.isArray(tools) ? tools : []).filter(t => t && typeof t.q === 'string' && t.q.trim()).slice(0, 3);
-  if (!qs.length) return '';
-  const by = qs.find(t => t.by === 'model')?.by, why = by === 'model' ? 'Eve가 필요하다고 판단해 검색했어요' : '';
-  return qs.map((t, i) => `<div class="tq"><span>검색어 <q>${escapeHtml(t.q)}</q>${i === 0 && why ? ` · ${why}` : ''}</span></div>`).join('');
-}
-/* AUTO-TOOLS-SPEC §5.1: web tool failure → fixed copy by key (never a server string). [status line, note title, note sub]  — the note is text only (no action) */
-const TOOL_FAIL = {
-  empty:            ['검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'],
-  timeout:          ['검색이 오래 걸려 멈췄어요', '검색 시간이 초과됐어요', '지금까지 확인한 내용으로 답했어요'],
-  search_unavailable: ['지금은 검색을 쓸 수 없어요', '최신 정보를 확인하지 못했어요', '검색이 잠시 안 돼서 학습한 내용으로 답했어요'],
-  rate_limited:     ['검색 요청이 많아요', '검색 요청이 많아요', '잠시 뒤에는 다시 검색할 수 있어요'],
-  budget_exhausted: ['검색 한도에 도달했어요', '한 번에 할 수 있는 검색을 다 썼어요', '지금까지 찾은 내용으로 답했어요'],
-  blocked:          ['차단된 주소는 열지 않았어요', '일부 페이지는 열지 않았어요', '안전하지 않은 주소라 건너뛰었어요'],
-  denied:           ['지금은 검색을 쓸 수 없어요', '웹 검색을 쓸 수 없어요', '관리 설정으로 꺼져 있어요'],
-  query_rejected:   ['검색어에 보낼 수 없는 내용이 있어요', '검색하지 않았어요', '개인 정보처럼 보이는 내용은 밖으로 보내지 않아요'],
-  nosearch:         ['', '최신 정보를 확인하지 못했어요', '검색하지 않고 학습한 내용으로 답했어요'],
-  unknown:          ['검색하지 못했어요', '최신 정보를 확인하지 못했어요', '검색이 안 돼서 학습한 내용으로 답했어요']
-};
-/* tool_result (web tools only) → a TOOL_FAIL key, or null when nothing is wrong / nothing is to be shown (duplicate_query, tainted). Reads optional fields defensively. */
-function toolFailKey(j) {
-  const code = typeof j?.error_code === 'string' ? j.error_code : '', st = typeof j?.status === 'string' ? j.status : 'ok';
-  if (code === 'duplicate_query' || code === 'tainted') return null;
-  if (code === 'permission_denied' || code === 'scope_denied' || code === 'kill_switch') return 'denied';
-  if (TOOL_FAIL[code] && code !== 'empty' && code !== 'unknown') return code;
-  if (code === 'invalid_arguments' || code) return 'unknown';
-  if (st === 'ok') { const n = Number.isFinite(+j.count) && j.count != null ? +j.count : (Array.isArray(j.sources) ? j.sources.length : null); return n === 0 || (n == null && +j.blocked_count > 0) ? 'empty' : null; }   // 6.0.0: blocked_count = items the server dropped as suspect; nothing usable left → the empty note
-  if (st === 'timeout') return 'timeout'; if (st === 'blocked') return 'blocked'; if (st === 'denied') return 'denied';
-  return 'unknown';
-}
-/* #134 messages.metadata / persisted: tools[] {tool, selected_by, status, error_code?, count?, query? (only if the server joins it)} → the shape the UI keeps */
-const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => ({ tool: x.tool, q: typeof x.query === 'string' ? x.query.trim() : '', by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count })) : null;
-/* AUTO-TOOLS-SPEC v2 §5: the note comes back from the stored fresh:'unverified'; the reason from tools[] (last status≠ok → §5.1 copy; tools[] empty → 검색하지 않고…; otherwise the generic copy). No fresh / 'ok' → none. */
-function freshNote(m) {
-  if (m?.fresh !== 'unverified') return null;
-  const t = Array.isArray(m.tools) ? m.tools : null, bad = t && [...t].reverse().find(x => x && x.status && x.status !== 'ok');
-  return { key: (bad && toolFailKey({ status: bad.status, error_code: bad.error_code, count: bad.count })) || (t && !t.length ? 'nosearch' : 'unknown') };
-}
 let _srcSeq = 0;
 // 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
 // >6 sources → list shows 5 + 모두 보기 (bottom sheet). Chips are per domain; +N counts sources whose domain has no chip.
