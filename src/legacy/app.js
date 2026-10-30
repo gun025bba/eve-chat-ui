@@ -1,141 +1,17 @@
+import { icon } from '../lib/icons.js';
+import { renderMarkdown } from '../lib/markdown.js';
+import { stableCut } from '../lib/markdown-stream.js';
+import { prepareSources, renderSourceHtml } from '../lib/sources.js';
 import { freshNote, mapTools, renderToolQueries, toolFailKey, TOOL_FAIL } from '../lib/tool-status.js';
 import { escapeHtml } from '../lib/text.js';
-import { citeMap, srcDate, srcDomain, srcFavicon, srcItem } from '../lib/citations.js';
+import { srcDate, srcDomain } from '../lib/citations.js';
 import { createSSEParser } from '../lib/sse.js';
 import { splitThink, stripStopMark } from '../lib/think.js';
 'use strict';
-// Eve icon set (design a197571 icons/sprite.svg, inlined at the start of <body>)
-const icon = (n, c = '') => `<svg class="i${c ? ' ' + c : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
-const COPY_SVG = icon('copy');
-/* ---------- pure helpers (also tested in node) ---------- */
-function inlineMd(s) { // s already escaped; code spans are protected from emphasis
-  const codes = [];
-  s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
-  s = s
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, u) => `<a class="img-link" href="${u}" target="_blank" rel="noopener noreferrer">${alt || '이미지'}</a>`)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  if (_cites) s = s.replace(/(?:\[\d{1,3}(?:\s*,\s*\d{1,3})*\](?!\())+/g, all => {
-    // 1.5.0: consecutive citations ([1,2] or [1][2]) merge into one capsule "1·2"
-    const ns = [...new Set(all.match(/\d{1,3}/g).map(Number))]; if (!ns.every(n => _cites.has(n))) return all;
-    const c0 = _cites.get(ns[0]); const lab = ns.map(n => `출처 ${n}, ${srcDomain(_cites.get(n))}`).join('; ');
-    return `<sup class="cite"><a href="${escapeHtml(c0.url)}" target="_blank" rel="noopener noreferrer" data-n="${ns.join(',')}" aria-label="${escapeHtml(lab)}">${ns.join('·')}</a></sup>`;
-  });
-  // 1.5.0 cite-glue: keep a capsule on the same line as its word and trailing punctuation (no U+2060); long words (>12) glue capsule+punct only
-  if (_cites) s = s.replace(/([^\s<>]*)(<sup class="cite">[\s\S]*?<\/sup>)([.,!?)」]*)/g, (all, w, sup, p) => {
-    const len = [...w.replace(/\u0000\d+\u0000/g, 'x').replace(/&(?:#\d+|\w+);/g, 'x')].length;
-    return len > 12 ? `${w}<span class="cite-glue">${sup}${p}</span>` : `<span class="cite-glue">${w}${sup}${p}</span>`;
-  });
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
-}
-// Index where the "stable" (completed) markdown ends: last blank line outside any code fence.
-// v16 block parser: lists survive blank lines (loose), indented continuations and nesting; <ol start> keeps source numbers
-const MD_LI = /^( *)([-*+]|\d{1,9}[.)])\s+(.*)$/;
-const mdInd = l => l.match(/^ */)[0].length;
-function mdBlocks(lines) {
-  const out = []; let para = [], i = 0;
-  const flushP = () => { if (para.length) { out.push('<p>' + inlineMd(para.join('<br>')) + '</p>'); para = []; } };
-  while (i < lines.length) {
-    const line = lines[i]; let m;
-    if (!line.trim()) { flushP(); i++; continue; }
-    if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushP(); const n = Math.min(m[1].length + 2, 6); out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`); i++; continue; }
-    if ((m = line.match(MD_LI)) && m[1].length < 4) { flushP(); i = mdList(lines, i, out); continue; }
-    para.push(line.trim() ? line.replace(/^ +/, '') : line); i++;
-  }
-  flushP();
-  return out.join('');
-}
-function mdList(lines, i, out) {
-  const m0 = lines[i].match(MD_LI), base = m0[1].length, ol = /\d/.test(m0[2]), t = ol ? 'ol' : 'ul';
-  const same = l => { const m = l.match(MD_LI); return m && m[1].length <= base + 1 && /\d/.test(m[2]) === ol ? m : null; };
-  const items = [];
-  while (i < lines.length) {
-    const mm = same(lines[i]); if (!mm) break;
-    const ci = mm[1].length + mm[2].length + 1, body = [mm[3]]; i++;
-    let next = false;
-    while (i < lines.length) {
-      const l = lines[i];
-      if (!l.trim()) {
-        let j = i; while (j < lines.length && !lines[j].trim()) j++;
-        if (j >= lines.length) { i = j; break; }
-        if (mdInd(lines[j]) >= base + 2 && !same(lines[j])) { for (; i < j; i++) body.push(''); continue; }
-        if (same(lines[j])) { i = j; next = true; }
-        break;
-      }
-      if (same(l)) { next = true; break; }
-      const ind = mdInd(l);
-      if (ind >= base + 2) { body.push(l.slice(Math.min(ind, ci))); i++; continue; }
-      if (MD_LI.test(l) || /^#{1,6}\s/.test(l) || !body[body.length - 1]) break;
-      body.push(l); i++; // lazy continuation
-    }
-    items.push(mdBlocks(body).replace(/^<p>([\s\S]*?)<\/p>/, '$1'));
-    if (!next) break;
-  }
-  const start = ol ? parseInt(m0[2], 10) : 1;
-  out.push(`<${t}${ol && start !== 1 ? ` start="${start}"` : ''}>` + items.map(x => '<li>' + x + '</li>').join('') + `</${t}>`);
-  return i;
-}
-// streaming cut: never inside a code fence, never right after a list block (a later item may still join it)
-function stableCut(s) {
-  let i = s.length;
-  while ((i = s.lastIndexOf('\n\n', i - 1)) >= 0) {
-    const fences = (s.slice(0, i).match(/```/g) || []).length;
-    if (fences % 2 === 0 && !mdAfterList(s.slice(0, i))) return i + 2;
-    if (i === 0) break;
-  }
-  return 0;
-}
-function mdAfterList(head) {
-  const lines = head.replace(/\t/g, '    ').split('\n');
-  let k = lines.length - 1; while (k >= 0 && !lines[k].trim()) k--;
-  for (; k >= 0; k--) { // walk up the current block run; any list item or indented line => list may continue
-    const l = lines[k];
-    if (!l.trim()) { let j = k; while (j >= 0 && !lines[j].trim()) j--; if (j < 0) return false; const p = lines[j]; if (MD_LI.test(p) || mdInd(p) >= 2) { k = j + 1; continue; } return false; }
-    if (MD_LI.test(l) || mdInd(l) >= 2) return true;
-    if (l.includes('```')) return false;
-  }
-  return false;
-}
-// [n] citation map for the current renderMarkdown call (web search sources; http/https only)
-let _cites = null;
 let _srcSeq = 0;
-// 1.9.0 source chips (REFRESH-SPEC §1.5): one line of ≤2 26px capsules (favicon 14 + domain) + "+N"; any chip toggles the v1 list.
-// >6 sources → list shows 5 + 모두 보기 (bottom sheet). Chips are per domain; +N counts sources whose domain has no chip.
 function renderSources(sources, tools) {
-  const m = citeMap(sources); if (!m) return '';
-  const tq = renderToolQueries(tools);
-  const all = [...m.entries()].sort((a, b) => a[0] - b[0]);
-  const doms = [];
-  for (const [, c] of all) { const d = srcDomain(c); if (!doms.some(x => x.d === d)) doms.push({ d, u: srcFavicon(c) }); }
-  const seen = new Set(doms.map(x => x.d)), shown = doms.slice(0, 2), shownSet = new Set(shown.map(x => x.d));
-  const rest = new Set(all.filter(([, c]) => !shownSet.has(srcDomain(c))).map(([, c]) => c.url)).size;
-  const id = 'src' + (++_srcSeq), many = all.length > 6, items = many ? all.slice(0, 5) : all;
-  const fav = (d, u) => u ? `<span class="fav"><img src="${escapeHtml(u)}" alt="" referrerpolicy="no-referrer" loading="lazy" data-mono="${escapeHtml((d[0] || '?').toUpperCase())}"></span>` : `<span class="fav mono">${escapeHtml((d[0] || '?').toUpperCase())}</span>`;
-  const chip = ({ d, u }) => `<button type="button" class="sc" aria-expanded="false" aria-controls="${id}" aria-label="${escapeHtml(`출처 ${d}`)}"><span class="sc-in">${fav(d, u)}<span class="sc-n">${escapeHtml(d)}</span></span></button>`;
-  const more = rest ? `<button type="button" class="sc sc-more" aria-expanded="false" aria-controls="${id}" aria-label="출처 ${rest}개 더 보기"><span class="sc-in">+${rest}</span></button>` : '';
-  return `<section class="sources" aria-label="출처"><div class="src-row">${shown.map(chip).join('')}${more}</div>`
-    + `<div class="src-list" id="${id}" hidden>${tq}<ol role="list">${items.map(([n, c]) => srcItem(n, c)).join('')}</ol>${many ? `<button type="button" class="src-all">모두 보기 <span>${all.length}</span></button>` : ''}</div>`
-    + `<template class="src-all-tpl">${tq}<ol role="list">${all.map(([n, c]) => srcItem(n, c)).join('')}</ol><div class="src-chips">${[...seen].map(d => `<span class="src-chip">${escapeHtml(d)}</span>`).join('')}</div></template></section>`;
-}
-function renderMarkdown(src, sources) {
-  _cites = citeMap(sources);
-  try { return renderMd(src); } finally { _cites = null; }
-}
-function renderMd(src) {
-  const out = [];
-  const parts = src.split(/```/);
-  parts.forEach((part, i) => {
-    if (i % 2 === 1) { // code
-      const nl = part.indexOf('\n');
-      const lang = nl >= 0 ? part.slice(0, nl).trim() : '';
-      const code = nl >= 0 ? part.slice(nl + 1) : part;
-      out.push(`<div class="codeblock"><div class="code-head"><span class="lang">${escapeHtml(lang || 'code')}</span><button class="copy" type="button" aria-label="코드 복사">${COPY_SVG}<span>복사</span></button></div><pre><code data-lang="${escapeHtml(lang)}">${escapeHtml(code.replace(/\n$/, ''))}</code></pre></div>`);
-      return;
-    }
-    out.push(mdBlocks(escapeHtml(part).replace(/\t/g, '    ').split('\n')));
-  });
-  return out.join('');
+  const model = prepareSources(sources, tools);
+  return model ? renderSourceHtml(model, 'src' + (++_srcSeq)) : '';
 }
 export default { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 
