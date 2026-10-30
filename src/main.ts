@@ -6,6 +6,7 @@ import { mountRename } from './features/conversations/rename.js';
 import createMemory from './features/memory/index.js';
 import pim from './features/pim/index.js';
 import createProactive from './features/proactive/index.js';
+import { mountSettings } from './features/settings/index.js';
 import { mountToast } from './features/toast/index.js';
 import today from './features/today/index.js';
 import { boot, browserHelpers } from './legacy/app.js';
@@ -17,6 +18,9 @@ const memory = createMemory({ memoryAPI });
 
 // Preserve existing browser test contracts; production modules use imports or injected dependencies.
 Object.assign(globalThis, browserHelpers, { EvePim: pim, EveProactiveAPI: proactiveAPI });
+const settingsRoot = document.getElementById('settingsRoot');
+if (!settingsRoot) throw new Error('Missing settings mount');
+mountSettings(settingsRoot);
 const toastRoot = document.getElementById('toastRoot');
 if (!toastRoot) throw new Error('Missing toast mount');
 const toast = mountToast(toastRoot);

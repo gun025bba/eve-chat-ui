@@ -12,8 +12,7 @@ export function legacyAssets(version) {
   return {
     name: 'eve-legacy-assets',
     transform(code, id) {
-      if (id.endsWith('/app.js'))
-        return code.replace("const APP_VERSION = '__EVE_VERSION__'", `const APP_VERSION = '${version}'`);
+      if (id.endsWith('/version.ts')) return code.replace(/(['"])__EVE_VERSION__\1/, JSON.stringify(version));
     },
     generateBundle(_options, bundle) {
       const fixed = JSON.parse(readFileSync('tools/deploy-files.json', 'utf8'));
