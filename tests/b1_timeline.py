@@ -1,5 +1,6 @@
 # 1.10.0 B1 하루 (DIRECTION-B-SPEC d196833): the conversation is a timeline, not bubbles. Structure, KST time, who, dots, day-sep, rail geometry, action row, proactive who, memory chips, confirm card, no forbidden elements.
-import re
+import re, os
+from assets_common import full_csp, watch_csp
 from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright
 from b1_common import *
@@ -16,8 +17,9 @@ t = seed('하루 타임라인', [
   {'role': 'assistant', 'content': '비가 와요. 우산 챙기세요.', 'created_at': at(9, 0), 'origin': 'proactive', 'job_id': '01JJOB0000000000000000000A', 'template_kind': 'briefing', 'provenance': {'actor': 'scheduler', 'job_id': '01JJOB0000000000000000000A', 'job_name': '아침 브리핑'}},
   {'role': 'assistant', 'content': '조용한 시간 동안의 요약이에요.', 'created_at': at(9, 30), 'origin': 'proactive', 'kind': 'digest', 'read_at': at(9, 31)},
 ], actions=[ACT], memory=True)
-with sync_playwright() as p:
-    b = p.chromium.launch(); ctx = new_ctx(b); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
+with full_csp(), sync_playwright() as p:
+    engine = p.webkit if os.environ.get('EVE_ENGINE') == 'webkit' else p.chromium
+    b = engine.launch(); ctx = new_ctx(b, service_workers='block'); watch_csp(ctx); pg = ctx.new_page(); pg.on('pageerror', lambda e: errs.append(str(e)))
     open_thread(pg, '하루 타임라인'); pg.wait_for_timeout(800)
     ev = lambda js: pg.evaluate(js)
     check('list role + aria-label = the thread title (follow-up d)', ev("(()=>{const m=document.getElementById('messages'),t=document.getElementById('title').textContent.trim();return m.getAttribute('role')==='list'&&!!t&&m.getAttribute('aria-label')===t})()"))
@@ -74,9 +76,16 @@ with sync_playwright() as p:
     check('no entrance animation on thread open / re-render', ev("document.querySelectorAll('#messages .msg.enter').length") <= 1 and ev("[...document.querySelectorAll('#messages .msg')].every(m=>getComputedStyle(m).animationName==='none'||!m.classList.contains('enter'))"))
     check('no console errors', not errs, errs)
     # reduced motion: entrance is opacity only
-    ctx2 = new_ctx(b, reduced_motion='reduce'); pg2 = ctx2.new_page(); open_thread(pg2, '하루 타임라인')
-    pg2.fill('#input', 'x'); pg2.click('#sendBtn'); pg2.wait_for_timeout(120)
+    ctx2 = new_ctx(b, reduced_motion='reduce', service_workers='block'); watch_csp(ctx2)
+    pg2 = ctx2.new_page(); pg2.on('pageerror', lambda e: errs.append(str(e))); open_thread(pg2, '하루 타임라인')
+    literal = '<img src=x onerror=alert(1)> & 내 메모'
+    pg2.fill('#input', literal); pg2.click('#sendBtn'); pg2.wait_for_timeout(120)
     rm = pg2.evaluate("(()=>{const m=document.querySelector('#messages > .msg.user.enter');if(!m)return 'none';return getComputedStyle(m).animationName})()")
     check('reduced motion: entrance animation is opacity-only (fadeIn)', rm in ('fadeIn', 'none'), rm)
+    check('user frame preserves literal HTML-shaped text', pg2.locator('.msg.user .bubble').last.text_content() == literal and pg2.locator('.msg.user img').count() == 0)
+    pg2.evaluate('__app.newChat(); __app.newChat(); __app.newChat()'); pg2.wait_for_timeout(2600)
+    check('repeated navigation disposes frames and leaves one now event', pg2.locator('#messages > .rail-now').count() == 1 and pg2.locator('#messages > .msg').count() == 0)
+    check('no full CSP violations in either timeline context', not pg.evaluate('window.__csp || []') and not pg2.evaluate('window.__csp || []'))
+    check('no lifecycle page errors', not errs, errs)
     b.close()
 print(f'{sum(R)}/{len(R)} checks'); raise SystemExit(0 if all(R) else 1)

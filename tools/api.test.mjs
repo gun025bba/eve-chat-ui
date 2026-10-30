@@ -16,6 +16,7 @@ await build({
           ? [
               'src/api/client.js',
               'src/api/feedback.ts',
+              'src/api/stream.ts',
               'src/features/auth/model.ts',
               'src/api/threads.ts',
               'src/api/gateway.ts',
@@ -38,6 +39,7 @@ await build({
 const {
   createClient,
   feedbackPayload,
+  cancelReader,
   createThreadModels,
   createOperations,
   createOutbox,
@@ -273,4 +275,24 @@ test('feedback replacements snapshot reasons and clear all details when rating i
   assert.deepEqual(queued, { id: 'm1', rating: 'down', reasons: ['wrong_info'], comment: 'note' });
   message.feedback = null;
   assert.deepEqual(feedbackPayload(message), { id: 'm1', rating: null, reasons: [], comment: '' });
+});
+
+test('stream cancellation handles synchronous throws and abort rejections', async () => {
+  let calls = 0;
+  cancelReader({
+    cancel: () => {
+      calls++;
+      return Promise.reject(new Error('aborted'));
+    },
+  });
+  assert.doesNotThrow(() =>
+    cancelReader({
+      cancel: () => {
+        throw new Error('closed');
+      },
+    }),
+  );
+  cancelReader(null);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
 });

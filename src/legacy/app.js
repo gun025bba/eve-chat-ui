@@ -1,3 +1,5 @@
+import { cancelReader } from '../api/stream.js';
+import { createTimeline } from '../features/messages/timeline.js';
 import { createArchive } from '../features/conversations/archive.js';
 import { renderList as renderListItems, renderArchive as renderArchiveItems, renderArchiveLoading } from '../features/conversations/list.js';
 import { selectList } from '../features/conversations/list-model.js';
@@ -71,10 +73,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  function clearMessageBox() { Feedback.disposeAll(); box.replaceChildren(); }
-  function showMessageLoading() {
-    clearMessageBox(); const loading = mkEl('div', 'older loading');
-    loading.appendChild(mkEl('span', 'spin')); box.appendChild(loading);
+  function clearMessageBox() { Feedback.disposeAll(); timeline.clear(); }
+  function showMessageLoading() { clearMessageBox(); timeline.loading(); }
+  function removeMessage(element) {
+    const actions = element?.querySelector('.actions'); if (actions) Feedback.detach(actions);
+    timeline.remove(element);
   }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
      web-search toggle / mode menu in the composer any more. The two old localStorage keys (mode, one-time hint) are removed once. */
@@ -434,23 +437,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     return (String(y) !== today.slice(0, 4) ? `${y}년 ` : '') + `${mo}월 ${da}일 · ${wd}`;
   }
   const USER_NAME = '나';   // the signed-in display name has no settings field yet (DIRECTION-B §14): never hard-code a person
-  function addMsgEl(role, content, m) {
-    const t = m?.created > 0 ? m.created : Date.now(), who = role === 'user' ? USER_NAME : 'Eve';
-    const wrap = document.createElement('div'); wrap.className = 'msg ev ' + role + (role === 'user' ? ' me' : role === 'assistant' ? ' e' : ''); wrap.dataset.t = String(t); if (m?.id) wrap.dataset.mid = m.id;
-    wrap.setAttribute('role', 'listitem'); wrap.setAttribute('aria-label', `${hhmm(t)} ${who}`);
-    const tm = document.createElement('time'); tm.className = 'tm'; tm.dateTime = new Date(t).toISOString(); tm.textContent = hhmm(t);
-    const dot = document.createElement('span'); dot.className = 'dot'; dot.setAttribute('aria-hidden', 'true');
-    const wh = document.createElement('div'); wh.className = 'who'; const wn = document.createElement('span'); wn.className = 'who-n'; wn.textContent = who; wh.appendChild(wn);
-    const b = document.createElement('div'); b.className = 'bubble tx'; wrap.append(tm, dot, wh, b);
-    if (role === 'user') b.textContent = content;
-    if (role !== 'error') {   // a new date starts a day-sep (rail continues through it)
-      const prev = box._lastMsg && box.contains(box._lastMsg) ? box._lastMsg : [...box.querySelectorAll(':scope > .msg:not(.error)')].pop();
-      if (prev ? prev.dataset.t && kstDay(+prev.dataset.t) !== kstDay(t) : kstDay(t) !== kstDay(Date.now())) { const sep = document.createElement('div'); sep.className = 'day-sep'; sep.textContent = daySepText(t); box.appendChild(sep); }
-      box._lastMsg = wrap;
-    }
-    if (!box.classList.contains('no-anim')) { box.querySelectorAll(':scope > .msg.enter').forEach(x => x.classList.remove('enter')); wrap.classList.add('enter'); }   // M9: only the newly appended last one
-    box.appendChild(wrap); return b;
-  }
+  const timeline = createTimeline(box, { time: hhmm, day: kstDay, separator: daySepText, userName: () => USER_NAME });
+  const addMsgEl = timeline.add;
   // opts: { live, thinkSecs, usage, actions }
   function freshen(tail) { // unused since v15: re-creating a .fresh span every frame restarted its fade = flicker
   }
@@ -585,12 +573,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   }
 
   /* 1.10.0 B1: an empty conversation is just the timeline's "지금" event (DIRECTION-B §4): no logo, headline, subtitle or suggestion cards. */
-  function renderEmpty() {
-    const t = Date.now(), ev = document.createElement('div'); ev.className = 'rail-now'; ev.setAttribute('role', 'listitem'); ev.setAttribute('aria-label', `${hhmm(t)} 지금`);
-    ev.innerHTML = '<time class="tm"></time><span class="dot" aria-hidden="true"></span><div class="who"><span class="who-n">지금</span></div><div class="tx d">아래에 한 줄로 남기면 오늘 기록에 쌓여요.</div>';
-    ev.querySelector('.tm').textContent = hhmm(t); clearMessageBox(); box.appendChild(ev);
-  }
-  setInterval(() => { const n = box.querySelector('.rail-now'); if (n && !document.hidden) { const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); } }, 60000);
+  function renderEmpty() { clearMessageBox(); timeline.now(); }
+  setInterval(() => timeline.tick(), 60000);
   function setConvTitle(t) { $('#title').textContent = t; box.setAttribute('aria-label', t || '대화'); }   /* the message list is named after the thread (screen readers: "<title>, list") */
   function renderMessages(keep) {
     clearMessageBox();
@@ -601,7 +585,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (c?.loading && !c.messages.length) { showMessageLoading(); return; }
     if (!c || !c.messages.length) return renderEmpty();
     box.classList.add('no-anim');
-    if (c.hasMore) box.insertAdjacentHTML('afterbegin', '<div class="older"><span class="spin"></span></div>');
+    if (c.hasMore) timeline.older();
     const lastA = c.messages.map(m => m.role).lastIndexOf('assistant');
     c.messages.forEach((m, i) => {
       if (m.role === 'user') addMsgEl('user', m.content, m);
@@ -655,12 +639,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const retryAfterOf = res => { const v = res.headers.get('Retry-After'); if (!v) return 0; const n = +v; if (Number.isFinite(n)) return Math.max(0, n); const d = Date.parse(v); return isNaN(d) ? 0 : Math.max(0, (d - Date.now()) / 1000); };
   const failText = code => FAIL_TEXT[code] || DEFAULT_FAIL;
   const RESUMING = '답변 불러오는 중…';
-  function clearErrors() { box.querySelectorAll('.msg.error').forEach(e => e.remove()); }
+  function clearErrors() { box.querySelectorAll('.msg.error').forEach(removeMessage); }
   function addError(text, retry, retryAfter) {
     const b = addMsgEl('error');
     b.innerHTML = `${ICON.warn}<span class="err-text"></span>`;
     b.querySelector('.err-text').textContent = text;
-    if (retry) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn retry'; btn.textContent = '다시 시도'; btn.onclick = () => { b.parentElement.remove(); retry(); }; b.appendChild(btn);
+    if (retry) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn retry'; btn.textContent = '다시 시도'; btn.onclick = () => { removeMessage(b.parentElement); retry(); }; b.appendChild(btn);
       if (retryAfter > 0) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, retryAfter * 1000); } }   // respect Retry-After
     scrollBottom(true);
   }
@@ -684,7 +668,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (cv.mode === 'server' && c.srv && la?.role === 'assistant' && !la.id && la.status === 'incomplete') { c._regenBusy = true; try { await resolveStoppedId(c, la, null, 1); } finally { c._regenBusy = false; } if (controller || c !== cur()) return; }
     let replaceId = null;
     if (c.messages.at(-1)?.role === 'assistant') replaceId = c.messages.pop().id || null;
-    const els = box.querySelectorAll('.msg.assistant'); els[els.length - 1]?.remove();
+    const els = box.querySelectorAll('.msg.assistant'); removeMessage(els[els.length - 1]);
     clearErrors(); persist(); generate(c, replaceId);
   }
 
@@ -722,8 +706,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   function dropDupTurn(c, id) {
     const msgs = c.messages, last = msgs.at(-1), prev = msgs.at(-2);
     const users = () => box.querySelectorAll('.msg.user');
-    if (last?.role === 'user' && prev?.role === 'user' && prev.content === last.content) { msgs.pop(); if (c === cur()) { const u = users(); u[u.length - 1]?.remove(); } }
-    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant' && msgs[i].id === id) { msgs.splice(i, 1); if (c === cur()) box.querySelector(`.msg.assistant[data-mid="${CSS.escape(id)}"]`)?.remove(); }
+    if (last?.role === 'user' && prev?.role === 'user' && prev.content === last.content) { msgs.pop(); if (c === cur()) { const u = users(); removeMessage(u[u.length - 1]); } }
+    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant' && msgs[i].id === id) { msgs.splice(i, 1); if (c === cur()) removeMessage(box.querySelector(`.msg.assistant[data-mid="${CSS.escape(id)}"]`)); }
     persist();
   }
   async function generate(c, replaceId) {
@@ -744,7 +728,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     const paint = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; fillAssistant(bubble, view(), { live: true }); if (stick) scrollBottomThrottled(); }); };
     // 1.1.4: if the thread now ends with a failed assistant row, retry must replace it (replace_message_id),
     // otherwise gateway 3.1.0 stores the user turn twice
-    const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) els[els.length - 1]?.remove(); persist(); return generate(c, la.id); } return generate(c, replaceId); };
+    const retry = () => { const la = c.messages.at(-1); if (la?.role === 'assistant' && la.id && la.status !== 'complete') { clearErrors(); c.messages.pop(); const els = box.querySelectorAll('.msg.assistant'); if (c === cur()) removeMessage(els[els.length - 1]); persist(); return generate(c, la.id); } return generate(c, replaceId); };
     let persisted = null; const userMsg = [...c.messages].reverse().find(m => m.role === 'user');
     const ids = j => { if (j.thread_id && cv.mode === 'server') adoptThreadId(c, j.thread_id); if (j.user_message_id && userMsg) userMsg.id = j.user_message_id; };
     const finish = () => { tsStop(); clearTimeout(slowTimer); if (kickStream === kick) kickStream = null; if (controller === ctl) controller = null; setBusy(false); if (raf) cancelAnimationFrame(raf); raf = 0; };
@@ -827,7 +811,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     let mid = null, seq = 0, wentHidden = document.hidden, done = false;   // §3.8 detached generation: eve.meta message_id + last event id
     const onVis = () => { if (document.hidden) wentHidden = true; };
     document.addEventListener('visibilitychange', onVis);
-    const kick = () => { if (mid && !done && liveReader && cv.mode === 'server') { try { liveReader.cancel(); } catch {} } };
+    const kick = () => { if (mid && !done && liveReader && cv.mode === 'server') { cancelReader(liveReader); } };
     kickStream = kick;
     cancelRun = () => { if (mid && cv.mode === 'server') threadsAPI.cancel(c.id, mid).catch(() => {}); };   // §3.8 cancel → 204
     const applyMsg = m => {   // eve.snapshot / polled Message → replaces what we have
@@ -874,11 +858,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     };
     async function consume(res) {   // read one SSE response into the shared state; throws on network loss
       const reader = liveReader = res.body.getReader(); const dec = new TextDecoder(); const parser = createSSEParser(onEvent);
-      const onAbort = () => { try { reader.cancel(); } catch {} };
+      const onAbort = () => cancelReader(reader);
       ctl.signal.addEventListener('abort', onAbort, { once: true });
       try { while (!done) { const { value, done: rd } = await reader.read(); if (rd) break; parser.push(dec.decode(value, { stream: true })); } parser.flush(); }
       finally { ctl.signal.removeEventListener('abort', onAbort); if (liveReader === reader) liveReader = null; }
-      if (!done) try { reader.cancel(); } catch {}
+      if (!done) cancelReader(reader);
     }
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const untilVisible = () => document.hidden ? new Promise(r => { const f = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', f); removeEventListener('pageshow', f); r(); }; document.addEventListener('visibilitychange', f); addEventListener('pageshow', f); }) : null;
@@ -955,7 +939,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
         if (mid) { let rec = false; try { rec = await recover(); } catch {} if (rec) e = null; }
         else if (bg && c.srv) {   // old server (no eve.meta): wait for foreground, reload the thread
           await untilVisible(); finish(); document.removeEventListener('visibilitychange', onVis);
-          bubble.parentElement.remove(); c.loaded = false; await ensureMessages(c);
+          removeMessage(bubble.parentElement); c.loaded = false; await ensureMessages(c);
           if (c.messages.at(-1)?.role === 'assistant') return;
           addError('연결이 끊겼어요. 연결 상태를 확인해 주세요.', retry); return;
         }
@@ -966,7 +950,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
       else {
         document.removeEventListener('visibilitychange', onVis);
         if (acc || reasoning) { fillAssistant(bubble, full(), { actions: false }); c.messages.push({ role: 'assistant', content: full() }); persist(); }
-        else bubble.parentElement.remove();
+        else removeMessage(bubble.parentElement);
         const m = e.http ? e.message : `네트워크 오류: ${e.message}. 연결 상태를 확인하세요.`;
         addError(m, (!e.http || RETRYABLE.has(e.http) || e.http === 409) && !(acc || reasoning) ? retry : null, e.retryAfter || 0);
         return;
@@ -976,7 +960,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (mid && !persisted) persisted = { message_id: mid };
     const final = full();
     if (stopped) {
-      if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
+      if (userMsg && !c.messages.includes(userMsg)) { removeMessage(bubble.parentElement); return; }   // "edit & resend" truncated the thread
       const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs; if (mid) { msg.id = mid; bubble.parentElement.dataset.mid = mid; }
       if (sources?.length) msg.sources = sources;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg, stopped: true });
@@ -991,7 +975,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     }
     if (streamErr) {   // §3.8: error event inside a 200 stream / failed status → failed message
       const fm = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code || null, created: Date.now() }; if (persisted?.message_id) fm.id = persisted.message_id;
-      if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs, msg: fm }); c.messages.push(fm); persist(); } else bubble.parentElement.remove();
+      if (final) { fillAssistant(bubble, final, { actions: false, thinkSecs, msg: fm }); c.messages.push(fm); persist(); } else removeMessage(bubble.parentElement);
       const ra = +streamErr.retry_after || 0; addError(failText(streamErr.code) + raText(ra), final ? null : retry, ra);
       return;
     }

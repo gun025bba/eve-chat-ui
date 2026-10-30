@@ -159,6 +159,7 @@ class Feedback {
   }
   closeAll = () => this.panels.closeAll();
   detach(actions: HTMLElement) {
+    this.panels.disposeFor(actions);
     this.controls.get(actions)?.dispose();
     this.controls.delete(actions);
   }

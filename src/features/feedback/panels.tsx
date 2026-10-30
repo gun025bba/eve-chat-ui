@@ -176,6 +176,9 @@ export class PanelGroup {
   closeAll() {
     for (const session of this.sessions.values()) if (session.element.isConnected) session.close(true);
   }
+  disposeFor(actions: HTMLElement) {
+    for (const session of this.sessions.values()) if (session.actions === actions) session.dispose();
+  }
   disposeAll() {
     for (const session of this.sessions.values()) session.dispose();
   }
