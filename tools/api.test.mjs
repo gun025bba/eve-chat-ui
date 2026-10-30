@@ -15,6 +15,7 @@ await build({
         id === '\0eve:api-contract'
           ? [
               'src/api/client.js',
+              'src/api/feedback.ts',
               'src/features/auth/model.ts',
               'src/api/threads.ts',
               'src/api/gateway.ts',
@@ -36,6 +37,7 @@ await build({
 });
 const {
   createClient,
+  feedbackPayload,
   createThreadModels,
   createOperations,
   createOutbox,
@@ -262,4 +264,13 @@ test('pairing model keeps Crockford normalization and identity-specific notices'
   assert.equal(notice('invalid_session', false).title, '다시 연결해 주세요');
   assert.equal(notice(undefined, true).title, '다시 연결해 주세요');
   assert.equal(notice('<img src=x>', false).title, '이 기기를 연결해 주세요');
+});
+
+test('feedback replacements snapshot reasons and clear all details when rating is removed', () => {
+  const message = { id: 'm1', feedback: 'down', fbReasons: ['wrong_info'], fbComment: 'note' };
+  const queued = feedbackPayload(message);
+  message.fbReasons.push('other');
+  assert.deepEqual(queued, { id: 'm1', rating: 'down', reasons: ['wrong_info'], comment: 'note' });
+  message.feedback = null;
+  assert.deepEqual(feedbackPayload(message), { id: 'm1', rating: null, reasons: [], comment: '' });
 });

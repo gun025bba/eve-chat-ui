@@ -25,19 +25,20 @@ function renderSources(sources, tools) {
 }
 export const browserHelpers = { createSSEParser, splitThink, renderMarkdown, renderSources, srcDate, renderToolQueries, toolFailKey, TOOL_FAIL, escapeHtml, stableCut, stripStopMark };
 /* ---------- app ---------- */
-export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install, Auth, Migration }) {
+export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheets, Rename, Install, Auth, Migration, Feedback }) {
   const $ = s => document.querySelector(s);
   const { showToast, hideToast } = Toast;
   const { openMini, closeMini } = Sheets;
   const { maybeA2HS, openA2HS } = Install;
   const { showAuthNotice, checkAuth } = Auth;
   const { maybeMigrate } = Migration;
+  const { closeAll: closeAllFbPanels, reasonRejected: fbReasonRejected } = Feedback;
   let PRO = null;   // proactive.js (선톡 P1); null if the script failed to load
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
   const ICON = {
     copy: icon('copy'), globe: icon('source'), check: icon('check'), regen: icon('regenerate'), warn: icon('warning'),
-    chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), up: icon('thumb-up'), down: icon('thumb-down'), trash: icon('trash')
+    chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), trash: icon('trash')
   };
   const LS = { settings: 'llmchat.settings', convs: 'llmchat.convs', current: 'llmchat.current', route: 'llmchat.route', scroll: 'llmchat.scroll', draft: 'llmchat.draft:',
     mode: 'llmchat.mode', srv: 'llmchat.srvcache', pins: 'llmchat.pins', outbox: 'llmchat.outbox', fbSkip: 'llmchat.fbSkip' };
@@ -66,6 +67,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
+  function clearMessageBox() { Feedback.disposeAll(); box.replaceChildren(); }
+  function showMessageLoading() {
+    clearMessageBox(); const loading = mkEl('div', 'older loading');
+    loading.appendChild(mkEl('span', 'spin')); box.appendChild(loading);
+  }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
      web-search toggle / mode menu in the composer any more. The two old localStorage keys (mode, one-time hint) are removed once. */
   try { localStorage.removeItem('llmchat.webSearch'); localStorage.removeItem('llmchat.autoHintSeen'); } catch {}
@@ -182,7 +188,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   function fillListIfShort() { requestAnimationFrame(() => { if (cv.nextCursor && scroller.scrollHeight - scroller.clientHeight < 400) loadMoreThreads(); }); }
   async function ensureMessages(c) {
     if (cv.mode !== 'server' || !c || !c.srv || c.fresh || c.loaded || c.loading) return;
-    c.loading = true; if (c === cur() && !c.messages.length) box.innerHTML = '<div class="older loading"><span class="spin"></span></div>';
+    c.loading = true; if (c === cur() && !c.messages.length) showMessageLoading();
     try {
       const j = await threadsAPI.messages(c.id, 50);
       c.messages = (j.data || []).filter(m => m.role !== 'system').map(fromServerMsg); c.hasMore = !!j.has_more; c.loaded = true; persist();
@@ -593,7 +599,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (det) { if (userToggled) det.dataset.user = '1'; det.querySelector('summary').addEventListener('click', () => { det.dataset.user = '1'; }); }
     bubble._tailHtml = null;
     const msg = bubble.parentElement;
-    msg.querySelector('.actions')?.remove(); msg.querySelector('.stopped')?.remove();
+    const oldActions = msg.querySelector('.actions');
+    if (oldActions) { Feedback.detach(oldActions); oldActions.remove(); }
+    msg.querySelector('.stopped')?.remove();
     msg.querySelector('.msg-note')?.remove();
     // 1.1.3: old incomplete rows with a non-stop reason, and empty finished replies, count as failed (no silent empty bubbles)
     const om = opts.msg, oldFail = om?.status === 'incomplete' && om.errorCode && !STOP_CODES.has(om.errorCode);
@@ -609,10 +617,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     if (!live && opts.actions !== false) {
       const a = document.createElement('div'); a.className = 'actions';
       const m = opts.msg, fbOk = !!m && (cv.mode === 'server' ? !!m.id : true);
-      a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}${fbOk ? `<button type="button" class="fb up" aria-label="좋아요" aria-pressed="false">${ICON.up}</button><button type="button" class="fb down" aria-label="별로예요" aria-pressed="false">${ICON.down}</button><button type="button" class="fb-why" hidden></button>` : ''}${opts.usage ? `<span class="usage">${escapeHtml(opts.usage)}</span>` : ''}`;
+      a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}`;
       a.querySelector('.c').onclick = e => copyText(e.currentTarget, answer.trim());
       a.querySelector('.r')?.addEventListener('click', regenerate);
-      if (fbOk) { paintFb(a, m.feedback, m); a.querySelectorAll('.fb').forEach(b => b.onclick = () => setFeedback(m, b.classList.contains('up') ? 'up' : 'down', a, b)); a.querySelector('.fb-why').onclick = () => openFbPanel(m, a); }
+      if (fbOk) Feedback.attach(a, m);
+      if (opts.usage) a.appendChild(mkEl('span', 'usage', opts.usage));
       msg.appendChild(a);
     }
   }
@@ -627,118 +636,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     const b = e.target.closest('.code-head .copy'); if (!b) return;
     copyText(b, b.closest('.codeblock').querySelector('code').textContent, true);
   });
-  /* ---------- feedback 👍/👎 + reasons (THREADS-SPEC §3, feedback-reasons spec v17) ---------- */
-  const FB_CHIPS = {
-    down: [['wrong_info', '정보가 틀려요'], ['too_long', '너무 길어요'], ['misunderstood', '질문을 잘못 이해했어요'], ['over_refusal', '거절이 과해요'], ['bad_source', '출처가 이상해요'], ['other', '기타']],
-    up: [['accurate', '정확해요'], ['concise', '간결해요'], ['helpful', '유용해요'], ['good_source', '출처가 좋아요']] };
-  const FB_MAX = 140;
-  const fbLive = t => { const el = $('#fbLive'); if (!el) return; el.textContent = ''; setTimeout(() => { el.textContent = t; }, 30); };
-  function paintFb(a, rating, m) {
-    a.querySelectorAll('.fb').forEach(b => { const on = b.classList.contains(rating === 'up' ? 'up' : 'down') && !!rating; b.setAttribute('aria-pressed', String(on)); b.classList.toggle('on', on); b.classList.toggle('dim', !!rating && !on); });
-    const why = a.querySelector('.fb-why'); if (!why) return;
-    const n = (m?.fbReasons?.length || 0) + (m?.fbComment ? 1 : 0);
-    why.hidden = !rating || !!a.parentElement?.querySelector('.fbp:not(.closing)');
-    why.textContent = n ? `사유 ${n}` : '사유';
-    why.setAttribute('aria-label', n ? `피드백 사유 ${n}개 수정` : '피드백 사유 고르기');
-  }
-  const fbPayload = m => ({ id: m.id, rating: m.feedback, reasons: m.feedback ? [...(m.fbReasons || [])] : [], comment: m.feedback ? (m.fbComment || '') : '' });
-  // full-replacement save of {rating, reasons, comment}; local-only mode just persists on the device
-  function saveFb(m, a, rollbackTo) {
-    persist();
-    if (cv.mode !== 'server') return Promise.resolve();
-    return write('feedback', 'fb:' + m.id, fbPayload(m), e => {
-      if (e?.code === 'invalid_feedback_reason' && m.feedback) {   // keep the rating, drop the rejected reasons
-        m.fbReasons = []; persist(); if (a.isConnected) paintFb(a, m.feedback, m);
-        write('feedback', 'fb:' + m.id, fbPayload(m)); showToast('사유를 저장하지 못했어요. 평가는 저장됐어요', '', null, 2400); return 'handled';
-      }
-      if (e?.code === 'feedback_comment_too_long' && m.feedback) {   // keep rating+reasons, trim note to the limit and resend
-        m.fbComment = (m.fbComment || '').trim().slice(0, FB_MAX - 1); persist();
-        write('feedback', 'fb:' + m.id, fbPayload(m)); showToast('메모가 너무 길어 줄여서 저장했어요', '', null, 2400); return 'handled';
-      }
-      Object.assign(m, rollbackTo); persist(); if (a.isConnected) { paintFb(a, m.feedback, m); a.querySelector('.fb.' + (rollbackTo.feedback || 'up'))?.classList.add('err'); closeFbPanel(a, false); }
-    }, '피드백을 저장하지 못했어요');
-  }
-  function fbReasonRejected(id) {   // outbox replay got 400 invalid_feedback_reason
-    for (const c of cv.convs) for (const m of c.messages || []) if (m.id === id) { m.fbReasons = []; persist(); }
-    showToast('사유를 저장하지 못했어요. 평가는 저장됐어요', '', null, 2400);
-  }
-  function setFeedback(m, rating, a, btn) {
-    const prev = { feedback: m.feedback, fbReasons: m.fbReasons || [], fbComment: m.fbComment || '' };
-    const next = prev.feedback === rating ? null : rating;
-    m.feedback = next; if (next !== prev.feedback) { m.fbReasons = []; m.fbComment = ''; }
-    paintFb(a, next, m); buzz(8);
-    if (next) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
-    a.querySelectorAll('.fb').forEach(b => b.classList.remove('err'));
-    btn.classList.add('sending');
-    Promise.resolve(saveFb(m, a, prev)).finally(() => btn.classList.remove('sending'));   // rating saves now, never waits for chips
-    if (next) { openFbPanel(m, a); fbLive('피드백을 저장했어요. 사유를 고를 수 있어요'); } else closeFbPanel(a, false);
-  }
-  let fbObserver = null;
-  function openFbPanel(m, a) {
-    const msg = a.parentElement; msg.querySelector('.fbp')?.remove(); msg.querySelector('.fb-thanks')?.remove();
-    const kind = m.feedback; if (!kind) return;
-    const picks = new Set(m.fbReasons || []);
-    const p = document.createElement('div'); p.className = 'fbp'; p._m = m; p._a = a;
-    const hint = kind === 'down' ? '어떤 점이 아쉬웠나요? (선택)' : '어떤 점이 좋았나요? (선택)';
-    const nid = 'fbn' + Math.random().toString(36).slice(2, 8);
-    p.innerHTML = `<div class="fbp-in"><p class="fbp-hint">${hint}</p>
-      <div class="fbp-chips" role="group" aria-label="${kind === 'down' ? '아쉬운 점' : '좋았던 점'}">${FB_CHIPS[kind].map(([k, t]) => `<button type="button" class="fbchip" data-k="${k}" aria-pressed="${picks.has(k)}">${ICON.check}<span>${t}</span></button>`).join('')}</div>
-      <div class="fbp-note" hidden><label for="${nid}" class="sr-only">메모</label><input id="${nid}" class="fbp-input" type="text" maxlength="${FB_MAX}" enterkeyhint="send" autocomplete="off" autocorrect="on" autocapitalize="sentences" data-1p-ignore data-lpignore="true" data-form-type="other" placeholder="한 줄로 남겨 주세요"><span class="fbp-count" hidden></span></div>
-      <div class="fbp-foot"><button type="button" class="fbp-memo text-btn">메모 추가</button><button type="button" class="fbp-done"></button></div></div>`;
-    a.insertAdjacentElement('afterend', p);
-    const inp = p.querySelector('.fbp-input'), note = p.querySelector('.fbp-note'), cnt = p.querySelector('.fbp-count'), done = p.querySelector('.fbp-done'), memo = p.querySelector('.fbp-memo');
-    inp.value = m.fbComment || '';
-    const showNote = focus => { note.hidden = false; memo.hidden = true; if (focus) inp.focus({ preventScroll: true }); };
-    if (inp.value) showNote(false);
-    const upd = () => {
-      const any = picks.size > 0 || !!inp.value.trim();
-      done.textContent = any ? '완료' : '건너뛰기'; done.classList.toggle('primary-text', any);
-      const left = FB_MAX - inp.value.length; cnt.hidden = inp.value.length <= 120; cnt.textContent = String(left);
-    };
-    p.querySelectorAll('.fbchip').forEach(c => c.onclick = () => {
-      const k = c.dataset.k, on = !picks.has(k); on ? picks.add(k) : picks.delete(k); c.setAttribute('aria-pressed', String(on));
-      if (k === 'other' && on) showNote(true); p._dirty = true; upd();
-    });
-    memo.onclick = () => showNote(true);
-    inp.oninput = () => { p._dirty = true; upd(); };
-    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } };
-    if (!a._fbEsc) { a._fbEsc = true; a.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing && a.parentElement?.querySelector('.fbp:not(.closing)')) { e.preventDefault(); e.stopPropagation(); closeFbPanel(a, true); } }); }   // N3: Esc from 👍/👎 too
-    p.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); closeFbPanel(a, true); } });
-    const submit = () => {
-      const comment = inp.value.trim().slice(0, FB_MAX), reasons = FB_CHIPS[kind].map(c => c[0]).filter(k => picks.has(k));
-      const prev = { feedback: m.feedback, fbReasons: m.fbReasons || [], fbComment: m.fbComment || '' };
-      const changed = comment !== prev.fbComment || reasons.join() !== prev.fbReasons.join();
-      m.fbReasons = reasons; m.fbComment = comment;
-      p._closing = true; collapse(p);
-      if (changed) saveFb(m, a, prev);
-      paintFb(a, m.feedback, m);
-      if (reasons.length || comment) thanks(a);
-    };
-    p._submit = submit; p._picks = picks; p._inp = inp;
-    done.onclick = submit; upd();
-    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('open')));
-    paintFb(a, m.feedback, m);
-    // auto-skip when scrolled offscreen (after it was seen)
-    if ('IntersectionObserver' in window) {
-      fbObserver ||= new IntersectionObserver(es => es.forEach(en => {
-        const el = en.target; if (en.isIntersecting) { el._seen = true; return; }
-        if (el._seen && !el._closing && document.activeElement !== el._inp && Math.abs(box.scrollTop - el._st) > 40) closeFbPanel(el._a, true);   // only after the user scrolled it away
-      }), { root: box, threshold: 0 });
-      setTimeout(() => { if (p.isConnected && !p._closing) { p._st = box.scrollTop; fbObserver.observe(p); } }, 320);
-    }
-  }
-  function collapse(p) { fbObserver?.unobserve(p); p.classList.remove('open'); p.classList.add('closing'); setTimeout(() => p.remove(), 280); }
-  function thanks(a) {
-    const t = document.createElement('div'); t.className = 'fb-thanks'; t.textContent = '고마워요'; a.insertAdjacentElement('afterend', t);
-    fbLive('고마워요'); setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 1500);
-  }
-  // skip=true: auto/explicit skip — still saves chips/note already picked
-  function closeFbPanel(a, skip) {
-    const p = a?.parentElement?.querySelector('.fbp'); if (!p || p._closing) return;
-    if (skip && (p._picks.size || p._inp.value.trim()) && p._dirty) return p._submit();
-    p._closing = true; collapse(p); setTimeout(() => { if (a.isConnected) paintFb(a, p._m.feedback, p._m); }, 290);
-  }
-  function closeAllFbPanels() { box.querySelectorAll('.fbp').forEach(p => closeFbPanel(p._a, true)); }
+  Feedback.init({ persist, isServer: () => cv.mode === 'server', buzz, convs: () => cv.convs, showToast, write });
   function usageText(u, secs) {
     if (!u) return secs ? `${secs}s` : '';
     const ct = u.completion_tokens;
@@ -750,17 +648,17 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   function renderEmpty() {
     const t = Date.now(), ev = document.createElement('div'); ev.className = 'rail-now'; ev.setAttribute('role', 'listitem'); ev.setAttribute('aria-label', `${hhmm(t)} 지금`);
     ev.innerHTML = '<time class="tm"></time><span class="dot" aria-hidden="true"></span><div class="who"><span class="who-n">지금</span></div><div class="tx d">아래에 한 줄로 남기면 오늘 기록에 쌓여요.</div>';
-    ev.querySelector('.tm').textContent = hhmm(t); box.innerHTML = ''; box.appendChild(ev);
+    ev.querySelector('.tm').textContent = hhmm(t); clearMessageBox(); box.appendChild(ev);
   }
   setInterval(() => { const n = box.querySelector('.rail-now'); if (n && !document.hidden) { const t = Date.now(); n.querySelector('.tm').textContent = hhmm(t); n.setAttribute('aria-label', `${hhmm(t)} 지금`); } }, 60000);
   function setConvTitle(t) { $('#title').textContent = t; box.setAttribute('aria-label', t || '대화'); }   /* the message list is named after the thread (screen readers: "<title>, list") */
   function renderMessages(keep) {
-    box.innerHTML = '';
+    clearMessageBox();
     const c = cur();
     setConvTitle(c ? c.title : '새 대화');
     const mi = $('#sModelInfo'); if (mi) mi.textContent = shortModel() || '—';
     chatView.classList.toggle('archived', !!c?.archived);
-    if (c?.loading && !c.messages.length) { box.innerHTML = '<div class="older loading"><span class="spin"></span></div>'; return; }
+    if (c?.loading && !c.messages.length) { showMessageLoading(); return; }
     if (!c || !c.messages.length) return renderEmpty();
     box.classList.add('no-anim');
     if (c.hasMore) box.insertAdjacentHTML('afterbegin', '<div class="older"><span class="spin"></span></div>');
@@ -831,7 +729,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   async function send(text) {
     let c = cur();
     if (!c || c.archived) { c = blankConv(); cv.convs.unshift(c); cv.currentId = c.id; }
-    if (!c.messages.length) { box.innerHTML = ''; c.title = text.slice(0, 30); setConvTitle(c.title); }
+    if (!c.messages.length) { clearMessageBox(); c.title = text.slice(0, 30); setConvTitle(c.title); }
     clearErrors(); closeAllFbPanels();
     box.querySelectorAll('.actions .r').forEach(r => r.remove());
     c.messages.push({ role: 'user', content: text, created: Date.now() });

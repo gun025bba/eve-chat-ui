@@ -1,7 +1,8 @@
 """1.1.0 review fixes: 👍/👎 reason chips + one-line note, inline panel, full-replacement PUT {rating, reasons, comment}, errors, outbox, restore, local mode."""
 from version_common import VERSION, versioned
 from playwright.sync_api import sync_playwright
-import urllib.request, json
+import urllib.request, json, os
+from assets_common import full_csp
 B = 'http://127.0.0.1:'+__import__('os').environ.get('EVE_PORT','8765')+''
 def put(path):
     urllib.request.urlopen(urllib.request.Request(B + path, method='PUT')).read()
@@ -14,13 +15,14 @@ def check(name, ok, info=''):
     if not ok: FAIL.append(name)
 LABELS = ['정보가 틀려요', '너무 길어요', '질문을 잘못 이해했어요', '거절이 과해요', '출처가 이상해요', '기타']
 def start(pg):
-    pg.goto(B + '/ui/'); pg.wait_for_timeout(800)
+    pg.goto(B + '/ui/'); pg.bring_to_front(); pg.wait_for_timeout(800)
     pg.evaluate("location.hash='#/c/new'"); pg.wait_for_timeout(300)
     if pg.is_visible('#tInput'): pg.evaluate("__app.newChat()"); pg.wait_for_timeout(300)
     pg.fill('#input', 'hello feedback'); pg.click('#sendBtn'); pg.wait_for_timeout(2600)
-with sync_playwright() as p:
-    b = p.chromium.launch()
-    put('/auth/on'); put('/reset'); put('/db/reset'); put('/csp/on'); put('/persist/on')
+with full_csp(), sync_playwright() as p:
+    engine = p.webkit if os.environ.get('EVE_ENGINE') == 'webkit' else p.chromium
+    b = engine.launch()
+    put('/auth/on'); put('/reset'); put('/db/reset'); put('/persist/on')
     ctx = b.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark')
     ctx.add_init_script("document.addEventListener('securitypolicyviolation', e => { (window.__csp = window.__csp || []).push(e.violatedDirective); });")
     pg = ctx.new_page(); errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))

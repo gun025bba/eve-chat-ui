@@ -4,6 +4,7 @@ import createProactiveAPI from './api/proactive.js';
 import { mountAuth } from './features/auth/index.js';
 import briefing from './features/briefing/index.js';
 import { mountRename } from './features/conversations/rename.js';
+import { createFeedback } from './features/feedback/index.js';
 import { mountInstall } from './features/install/index.js';
 import createMemory from './features/memory/index.js';
 import { mountMigration } from './features/migration/index.js';
@@ -40,7 +41,11 @@ const auth = mountAuth(authRoot);
 const migrationRoot = document.getElementById('migrateSheet');
 if (!migrationRoot) throw new Error('Missing migration mount');
 const migration = mountMigration(migrationRoot, sheets);
+const messageBox = document.getElementById('messages');
+if (!messageBox) throw new Error('Missing message box');
+const feedback = createFeedback(messageBox, document.getElementById('fbLive'));
 boot({
+  Feedback: feedback,
   Migration: migration,
   Auth: auth,
   Install: install,
