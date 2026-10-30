@@ -1,3 +1,4 @@
+import { createMessageParts } from '../features/messages/parts.js';
 import { cancelReader } from '../api/stream.js';
 import { createTimeline } from '../features/messages/timeline.js';
 import { createArchive } from '../features/conversations/archive.js';
@@ -43,7 +44,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   let MEM = null;   // memory.js (Part B); null unless the 'eve.flag.memory' flag is on
   const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;   // only for glyphs not in the sprite
   const ICON = {
-    copy: icon('copy'), globe: icon('source'), check: icon('check'), regen: icon('regenerate'), warn: icon('warning'),
+    copy: icon('copy'), globe: icon('source'), regen: icon('regenerate'), warn: icon('warning'),
     chev: icon('chevron-right', 'chev'), spark: icon('sparkle'), edit: icon('edit'), trash: icon('trash')
   };
   const LS = { settings: 'llmchat.settings', convs: 'llmchat.convs', current: 'llmchat.current', route: 'llmchat.route', scroll: 'llmchat.scroll', draft: 'llmchat.draft:',
@@ -73,10 +74,11 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
   const box = $('#messages'), input = $('#input'), sendBtn = $('#sendBtn');
-  function clearMessageBox() { Feedback.disposeAll(); timeline.clear(); }
+  function clearMessageBox() { Feedback.disposeAll(); messageParts.disposeAll(); timeline.clear(); }
   function showMessageLoading() { clearMessageBox(); timeline.loading(); }
   function removeMessage(element) {
     const actions = element?.querySelector('.actions'); if (actions) Feedback.detach(actions);
+    if (element) messageParts.disposeWithin(element);
     timeline.remove(element);
   }
   /* AUTO-TOOLS (eve-serving #134 r4): the request carries NO web_search field. Whether Eve searches is decided server-side, so there is no
@@ -437,6 +439,8 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     return (String(y) !== today.slice(0, 4) ? `${y}년 ` : '') + `${mo}월 ${da}일 · ${wd}`;
   }
   const USER_NAME = '나';   // the signed-in display name has no settings field yet (DIRECTION-B §14): never hard-code a person
+  const messageParts = createMessageParts(showToast);
+  const copyText = messageParts.copy;
   const timeline = createTimeline(box, { time: hhmm, day: kstDay, separator: daySepText, userName: () => USER_NAME });
   const addMsgEl = timeline.add;
   // opts: { live, thinkSecs, usage, actions }
@@ -528,7 +532,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
     bubble._tailHtml = null;
     const msg = bubble.parentElement;
     const oldActions = msg.querySelector('.actions');
-    if (oldActions) { Feedback.detach(oldActions); oldActions.remove(); }
+    if (oldActions) { Feedback.detach(oldActions); messageParts.disposeWithin(oldActions); oldActions.remove(); }
     msg.querySelector('.stopped')?.remove();
     msg.querySelector('.msg-note')?.remove();
     // 1.1.3: old incomplete rows with a non-stop reason, and empty finished replies, count as failed (no silent empty bubbles)
@@ -543,22 +547,12 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
       msg.appendChild(st); }
     else if (opts.msg?.status === 'generating' || opts.resuming) { const st = document.createElement('div'); st.className = 'stopped msg-note resuming'; st.setAttribute('role', 'status'); st.textContent = RESUMING; msg.appendChild(st); }
     if (!live && opts.actions !== false) {
-      const a = document.createElement('div'); a.className = 'actions';
+      const a = messageParts.actions(answer, opts.regen ? regenerate : undefined);
       const m = opts.msg, fbOk = !!m && (cv.mode === 'server' ? !!m.id : true);
-      a.innerHTML = `<button type="button" class="c" aria-label="복사">${ICON.copy}</button>${opts.regen ? `<button type="button" class="r" aria-label="다시 생성">${ICON.regen}</button>` : ''}`;
-      a.querySelector('.c').onclick = e => copyText(e.currentTarget, answer.trim());
-      a.querySelector('.r')?.addEventListener('click', regenerate);
       if (fbOk) Feedback.attach(a, m);
       if (opts.usage) a.appendChild(mkEl('span', 'usage', opts.usage));
       msg.appendChild(a);
     }
-  }
-  async function copyText(btn, text, label) {
-    try { await navigator.clipboard.writeText(text); } catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-    if (!btn) return showToast('복사됨', '', null, 1400);
-    if (btn.dataset.busy) return; btn.dataset.busy = '1';
-    const old = btn.innerHTML; btn.innerHTML = ICON.check + (label ? '<span>복사됨</span>' : ''); btn.classList.add('done');
-    setTimeout(() => { btn.innerHTML = old; btn.classList.remove('done'); delete btn.dataset.busy; }, 1500);
   }
   box.addEventListener('click', e => {
     const b = e.target.closest('.code-head .copy'); if (!b) return;
@@ -642,10 +636,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today, Toast, Sheet
   function clearErrors() { box.querySelectorAll('.msg.error').forEach(removeMessage); }
   function addError(text, retry, retryAfter) {
     const b = addMsgEl('error');
-    b.innerHTML = `${ICON.warn}<span class="err-text"></span>`;
-    b.querySelector('.err-text').textContent = text;
-    if (retry) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn retry'; btn.textContent = '다시 시도'; btn.onclick = () => { removeMessage(b.parentElement); retry(); }; b.appendChild(btn);
-      if (retryAfter > 0) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, retryAfter * 1000); } }   // respect Retry-After
+    messageParts.error(b, text, retry ? () => { removeMessage(b.parentElement); retry(); } : undefined, retryAfter);
     scrollBottom(true);
   }
 
