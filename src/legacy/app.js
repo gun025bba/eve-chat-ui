@@ -1,3 +1,7 @@
+import { createClient, authCode, isAuthFail, headers, normBase } from '../api/client.js';
+import { createThreadModels, toMs, scrubAction } from '../api/thread-models.js';
+import { createOperations } from '../api/operations.js';
+import { createOutbox } from '../features/conversations/outbox.js';
 import { el as mkEl } from '../shared/dom.js';
 import { icon } from '../lib/icons.js';
 import { renderMarkdown } from '../lib/markdown.js';
@@ -53,11 +57,9 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const cur = () => convs.find(c => c.id === currentId) || archivedList.find(c => c.id === currentId);
   const persist = () => { try { save(mode === 'server' ? LS.srv : LS.convs, convs); } catch {} save(LS.current, currentId); };
-  const normBase = b => (b || '').trim().replace(/\/+$/, '').replace(/\/v1$/, ''); // '' => relative /v1/... (same origin)
   const apiBase = () => normBase(settings.base);
   // CSRF: the gateway requires X-Eve-Request: 1 + an allow-listed Origin on every POST/PUT/PATCH/DELETE (403 {error_code:'invalid'}).
   // Every request (fetch in api(), chat completions) builds its headers here. No Authorization: gateway trusts Tailscale identity.
-  const headers = (_method) => ({ 'Content-Type': 'application/json', 'X-Eve-Request': '1' });   // sent on every request (GET too): body-less POST/DELETE included
   let whoami = null;
   const shortModel = () => (settings.model || '').split('/').pop();
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -128,48 +130,16 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
 
   /* ---------- server API (threads, THREADS-SPEC §0 / backend contract) ---------- */
   // 1.3.1: gateway #57 sends a disallowed tailnet identity as 403 identity_not_allowed (was 401); treat it as 401. Other 403s unchanged.
-  const authCode = j => { try { if (typeof j === 'string') j = JSON.parse(j); } catch { return ''; } return (j && (j.error_code || j.error?.code)) || ''; };
-  const isAuthFail = (status, code) => status === 401 || (status === 403 && code === 'identity_not_allowed');
-  async function api(path, opts = {}) {
-    const r = await fetch(apiBase() + path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), ...headers() } });
-    if (r.status === 204) return null;
-    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
-    if (!r.ok) {
-      const code = j?.error_code || j?.error?.code;   // 선톡/actions API: {error_code}; older APIs: {error:{code}}
-      if (isAuthFail(r.status, code)) { clearCards(); showAuthNotice(null, code); }
-      // body: parsed error JSON (502 outcome_unknown / briefing preview carry fields beside error_code); outcomeUnknown: eve-serving #78 approve 502
-      throw Object.assign(new Error(errMsg(r.status, t)), { http: r.status, code, body: j && typeof j === 'object' ? j : null, outcomeUnknown: typeof j?.outcome_unknown === 'boolean' ? j.outcome_unknown : undefined });
-    }
-    return j;
-  }
+  const api = createClient({ apiBase, onAuthFail: code => { clearCards(); showAuthNotice(null, code); }, errorMessage: errMsg });
   const isNet = e => !e.http;                       // fetch failed: offline / unreachable
-  const toMs = t => { const v = Date.parse(t || ''); return isNaN(v) ? Date.now() : v; };
   const pinSet = () => new Set(load(LS.pins, []));
-  // confirm tokens must never reach localStorage, even if proactive.js failed to load (security review Low 1)
-  const scrubAction = a => { const o = Object.assign({}, a); delete o.confirm_token; delete o.token_expires_at; return o; };
   // drop stored confirm-card contents (pending_actions) — on sign-out / identity loss (security review Low 2)
   function clearCards() {
     let n = 0; const strip = list => (list || []).forEach(c => (c.messages || []).forEach(m => { if (m.pendingActions) { delete m.pendingActions; n++; } }));
     strip(convs); try { const s = load(LS.srv, []); strip(s); save(LS.srv, s); } catch {}
     if (n) persist(); return n;
   }
-  function fromServerMsg(m) {
-    let content = m.reasoning ? `<think>${m.reasoning}</think>${m.content || ''}` : (m.content || '');
-    const o = { id: m.id, role: m.role, content, feedback: m.feedback?.rating || null, fbReasons: Array.isArray(m.feedback?.reasons) ? m.feedback.reasons : [], fbComment: m.feedback?.comment || '', status: m.status || 'complete', errorCode: m.error_code || m.incomplete_reason || m.metadata?.reason || null, created: toMs(m.created_at) };
-    const srcs = m.sources || m.metadata?.sources; if (Array.isArray(srcs) && srcs.length) o.sources = srcs;
-    { const f = m.metadata?.fresh ?? m.fresh; if (f === 'unverified' || f === 'ok') o.fresh = f; const tl = mapTools(m.metadata?.tools ?? m.tools); if (tl) o.tools = tl; }   // #134: the note (and a joined query) come back after a reload
-    { const r = ProactiveAPI?.FIELDS.memoryRefs(m); if (r?.length) o.memoryRefs = r; }   // DIRECTION-B §8.1: absent field → no chip
-    const pm = ProactiveAPI?.FIELDS.msg(m); if (pm) Object.assign(o, pm);
-    if (Array.isArray(m.pending_actions) && m.pending_actions.length) o.pendingActions = m.pending_actions.map(scrubAction);
-    if (m.usage) { o.usage = m.usage; o.usageText = usageText(m.usage, m.latency_ms ? m.latency_ms / 1000 : 0); }
-    return o;
-  }
-  function fromServerThread(t, old) {
-    const updated = toMs(t.updated_at);
-    return { id: t.id, srv: true, title: t.title || '새 대화', updated, created: toMs(t.created_at), archived: !!t.archived,
-      preview: t.last_message_preview || '', count: t.message_count || 0, unread: ProactiveAPI ? ProactiveAPI.FIELDS.unread(t) : 0, pinned: pinSet().has(t.id),
-      messages: old?.messages || [], hasMore: !!old?.hasMore, loaded: !!old?.loaded && old.updated === updated };
-  }
+  const { fromServerMsg, fromServerThread } = createThreadModels({ fields: ProactiveAPI?.FIELDS, pinSet, usageText });
   let listLoading = true, listError = false, loadT0 = 0, tDirtyT = 0, tSeen = false, msgsPending = 0, coldStart = false;   // 오늘 / 기록 loading state (declared before first use)
   const logSkel = () => coldStart && listLoading && Date.now() - loadT0 >= 250;
   let serverReady = false;   // threads loaded: a push-tap (nid) may open its thread now, not be overwritten by restore
@@ -239,56 +209,23 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   }
 
   /* ---------- outbox (offline-first writes, backoff 2..60s, THREADS-SPEC §0) ---------- */
-  let outbox = load(LS.outbox, []), obTimer = 0, obFailed = 0, migrateProg = null;
-  const saveOutbox = () => save(LS.outbox, outbox);
-  function enqueue(op, key, payload) { outbox = outbox.filter(o => o.key !== key); outbox.push({ op, key, payload, tries: 0, nextAt: 0 }); saveOutbox(); renderSync(); scheduleOutbox(0); }
-  function scheduleOutbox(ms) { clearTimeout(obTimer); obTimer = setTimeout(flushOutbox, ms); }
-  async function runOp(o) {
-    const p = o.payload, id = encodeURIComponent(p.id);
-    if (o.op === 'feedback') return p.rating ? api(`/v1/messages/${id}/feedback`, { method: 'PUT', body: JSON.stringify({ rating: p.rating, reasons: p.reasons || [], comment: p.comment || '' }) }) : api(`/v1/messages/${id}/feedback`, { method: 'DELETE' });
-    if (o.op === 'patch') return api(`/v1/threads/${id}`, { method: 'PATCH', body: JSON.stringify(p.patch) });
-    if (o.op === 'archive') return api(`/v1/threads/${id}`, { method: 'DELETE' });
-    if (o.op === 'readThread') return api(`/v1/threads/${id}/read`, { method: 'POST', body: '{}' }).catch(e => { if (e.http === 404) return null; throw e; });   // CT Q6
-    if (o.op === 'read') return api(`/v1/messages/${id}/read`, { method: 'POST', body: '{}' }).catch(e => { if (e.http === 404) return null; throw e; });   // 선톡 읽음 (spec A3.3)
-  }
-  async function flushOutbox() {
-    if (mode !== 'server' || flushOutbox.busy) return; flushOutbox.busy = true;
-    try {
-      for (const o of [...outbox]) {
-        if (o.nextAt > Date.now()) continue;
-        try { await runOp(o); outbox = outbox.filter(x => x !== o); }
-        catch (e) {
-          if (isNet(e) || e.http >= 500 || e.http === 429) { o.tries++; o.nextAt = Date.now() + Math.min(60, 2 ** o.tries) * 1000; }
-          else if (o.op === 'feedback' && e.code === 'feedback_comment_too_long' && o.payload.comment) { o.payload = { ...o.payload, comment: o.payload.comment.trim().slice(0, 139) }; o.tries = 0; o.nextAt = 0; }
-          else if (o.op === 'feedback' && e.code === 'invalid_feedback_reason' && o.payload.reasons?.length) { o.payload = { ...o.payload, reasons: [] }; o.tries = 0; o.nextAt = 0; fbReasonRejected(o.payload.id); }
-          else { outbox = outbox.filter(x => x !== o); obFailed++; o.onFail?.(); }
-        }
-      }
-    } finally { flushOutbox.busy = false; saveOutbox(); renderSync(); }
-    const next = outbox.reduce((m, o) => Math.min(m, o.nextAt), Infinity);
-    if (next < Infinity) scheduleOutbox(Math.max(500, next - Date.now()));
-  }
-  // write now; if offline/5xx keep it queued, if rejected roll back
-  async function write(op, key, payload, rollback, failText) {
-    if (mode !== 'server') return;
-    try { await runOp({ op, payload }); outbox = outbox.filter(o => o.key !== key); saveOutbox(); renderSync(); }
-    catch (e) {
-      if (isNet(e) || e.http >= 500 || e.http === 429) return enqueue(op, key, payload);
-      if (rollback?.(e) === 'handled') return;
-      showToast(failText || '저장하지 못했어요', '다시 시도', () => write(op, key, payload, rollback, failText), 4000);
-    }
-  }
-  setInterval(() => { if (outbox.length) flushOutbox(); }, 30000);
+  let migrateProg = null;
+  const runOp = createOperations(api);
+  const { state: outboxState, saveOutbox, enqueue, scheduleOutbox, flushOutbox, write } = createOutbox({
+    mode: () => mode, load, save, storageKey: LS.outbox, runOp, isNet,
+    renderSync: () => renderSync(), fbReasonRejected: id => fbReasonRejected(id),
+    showToast: (...args) => showToast(...args)
+  });
   function renderSync() {
     const el = $('#syncStatus'); if (!el) return;
     let html = '';
     if (migrateProg) html = `<span class="spin"></span>대화 옮기는 중 ${migrateProg.done}/${migrateProg.total}`;
     else if (persistOff) html = mode === 'local' ? '서버 저장이 꺼져 있어 이 기기에만 저장돼요' : '서버 저장이 일시적으로 꺼져 있어요';
-    else if (obFailed) html = `<i class="dot bad"></i>${obFailed}개 저장 실패 · <button type="button" class="sync-retry">다시 시도</button>`;
-    else if (outbox.length) html = `<i class="dot"></i>변경 사항 ${outbox.length}개 대기 중`;
+    else if (outboxState.failed) html = `<i class="dot bad"></i>${outboxState.failed}개 저장 실패 · <button type="button" class="sync-retry">다시 시도</button>`;
+    else if (outboxState.items.length) html = `<i class="dot"></i>변경 사항 ${outboxState.items.length}개 대기 중`;
     el.innerHTML = html; el.hidden = !html;
-    el.querySelector('.sync-retry')?.addEventListener('click', () => { obFailed = 0; outbox.forEach(o => o.nextAt = 0); flushOutbox(); });
-    const ss = $('#sSync'); if (ss) ss.textContent = mode === 'server' ? (outbox.length ? `대기 ${outbox.length}개` : '서버에 저장 중') : '이 기기에만 저장';
+    el.querySelector('.sync-retry')?.addEventListener('click', () => { outboxState.failed = 0; outboxState.items.forEach(o => o.nextAt = 0); flushOutbox(); });
+    const ss = $('#sSync'); if (ss) ss.textContent = mode === 'server' ? (outboxState.items.length ? `대기 ${outboxState.items.length}개` : '서버에 저장 중') : '이 기기에만 저장';
   }
 
   /* ---------- conversation list (NATIVE §3, THREADS-SPEC §2) ---------- */
@@ -1873,7 +1810,7 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
   }
   $('#openSettings').onclick = openSettings; $('#openSettings3').onclick = openSettings;
   $('#sMigrate').onclick = () => animateOut(dlg, () => { dlg.close(); localStorage.removeItem(LS.migrated); save(LS.snooze, { until: 0, n: 0 }); openMigrate(); });
-  $('#sSyncNow').onclick = () => { outbox.forEach(o => o.nextAt = 0); obFailed = 0; flushOutbox(); initServer(); };
+  $('#sSyncNow').onclick = () => { outboxState.items.forEach(o => o.nextAt = 0); outboxState.failed = 0; flushOutbox(); initServer(); };
   $('#loadModels').onclick = loadModels;
   $('#cancelSettings').onclick = () => closeSettings();
   $('#showA2hs').onclick = () => animateOut(dlg, () => { dlg.close(); openA2HS(true); });
@@ -2125,5 +2062,5 @@ export function boot({ ProactiveAPI, Proactive, Pim, Memory, Today }) {
     }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (wantReload && !reloading) { reloading = true; location.reload(); } });
   }
-  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outbox.length, convs: convs.length, currentId }) };
+  window.__app = { version: APP_VERSION, newChat: newConv, route: () => app.dataset.route, today: () => TODAY?.model(), shell: () => self.EveShell?.state(), enqueue, clearCards, msgs: () => cur()?.messages, showToast, go, isStandalone, state: () => ({ mode, outbox: outboxState.items.length, convs: convs.length, currentId }) };
 }
