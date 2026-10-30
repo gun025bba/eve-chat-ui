@@ -152,6 +152,7 @@ function renderToolQueries(tools) {
   const by = qs.find(t => t.by === 'model')?.by, why = by === 'model' ? 'Eve가 필요하다고 판단해 검색했어요' : '';
   return qs.map((t, i) => `<div class="tq"><span>검색어 <q>${escapeHtml(t.q)}</q>${i === 0 && why ? ` · ${why}` : ''}</span></div>`).join('');
 }
+const TS_FADE_MS = 160;   // the status line's cross-fade / leave (opacity --d-1); the DOM node is removed after it
 /* AUTO-TOOLS-SPEC §5.1: web tool failure → fixed copy by key (never a server string). [status line, note title, note sub]  — the note is text only (no action) */
 const TOOL_FAIL = {
   empty:            ['검색 결과가 없어요', '검색 결과를 찾지 못했어요', '학습한 내용으로 답했어요'],
@@ -177,7 +178,10 @@ function toolFailKey(j) {
   return 'unknown';
 }
 /* #134 messages.metadata / persisted: tools[] {tool, selected_by, status, error_code?, count?, query? (only if the server joins it)} → the shape the UI keeps */
-const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => ({ tool: x.tool, q: typeof x.query === 'string' ? x.query.trim() : '', by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count })) : null;
+const mapTools = a => Array.isArray(a) ? a.filter(x => x && typeof x === 'object').map(x => {
+  const t = { tool: x.tool, by: x.selected_by === 'model' || x.selected_by === 'user' ? x.selected_by : '', status: x.status, error_code: x.error_code, count: x.count };
+  return Object.defineProperty(t, 'q', { value: typeof x.query === 'string' ? x.query.trim() : '', writable: true });   // non-enumerable: shown this session, never written to localStorage (queries are not stored)
+}) : null;
 const isWebTool = t => t === 'web_search' || t === 'web_fetch';
 /* M-7: a stored message is tainted when the server says so (tainted: true|false); until it does, one that used a web tool is treated as tainted */
 const msgTainted = m => typeof m?.tainted === 'boolean' ? m.tainted : !!(Array.isArray(m?.tools) && m.tools.some(t => isWebTool(t?.tool)));
@@ -1192,7 +1196,7 @@ if (typeof document !== 'undefined') (function () {
       if (!text) { wrap.replaceChildren(); return; }
       if (cur && cur.textContent === text) return;
       const n = document.createElement('span'); n.textContent = text;
-      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), 160); } else if (cur) cur.remove();
+      if (cur && !reduceM()) { cur.classList.remove('on'); setTimeout(() => cur.remove(), TS_FADE_MS); } else if (cur) cur.remove();
       wrap.appendChild(n); requestAnimationFrame(() => n.classList.add('on'));
     }
     function tsFill(w, r1, r2) {
@@ -1220,7 +1224,7 @@ if (typeof document !== 'undefined') (function () {
     const tsRemove = () => {
       clearTimeout(ts.timer); ts.timer = 0; ts.want = null; clearTimeout(ts.s4T); tsSlowOff();
       const w = bubble._tline; bubble._tline = null; if (!w) return;
-      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), 160); }
+      if (w.isConnected) { w.classList.remove('in'); w.classList.add('out'); setTimeout(() => w.remove(), TS_FADE_MS); }
     };
     bubble._tsDrop = tsRemove;
     const tsStop = () => { ts.dead = true; tsRemove(); };
@@ -1251,7 +1255,7 @@ if (typeof document !== 'undefined') (function () {
         if (!(key === 'blocked' && srcs.length)) { tsShow(TOOL_FAIL[key][0]); ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1500); return; }
       }
       if (j.error_code === 'tainted') return;
-      if (srcs.length) { const n = Number.isFinite(+j.count) && +j.count > 0 ? +j.count : srcs.length; const d = srcDomain(srcs[0]);
+      if (srcs.length) { const n = srcs.length, d = srcDomain(srcs[0]);
         tsShow(`출처 ${n}개를 읽고 있어요`, n > 1 && d ? `${d} 외 ${n - 1}곳` : ''); }
       ts.s4T = setTimeout(() => tsShow('답변을 쓰고 있어요'), 1000);
     }
@@ -1411,6 +1415,7 @@ if (typeof document !== 'undefined') (function () {
     if (mid && !persisted) persisted = { message_id: mid };
     const final = full();
     if (stopped) {
+      bubble._ti = null;   // spec §8: a stopped reply gets no note and no .tq, even when a tool_result already named sources
       if (userMsg && !c.messages.includes(userMsg)) { bubble.parentElement?.remove(); return; }   // "edit & resend" truncated the thread
       const msg = { role: 'assistant', content: final, status: 'incomplete', created: Date.now() }; if (thinkSecs) msg.thinkSecs = thinkSecs; if (mid) { msg.id = mid; bubble.parentElement.dataset.mid = mid; }
       if (sources?.length) msg.sources = sources; if (bubble._tainted) msg.tainted = true;
@@ -1421,6 +1426,7 @@ if (typeof document !== 'undefined') (function () {
       return;
     }
     if (streamErr && STOP_CODES.has(streamErr.code)) {   // cancelled (e.g. from another device) → 중지됨
+      bubble._ti = null;
       const msg = { role: 'assistant', content: final, status: 'failed', errorCode: streamErr.code, created: Date.now() }; if (persisted?.message_id) { msg.id = persisted.message_id; bubble.parentElement.dataset.mid = msg.id; } if (bubble._tainted) msg.tainted = true;
       fillAssistant(bubble, final, { regen: true, thinkSecs, msg }); c.messages.push(msg); persist(); renderList(); return;
     }
