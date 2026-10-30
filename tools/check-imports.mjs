@@ -20,7 +20,9 @@ export function missingNames(paths) {
   return (
     program
       .getSemanticDiagnostics()
-      .filter((diagnostic) => diagnostic.code === 2304 && roots.has(resolve(diagnostic.file.fileName)))
+      .filter(
+        (diagnostic) => [2304, 2448, 2454].includes(diagnostic.code) && roots.has(resolve(diagnostic.file.fileName)),
+      )
       .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))
       // Existing classic global; R2 replaces this final ambient name with injected modules.
       .filter((message) => message !== "Cannot find name 'EvePim'.")

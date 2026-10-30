@@ -4,7 +4,7 @@ import { el } from '../../shared/dom.js';
  * the shared .confirm-card, and Settings › 선톡. Server calls go through proactive-api.js only.
  * Security: a confirm token is fetched only when approve is pressed (POST reissue → approve, contract §3.5.4), held in a local variable, never stored/logged; SSE tokens are ignored;
  * push payloads are never rendered (sw.js shows fixed text). */
-export default function createProactive({ proactiveAPI, pim, briefing }) {
+export default function createProactive({ proactiveAPI, pim: Pim, briefing }) {
   const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
   const PUSH_HOSTS = ['web.push.apple.com'];          // exact host, mirrors the server allowlist (PM §2.2.1)
   const POLL_MS = 60000, LS_PUSH = 'eve.push', LS_KID = 'eve.push.kid';
@@ -65,7 +65,7 @@ export default function createProactive({ proactiveAPI, pim, briefing }) {
     const add = (k, label, text, raw) => rows.push([k, label, text, raw == null || raw === text ? null : raw]);
     add('title', '제목', s('title') || '(제목 없음)');
     let when = s('display');
-    if (!when) { if (cal && s('start')) when = pim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = pim.fmtDue(v.due); }
+    if (!when) { if (cal && s('start')) when = Pim.fmtRange(v.start, v.end, v.all_day === true); else if (s('due')) when = Pim.fmtDue(v.due); }
     if (when) add('when', '시간', when); else if (!cal && ('due' in v || 'display' in v)) add('when', '시간', '기한 없음');
     if (cal) add('calendar', '캘린더', s('calendar') || (v.calendar_id == null ? '기본 캘린더' : '선택한 캘린더'));
     else if ('list' in v || x.tool === 'reminders_add') add('list', '목록', s('list') || '기본 목록');
@@ -127,7 +127,7 @@ export default function createProactive({ proactiveAPI, pim, briefing }) {
       body.appendChild(el('p', 'cc-where', '이 대화에서'));
     }
     else {
-      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && pim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
+      const v = x.view, dl = el('dl', 'cc-view'), pim = PIM(x) && Pim.isWrite(x.tool), ks = pim ? pimRows(x) : Object.keys(v).filter(k => k !== 'verb').map(k => { const val = v[k], raw = typeof val === 'string' ? val : JSON.stringify(val); return [k, k, raw, null]; });   // verb is metadata (button label), not a row
       ks.forEach(([k, label, text, raw], i) => {
         const dt = el('dt', null, label), dd = el('dd', null, text);
         if (raw) dd.title = raw;
@@ -355,8 +355,8 @@ export default function createProactive({ proactiveAPI, pim, briefing }) {
           who.querySelector('.who-n').textContent = label;
         }
       }
-      if (m.briefing && pim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
-        let c = null; try { c = pim.briefingCard(m.briefing); } catch {}
+      if (m.briefing && Pim && !wrap.querySelector(':scope > .pim-brief')) {   // saved briefing message (eve-serving #66 §11.3): structured card under the summary text
+        let c = null; try { c = Pim.briefingCard(m.briefing); } catch {}
         if (c) { const b = wrap.querySelector(':scope > .bubble'); if (b) b.after(c); else wrap.appendChild(c); }
       }
       (m.pendingActions || []).forEach(a => mountCard(a, wrap));
